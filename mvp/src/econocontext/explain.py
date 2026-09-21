@@ -70,7 +70,24 @@ def candidate_rows(candidate, selected_id):
     return rows
 
 
-def render(run, metrics, events, artifacts, limits):
+def message_rows(messages, seen):
+    """Show each message once: the prompt in full, then only what each turn adds."""
+    rows = []
+    for index, message in enumerate(messages):
+        if index < seen:
+            continue
+        role = message.get("role", "?")
+        rows.append(f"  [{role}]")
+        content = message.get("content")
+        if content:
+            rows.extend(wrap(content, indent=6))
+        for call in message.get("tool_calls") or []:
+            function = call.get("function", {})
+            rows.extend(wrap(f"-> {function.get('name')}({function.get('arguments')})", indent=6))
+    return rows
+
+
+def render(run, metrics, events, artifacts, limits, reconstruct=None):
     request = run.get("request") or {}
     task = request.get("task") or {}
     context_budget = limits.get("context_tokens") or 0
@@ -86,7 +103,7 @@ def render(run, metrics, events, artifacts, limits):
         BAR,
         "",
     ]
-    workers, step = {}, 0
+    workers, shown, step = {}, {}, 0
     for event in events:
         kind = event["kind"]
         if kind == "assembly":
@@ -96,17 +113,27 @@ def render(run, metrics, events, artifacts, limits):
             )
             tokens = event.get("tokens") or 0
             fill = f"{100 * tokens / context_budget:.1f}%" if context_budget else "n/a"
-            lines.extend(
-                block(
-                    f"STEP {step}  ASSEMBLE INPUT  [{label}]",
-                    [
-                        f"{tokens:,} tokens assembled into the request",
-                        f"context fill {fill} of {context_budget:,}",
-                        f"manifest {event.get('manifest')}",
-                        f"took {1000 * (event.get('duration') or 0):.1f}ms",
-                    ],
-                )
-            )
+            rows = [
+                "assembler.py built the exact request from selected evidence + history",
+                f"{tokens:,} tokens assembled   context fill {fill} of {context_budget:,}",
+                f"manifest {event.get('manifest')}   took {1000 * (event.get('duration') or 0):.1f}ms",
+            ]
+            if reconstruct:
+                try:
+                    body = reconstruct(event["manifest"])
+                    messages = (body.get("body") or body).get("messages") or []
+                    seen = shown.get(event["worker_id"], 0)
+                    added = message_rows(messages, seen)
+                    shown[event["worker_id"]] = len(messages)
+                    if added:
+                        rows.append("")
+                        rows.append(
+                            "full prompt:" if seen == 0 else "added to this worker's context:"
+                        )
+                        rows.extend(added)
+                except Exception as exc:
+                    rows.append(f"(could not reconstruct request: {exc})")
+            lines.extend(block(f"STEP {step}  ASSEMBLE INPUT  [{label}]", rows))
         elif kind == "planning":
             step += 1
             candidates = event.get("candidates") or []

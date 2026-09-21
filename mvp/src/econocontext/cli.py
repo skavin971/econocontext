@@ -69,8 +69,10 @@ async def run(args):
             if args.command == "profiles":
                 output(await build_profiles(memory, args.run_ids), args.output)
             elif args.command == "explain":
+                from .assembler import Assembler
                 from .explain import render
 
+                assembler = Assembler(memory, config)
                 run = await memory.run(args.run_id)
                 text = render(
                     run,
@@ -78,6 +80,7 @@ async def run(args):
                     await memory.all_events(args.run_id),
                     lambda ref: memory.artifacts.read_json(ref) if ref else None,
                     (run.get("request") or {}).get("limits") or {},
+                    reconstruct=assembler.reconstruct,
                 )
                 if args.output:
                     Path(args.output).write_text(text + "\n")
