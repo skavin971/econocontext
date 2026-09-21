@@ -59,6 +59,12 @@ class Planner:
                 messages = [
                     dict(role="system", content=state["adapter"].prompt(worker, state["method"]))
                 ] + history
+                # Planning now runs before the observation is appended, so the plan
+                # that declines to move it must still be charged for carrying it --
+                # otherwise the null plan is free by exactly what delegation saves.
+                view = state.get("observation")
+                if view and candidate.worker_id == state["worker"].id:
+                    messages.append(view["inline"])
                 messages.append(dict(role="user", content=operation.goal))
                 state["candidate_prefixes"][candidate.id] = digest(
                     [messages[:1], state["adapter"].tools(worker, state["method"])]

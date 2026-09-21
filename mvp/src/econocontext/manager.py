@@ -3,6 +3,7 @@
 import asyncio
 import time
 
+from . import representation
 from .adapters.local import LocalAdapter
 from .agent_loop import AgentLoop
 from .assembler import Assembler, token_count
@@ -264,7 +265,7 @@ class Manager:
         ):
             raise ValueError("Completion requires answer string and evidence references")
         maximum = operation.result_tokens if operation else state["limits"].output_tokens
-        if token_count(result) > maximum:
+        if token_count(result, state["limits"].safety_margin) > maximum:
             raise FeasibilityError("Result exceeds bounded output contract")
         for ref in result["evidence"]:
             evidence = await self.memory.get(ref, state["run_id"])
@@ -280,30 +281,89 @@ class Manager:
         )
         return remaining
 
-    def note_observation(self, state, name, args, output, observation, observed_refs):
-        """In-process only: record triggers and lookup keys. Never plans, because
-        sibling tool calls in the same turn may still be pending."""
-        triggers = state.setdefault("replan", set())
-        if isinstance(output, dict) and (output.get("error") or output.get("code")):
-            triggers.add("failure")
-        if name not in OBSERVATIONS:
-            return  # apply_patch mutates the workspace; a mutation is not an operation
+    def note_observation(self, state, item):
+        """Is this observation worth an operation? Pure; returns lookup keys or None."""
+        name, output = item["name"], item["output"]
+        if name not in OBSERVATIONS or item["observation"] is None:
+            return None  # apply_patch mutates the workspace; a mutation is not an operation
         size = token_count(output, state["limits"].safety_margin)
         if size < state["limits"].observation_tokens:
-            return
-        state["last_request"] = dict(
+            return None
+        return dict(
             name=name,
-            arguments=args,
+            arguments=item["arguments"],
             size=size,
-            evidence=list(observed_refs) or [observation.id],
+            evidence=list(item["refs"]) or [item["observation"].id],
         )
-        triggers.add("tool-result")
+
+    async def represent(self, worker, state, observed):
+        """Choose what answers each tool call, between executing and answering.
+
+        The default is the literal result. A selected plan may substitute a
+        bounded view of that same result plus a finding -- never a different
+        result, and never a larger one.
+        """
+        payloads = [item["output"] for item in observed]
+        requests = [self.note_observation(state, item) for item in observed]
+        eligible = [i for i, request in enumerate(requests) if request]
+        if not eligible or state.get("plans", 0) >= state["limits"].max_plans:
+            return payloads
+        # One operation per turn: a batched turn must not spawn two children.
+        index = max(eligible, key=lambda i: requests[i]["size"])
+        item, request = observed[index], requests[index]
+        triggers = {"tool-result"}
+        if state.get("pressure"):
+            triggers.add("context-pressure")
+        if isinstance(item["output"], dict) and (
+            item["output"].get("error") or item["output"].get("code")
+        ):
+            triggers.add("failure")
+        operation = await self.derive_operation(worker, state, request, triggers)
+        if operation is None:
+            return payloads
+        margin = state["limits"].safety_margin
+        state["plans"] = state.get("plans", 0) + 1
+        state["pressure_selected"] = "context-pressure" in triggers
+        state.update(
+            worker=worker,
+            active_operation=operation.id,
+            versions=await self.memory.versions(worker.run_id),
+            planning_limits=self._planning_limits(state),
+            observation=dict(
+                call_id=item["call_id"],
+                name=item["name"],
+                output=item["output"],
+                inline=representation.message(item["call_id"], item["output"]),
+                # Siblings this turn will answer. A projection omitting them is
+                # not protocol-valid, and every candidate would be rejected.
+                tail=[
+                    representation.message(other["call_id"], other["output"])
+                    for other in observed[index + 1 :]
+                ],
+                chars=representation.excerpt_chars(
+                    item["call_id"], item["name"], item["output"], operation, margin
+                ),
+            ),
+        )
+        await self.memory.save("operation", operation)
+        try:
+            result = await self._select_and_execute(
+                operation, state, item["call_id"], ",".join(sorted(triggers))
+            )
+            payloads[index] = result.get("payload", item["output"])
+        except FeasibilityError:
+            # A derived operation is an optimisation. The literal result still
+            # answers the call; a plan that will not fit is simply not taken.
+            state.pop("active_operation", None)
+            operation.status = "failed"
+            await self.memory.save("operation", operation)
+        finally:
+            state.pop("observation", None)
+            state.pop("pressure_selected", None)
+        return payloads
 
     async def derive_operation(self, worker, state, request, triggers):
         if not request or "tool-result" not in triggers:
-            return None
-        limits = state["limits"]
-        if state.get("root_tokens", 0) < limits.context_tokens * limits.plan_pressure:
             return None
         kind, scope_of, template = OBSERVATIONS[request["name"]]
         scope = scope_of(request["arguments"])
@@ -329,33 +389,6 @@ class Manager:
             result_tokens=max(32, min(512, request["size"] // 2)),
             status="running",
         )
-
-    async def consider(self, worker, state):
-        """The lightweight check at prompt construction. No triggers, no queries."""
-        triggers = state.pop("replan", set())
-        if not triggers or state.get("plans", 0) >= state["limits"].max_plans:
-            return None
-        operation = await self.derive_operation(worker, state, state.get("last_request"), triggers)
-        if operation is None:
-            return None
-        state["plans"] = state.get("plans", 0) + 1
-        state["pressure"] = "context-pressure" in triggers
-        state["versions"] = await self.memory.versions(worker.run_id)
-        state["planning_limits"] = self._planning_limits(state)
-        state.update(worker=worker, active_operation=operation.id)
-        await self.memory.save("operation", operation)
-        state.pop("last_request", None)
-        try:
-            return await self._select_and_execute(
-                operation, state, None, ",".join(sorted(triggers))
-            )
-        except FeasibilityError:
-            # A derived operation is an optimisation. If no plan is feasible the
-            # root simply carries on with what it already has.
-            state.pop("active_operation", None)
-            operation.status = "failed"
-            await self.memory.save("operation", operation)
-            return None
 
     async def request_operation(self, worker, state, args, call_id):
         await state["adapter"].refresh()
@@ -415,13 +448,30 @@ class Manager:
 
     @staticmethod
     def delivery(call_id, payload):
-        """A model-requested operation answers its pending call; a harness-raised
-        one has no call to answer, so its finding arrives as ordinary input."""
-        return (
-            dict(role="tool", tool_call_id=call_id, content=canonical(payload))
-            if call_id
-            else dict(role="user", content="Finding: " + canonical(payload))
-        )
+        return representation.message(call_id, payload)
+
+    def answer(self, state, operation, call_id, finding, mode):
+        """The message that closes the pending call, and the payload inside it.
+
+        A model-requested operation is told what it asked for. A harness-raised
+        one is answered by a bounded view of its own tool result, and only if
+        that view is genuinely smaller -- the guard is what makes the claim
+        checkable rather than argued, and it fails to the literal result.
+        """
+        view = state.get("observation")
+        if operation.origin == "request" or not view:
+            payload = dict(operation_result=finding, mode=mode)
+            return self.delivery(call_id, payload), payload
+        payload = representation.represent(view["name"], view["output"], finding, view["chars"])
+        candidate = self.delivery(call_id, payload)
+        margin = state["limits"].safety_margin
+        if token_count(candidate, margin) >= token_count(view["inline"], margin):
+            return view["inline"], view["output"]
+        return candidate, payload
+
+    @staticmethod
+    def tail(state):
+        return list((state.get("observation") or {}).get("tail", []))
 
     async def execute(self, plan, operation, state, call_id, preflight=False):
         root, memory = state["worker"], self.memory
@@ -440,11 +490,15 @@ class Manager:
             await self.validate_result(output, operation, state)
             if preflight:
                 # Parent-only validation, no dummy worker and no child prompt.
-                parent = self.delivery(call_id, dict(operation_result=output, mode="REUSE"))
+                parent, _ = self.answer(state, operation, call_id, output, "REUSE")
                 await self.assembler.assemble(
                     root,
                     None,
-                    dict(state, preview=True, history=(await memory.history(root.id)) + [parent]),
+                    dict(
+                        state,
+                        preview=True,
+                        history=(await memory.history(root.id)) + [parent] + self.tail(state),
+                    ),
                 )
                 return {}
             operation.status = "succeeded"
@@ -455,12 +509,14 @@ class Manager:
                 "operation_outcome",
                 dict(operation_id=operation.id, mode="REUSE", result_id=result.id),
             )
-            await memory.append(
-                root, self.delivery(call_id, dict(operation_result=output, mode="REUSE"))
-            )
+            message, payload = self.answer(state, operation, call_id, output, "REUSE")
+            # A derived operation's call is answered by agent_loop, which owns
+            # `_evidence`; appending here too would double-answer the same id.
+            if operation.origin == "request":
+                await memory.append(root, message)
             state.pop("active_operation", None)
             state["integration"] = (operation.id, plan.id)
-            return {"inline": False}
+            return {"inline": False, "payload": payload}
         worker = (
             Worker(**await memory.get(plan.worker_id, operation.run_id))
             if plan.worker_id
@@ -486,8 +542,20 @@ class Manager:
             # is the null plan: it is priced like any other candidate, but
             # executing it means doing nothing the root can perceive.
             if preflight:
+                # The null plan must be projected carrying the observation it
+                # declines to move; otherwise the reselection loop overwrites
+                # candidate_tokens and erases the very cost being compared.
+                view = state.get("observation")
                 current = await self.assembler.assemble(
-                    root, None, dict(state, preview=True, history=await memory.history(root.id))
+                    root,
+                    None,
+                    dict(
+                        state,
+                        preview=True,
+                        history=(await memory.history(root.id))
+                        + ([view["inline"]] if view else [])
+                        + self.tail(state),
+                    ),
                 )
                 return {"tokens": current.tokens}
             operation.status, operation.ended = "succeeded", now()
@@ -505,18 +573,22 @@ class Manager:
         assembled = await self.assembler.assemble(worker, plan, preview)
         if preflight:
             if not inline:
-                projected = self.delivery(
+                # Projection >= delivery: it uses the contract's maximum finding,
+                # and the real finding is validated against that same maximum.
+                projected, _ = self.answer(
+                    state,
+                    operation,
                     call_id,
-                    {
-                        "operation_result": "x" * (operation.result_tokens * 3),
-                        "mode": plan.mode.value,
-                    },
+                    representation.finding_stub(operation, state["limits"].safety_margin),
+                    plan.mode.value,
                 )
                 await self.assembler.assemble(
                     root,
                     None,
                     dict(
-                        state, preview=True, history=(await memory.history(root.id)) + [projected]
+                        state,
+                        preview=True,
+                        history=(await memory.history(root.id)) + [projected] + self.tail(state),
                     ),
                 )
             return {"tokens": assembled.tokens}
@@ -551,12 +623,25 @@ class Manager:
             return dict(inline=True, operation=operation, plan=plan)
         result = await self.loop.run(worker, state, plan, operation)
         output = memory.artifacts.read_json(result.payload)
-        await memory.append(
-            root, self.delivery(call_id, dict(operation_result=output, mode=plan.mode.value))
-        )
+        message, payload = self.answer(state, operation, call_id, output, plan.mode.value)
+        if operation.origin == "request":
+            await memory.append(root, message)
+        else:
+            view = state["observation"]
+            await memory.event(
+                operation.run_id,
+                "representation",
+                dict(
+                    operation_id=operation.id,
+                    mode=plan.mode.value,
+                    inline_tokens=token_count(view["inline"], state["limits"].safety_margin),
+                    delivered_tokens=token_count(message, state["limits"].safety_margin),
+                    excerpt_chars=view["chars"],
+                ),
+            )
         state.pop("active_operation", None)
         state["integration"] = (operation.id, plan.id)
-        return {"inline": False}
+        return {"inline": False, "payload": payload}
 
     async def complete_operation(self, worker, operation, plan, output, state):
         await state["adapter"].refresh()

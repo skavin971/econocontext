@@ -32,7 +32,9 @@ flowchart TD
 
 `planner.py` retrieves bounded metadata and coordinates `candidates.py`, `cost_model.py`, and `optimizer.py`. A lightweight check runs at every root prompt construction and returns without querying unless a trigger fired: a tool observation larger than the finding that would replace it, a source change, context pressure, a failure, or an explicit delegation request. Ordinary continuation retains its selected plan. Changed active inputs cause a controlled stop; V1 does not repair contexts.
 
-The worker is never told this happens. A tool request supplies the operation's lookup keys — its name, arguments and the versions it touched — but is never *answered* by planning: the literal tool result is always delivered in full, and a delegated finding only ever arrives alongside it.
+The worker is never told this happens. A tool request supplies the operation's lookup keys — its name, arguments and the versions it touched. A call is always answered by its own result: a selected plan may deliver a bounded view of that result plus a finding, never a different result and never a larger one. Exit codes, evidence ids and paths are delivered whole at any size; only the one unbounded field per tool is budgeted, and `truncated` says so on the payload's face.
+
+Executing a call and answering it are separate decisions, so a turn's calls are all executed before any is answered — a preview assembled while a sibling call is unanswered is not protocol-valid. The delegated answer is measured against the literal one and falls back to it unless it is genuinely smaller, which is what makes the claim checkable rather than argued.
 
 `assembler.py` renders the system instructions followed by append-only history and ordered selected evidence/assignments. Tools retain their original order. It assembles every actual model request, including retries and ordinary turns. The optional plan argument is `None` for ordinary root work and root integration. Preview assembly checks feasibility without recording an actual model attempt.
 

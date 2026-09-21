@@ -457,7 +457,9 @@ async def test_harness_plans_without_a_delegation_request(tmp_path):
     config = Config(data_dir=tmp_path, delegation_tool=False)
     manager = await Manager(config, Direct()).start()
     try:
-        run = await manager.submit(RunRequest(task=Task(adapter="ledger"), method="econocontext"))
+        run = await manager.submit(
+            RunRequest(task=Task(adapter="coding", fixture="ledger"), method="econocontext")
+        )
         await manager.wait(run["id"])
         events = await manager.memory.all_events(run["id"])
         planning = [e for e in events if e["kind"] == "planning"]
@@ -471,6 +473,104 @@ async def test_harness_plans_without_a_delegation_request(tmp_path):
         sent = json.dumps(Assembler(manager.memory, config).reconstruct(assembly["manifest"]))
         assert "request_operation" not in sent
         assert "delegate" not in sent and "child" not in sent
+    finally:
+        await manager.close()
+
+
+async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
+    """The claim the whole mechanism rests on, asserted rather than argued.
+
+    Delegation previously appended a finding *alongside* the full observation,
+    so the root could only grow. A delegated answer must carry fewer tokens
+    than the literal answer it replaces, while still answering the same call.
+    """
+    import json
+
+    from econocontext.assembler import token_count
+    from econocontext.contracts import ModelResponse
+    from econocontext.representation import message as tool_message
+
+    class Reader:
+        """Reads two large modules, then finishes. Never asks to delegate."""
+
+        def __init__(self):
+            self.turns = {}
+
+        async def complete(self, request, context):
+            worker = context["worker_id"]
+            turn = self.turns.get(worker, 0)
+            self.turns[worker] = turn + 1
+            if context["active_operation"]:
+                name, args = (
+                    "complete_operation",
+                    dict(
+                        answer="The module defines bookkeeping helpers.",
+                        evidence=context["evidence"][:1],
+                    ),
+                )
+            elif turn == 0:
+                name, args = "read", dict(path="ledger/parsing.py")
+            elif turn == 1:
+                name, args = "read", dict(path="ledger/validation.py")
+            else:
+                name, args = (
+                    "complete_task",
+                    dict(answer="Reviewed the modules.", evidence=context["evidence"][:1]),
+                )
+            return ModelResponse(
+                message=dict(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        dict(
+                            id=f"c{worker[:4]}{turn}",
+                            type="function",
+                            function=dict(name=name, arguments=json.dumps(args)),
+                        )
+                    ],
+                ),
+                usage=None,
+                synthetic=True,
+            )
+
+    config = Config(data_dir=tmp_path, delegation_tool=False)
+    manager = await Manager(config, Reader()).start()
+    try:
+        run = await manager.submit(
+            RunRequest(
+                task=Task(adapter="coding", fixture="ledger"),
+                method="econocontext",
+                limits=Limits(
+                    context_tokens=8192,
+                    plan_pressure=0.15,
+                    observation_tokens=256,
+                    max_attempts=20,
+                ),
+            )
+        )
+        final = await manager.wait(run["id"])
+        events = await manager.memory.all_events(run["id"])
+        swaps = [e for e in events if e["kind"] == "representation"]
+        assert swaps, "no observation was ever delegated"
+        for swap in swaps:
+            assert swap["delivered_tokens"] < swap["inline_tokens"], swap
+
+        # The call is still answered by its own result, not a different one.
+        history = await manager.memory.history(final["root_worker"])
+        delivered = [
+            json.loads(m["content"])
+            for m in history
+            if m.get("role") == "tool" and "finding" in str(m.get("content"))
+        ]
+        assert delivered, "delegated payload never reached the root"
+        for payload in delivered:
+            assert payload["truncated"] is True
+            assert payload["evidence"] and payload["original"]
+            assert payload["finding"]
+            # And it is genuinely smaller than the literal answer would have been.
+            assert token_count(tool_message("x", payload), 1.2) < token_count(
+                tool_message("x", dict(payload, text="y" * 6000)), 1.2
+            )
     finally:
         await manager.close()
 

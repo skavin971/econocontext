@@ -62,8 +62,15 @@ class Limits(Record):
     # An observation smaller than the finding that would replace it is not worth
     # an operation; delegating it would grow the parent rather than bound it.
     observation_tokens: int = Field(512, ge=0)
-    plan_pressure: float = Field(0.0, ge=0, le=1)
+    # Fraction of the context budget at which the root counts as under pressure.
+    # Delegating a derived observation is only worth a child call past this point;
+    # below it the root can carry what it read. Growth is irreversible in V1, so
+    # waiting too long leaves nothing worth moving.
+    plan_pressure: float = Field(0.5, gt=0, le=1)
     max_plans: int = Field(64, ge=0)
+    # Characters of subprocess output shown once the root is under pressure.
+    # The complete bytes always remain in the store behind the `original` ref.
+    pressured_output_chars: int = Field(2000, ge=256)
 
 
 class Operation(Record):
@@ -204,11 +211,17 @@ class ModelResponse(Record):
 
 
 class Task(Record):
-    adapter: Literal["coding", "ledger", "research"] = "coding"
-    goal: str | None = None
-    repository: str | None = None
+    """What the harness is asked to do: a prompt, some data, and a toolset.
+
+    `adapter` selects the domain toolset only. `fixture` names a built-in
+    demonstration task; supplying `data` uses your own material instead.
+    """
+
+    adapter: Literal["coding", "research"] = "coding"
+    prompt: str | None = None
+    data: str | None = None
     commit: str | None = None
-    corpus: str | None = None
+    fixture: Literal["parser", "ledger", "corpus"] | None = None
     instance_id: str | None = None
 
 

@@ -83,7 +83,15 @@ async def run(args):
                 task = Task(adapter=adapter)
                 if args.command == "run":
                     task = (
-                        Task.model_validate_json(Path(args.task).read_text()) if args.task else task
+                        Task.model_validate_json(Path(args.task).read_text())
+                        if args.task
+                        else Task(
+                            adapter=adapter,
+                            prompt=args.prompt,
+                            data=args.data,
+                            commit=args.commit,
+                            fixture=args.fixture,
+                        )
                     )
                 request = RunRequest(task=task, method=method)
                 if overrides:
@@ -148,7 +156,20 @@ def main():
     parser.add_argument("--data-dir")
     sub = parser.add_subparsers(dest="command", required=True)
     runner = sub.add_parser("run")
-    runner.add_argument("--adapter", choices=["coding", "ledger", "research"], default="coding")
+    runner.add_argument(
+        "--adapter",
+        choices=["coding", "research"],
+        default="coding",
+        help="Domain toolset",
+    )
+    runner.add_argument("--prompt", help="What the harness should do")
+    runner.add_argument("--data", help="Directory of your own files, or a git repo")
+    runner.add_argument("--commit", help="Pin a commit when --data is a git repo")
+    runner.add_argument(
+        "--fixture",
+        choices=["parser", "ledger", "corpus"],
+        help="Built-in demonstration task instead of your own data",
+    )
     runner.add_argument("--method", choices=["react", "econocontext"], default="econocontext")
     runner.add_argument(
         "--task", help="JSON Task file, including optional pinned local repository or corpus"

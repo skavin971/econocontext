@@ -45,18 +45,28 @@ class AgentLoop:
                 raise FeasibilityError(
                     "Active operation inputs changed; controlled stop before model request"
                 )
-            # The lightweight check the design puts at prompt construction. It
-            # returns immediately unless something set a trigger, and a child
-            # never plans inside its own assignment.
-            if worker.role == "root" and operation is None and state["method"] == "econocontext":
-                await manager.consider(worker, state)
             assembled = await manager.assembler.assemble(worker, plan, state)
-            if worker.role == "root":
+            if worker.role == "root" and state["method"] == "econocontext":
                 state["root_tokens"] = assembled.tokens
-                if assembled.tokens >= state["limits"].context_tokens * max(
-                    state["limits"].plan_pressure, 0.75
-                ):
-                    state.setdefault("replan", set()).add("context-pressure")
+                limits = state["limits"]
+                state["pressure"] = assembled.tokens >= limits.context_tokens * limits.plan_pressure
+                if state["pressure"]:
+                    # Flagged a turn before it bites, so the next derived
+                    # observation can be moved out rather than carried.
+                    adapter = state["adapter"]
+                    narrowed = adapter.output_budget != limits.pressured_output_chars
+                    adapter.output_budget = limits.pressured_output_chars
+                    if narrowed:
+                        await memory.event(
+                            worker.run_id,
+                            "context_pressure",
+                            dict(
+                                tokens=assembled.tokens,
+                                budget=limits.context_tokens,
+                                fill=round(assembled.tokens / limits.context_tokens, 3),
+                                output_chars=limits.pressured_output_chars,
+                            ),
+                        )
             retry_of = None
             integration = (
                 state.get("integration") if worker.role == "root" and operation is None else None
@@ -157,8 +167,10 @@ class AgentLoop:
                         ),
                     )
                 continue
+            observed = []
             for call in calls:
                 name = call["function"]["name"]
+                observation, observed_refs, args = None, [], None
                 try:
                     args = json.loads(call["function"]["arguments"])
                     if not isinstance(args, dict):
@@ -170,13 +182,15 @@ class AgentLoop:
                     if name not in allowed:
                         raise PermissionError("Tool is not allowed for this worker")
                 except (ValueError, PermissionError) as exc:
-                    await memory.append(
-                        worker,
+                    observed.append(
                         dict(
-                            role="tool",
-                            tool_call_id=call["id"],
-                            content=canonical({"error": str(exc)}),
-                        ),
+                            call_id=call["id"],
+                            name=name,
+                            arguments=None,
+                            output={"error": str(exc)},
+                            observation=None,
+                            refs=[],
+                        )
                     )
                     continue
                 if name == "request_operation":
@@ -248,7 +262,9 @@ class AgentLoop:
                         )
                         return args
                 else:
-                    if name == "command":
+                    # `test` runs a subprocess through the same path as `command`,
+                    # so it carries the same effect uncertainty.
+                    if name in ("command", "test"):
                         state["reuse_uncertain"] = True
                     await manager.check(state)
                     attempt = await manager.telemetry.begin(
@@ -310,9 +326,34 @@ class AgentLoop:
                         worker.bindings = {
                             key: versions[key] for key in worker.bindings if key in versions
                         }
-                message = dict(role="tool", tool_call_id=call["id"], content=canonical(output))
-                if name not in control:
-                    message["_evidence"] = [observation.id] + observed_refs
+                observed.append(
+                    dict(
+                        call_id=call["id"],
+                        name=name,
+                        arguments=args,
+                        output=output,
+                        observation=observation,
+                        refs=observed_refs,
+                    )
+                )
+
+            # Executing a call and answering it are separate decisions. What answers
+            # it is a representation, and choosing one needs every observation this
+            # turn produced -- including the ones that will answer sibling calls,
+            # since a preview assembled while any call is unanswered is not valid.
+            payloads = (
+                await manager.represent(worker, state, observed)
+                if worker.role == "root" and operation is None and state["method"] == "econocontext"
+                else [item["output"] for item in observed]
+            )
+            for item, payload in zip(observed, payloads):
+                message = dict(
+                    role="tool", tool_call_id=item["call_id"], content=canonical(payload)
+                )
+                if item["observation"] is not None:
+                    message["_evidence"] = (
+                        [item["observation"].id]
+                        + item["refs"]
+                        + list(payload.get("finding_evidence", []))
+                    )
                 await memory.append(worker, message)
-                if name not in control and worker.role == "root" and operation is None:
-                    manager.note_observation(state, name, args, output, observation, observed_refs)

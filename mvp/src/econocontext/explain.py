@@ -236,6 +236,32 @@ class Narrator:
                 "MANAGER  root integrated result",
                 [f"operation {event.get('operation_id')}  plan {event.get('plan_id')}"],
             )
+        elif kind == "representation":
+            inline = event.get("inline_tokens") or 0
+            delivered = event.get("delivered_tokens") or 0
+            saved = inline - delivered
+            title, rows = (
+                "MANAGER  answered with a bounded view",
+                [
+                    f"the literal result would have cost {inline:,} tokens;"
+                    f" the delivered answer costs {delivered:,}",
+                    f"saved {saved:,} tokens"
+                    f" ({100 * saved / inline if inline else 0:.0f}%)"
+                    f" via {event.get('mode')}"
+                    f"   excerpt {event.get('excerpt_chars')} chars",
+                    "complete bytes stay in the store behind the original reference",
+                ],
+            )
+        elif kind == "context_pressure":
+            title, rows = (
+                "LOOP  root under context pressure",
+                [
+                    f"{event.get('tokens'):,} of {event.get('budget'):,} tokens"
+                    f"   ({100 * (event.get('fill') or 0):.1f}% full)",
+                    "delegation is now offered for derived observations,"
+                    f" subprocess output narrowed to {event.get('output_chars')} chars",
+                ],
+            )
         else:
             return []
         self.step += 1

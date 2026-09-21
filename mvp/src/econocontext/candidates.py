@@ -25,8 +25,12 @@ class CandidateGenerator:
         revision = matches["revision"]
         common = dict(operation_id=operation.id, state_revision=revision)
         plans = []
+        # A harness-raised observation only justifies changing how it is answered
+        # once the root is under pressure; a model-requested operation always may.
+        delegable = operation.origin == "request" or state.get("pressure_selected", False)
         reusable = (
-            not state.get("reuse_uncertain", False)
+            delegable
+            and not state.get("reuse_uncertain", False)
             and operation.reusable
             and operation.kind in ("analysis", "research", "diagnosis")
         )
@@ -69,9 +73,6 @@ class CandidateGenerator:
             plans.append(
                 CandidatePlan(**common, mode=Mode.CONTINUE, worker_id=prior[0].id, evidence=focused)
             )
-        # A harness-raised observation only justifies a new child once the root is
-        # actually under pressure; a model-requested operation always may.
-        delegable = operation.origin == "request" or state.get("pressure", False)
         if limits.max_children and delegable:
             plans.append(CandidatePlan(**common, mode=Mode.FRESH, view="FOCUSED", evidence=focused))
             if broader != focused:
