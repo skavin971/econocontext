@@ -1,0 +1,18 @@
+# Consequential decisions
+
+- All project implementation files live under `mvp/`; the existing repository history is preserved. A root README links to the project. Package, method, CLI and environment names use EconoContext consistently.
+- Python 3.11+ is required; local validation uses Python 3.12.14. Dependencies and build tools are pinned in `requirements.lock`. The lock includes development dependencies for a simple reproducible MVP environment.
+- Components are ordinary modules in one process. One Uvicorn worker owns an in-memory queue; SQLite is local disk with foreign keys and WAL. Queued jobs survive startup; running jobs become interrupted without effect replay. This is not durable exactly-once execution.
+- Model settings and frozen profiles are process-level. Root and child workers share one model/configuration. The API supplies per-run task/method/limits rather than permitting arbitrary credential configuration per request.
+- Every model submission, including retries and ordinary turns, passes through assembly and instrumentation. Planning runs only at operation boundaries or final feasibility invalidation. Reuse never assembles a child prompt.
+- Token counts use a labeled UTF-8 byte heuristic plus safety margin. The implementation does not claim provider-exact token counts. Live capacity must be explicitly configured.
+- Retrieval uses indexed source bindings and a bounded SQL lexical scan over stored text, avoiding optional FTS dependencies. Search examines indexed text locally, not through a model. Two direct matches form the default focused view; bounded remaining source neighbors expand broader.
+- Evidence is immutable by content hash, while source bindings advance. Observations and worker messages append. Payload bytes precede reference publication; filesystem effects are not transactionally atomic with SQLite.
+- Only analysis, diagnosis and research results are reusable. Results remain `unverified` unless independently verified; model completion is not proof. Conservative exact operation keys and compatible requirements establish applicability, not semantic truth.
+- Arbitrary command execution marks reuse uncertain for the remainder of the run. Commands are restricted to trusted task environments and root workers; this is not a hostile-code sandbox. Child tools are read/search only.
+- Source refresh scans bounded text files (200 files, 200 KB each); external repository support is a small-task bridge, not full SWE-bench-scale ingestion. Local commands can execute trusted code and may have effects outside ordinary file reads. Do not expose this API to untrusted callers.
+- Tool outputs retain original bytes when compact responses are truncated. No model summarization is added. Final artifacts export complete retained Git diff bytes; external gold patches/tests must be kept outside the visible snapshot.
+- Idle pool retirement uses stable-ID order and archives history. It makes no statement about physical GPU/KV cache residency.
+- Synthetic costs/profile defaults exist only to exercise economics and selection. Live mode needs actual rates for monetary optimization. Local preparation has no monetary rate by default; report its measured time.
+- Cooperative cancellation stops scheduling and cancels requests; local subprocess groups are terminated. Remote billing or already-performed effects cannot be reversed.
+- Deferred: REPAIR, learned policies/RL, recursive delegation, concurrent writers, distributed services, model routing, live web research, full benchmark downloads, trained baseline reproduction and official benchmark scoring.
