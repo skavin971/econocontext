@@ -55,11 +55,11 @@ def normalize(raw):
 def charge(usage, pricing):
     if not pricing or not usage["complete"]:
         return None
-    if (
-        not usage.get("cache_reported", False)
-        and pricing.input_per_million != pricing.cached_per_million
-    ):
-        return None
+    # No reported cache split means nothing was discounted, so the whole prompt
+    # prices at the uncached rate. That can only overstate, never understate, and
+    # an overstated charge is more useful than an absent one: dropping these calls
+    # from the total silently understated real runs by roughly 2.5x. Consumers that
+    # need to know which it was read cache_reported on the usage record.
     return (
         usage["uncached"] * pricing.input_per_million
         + usage["cached"] * pricing.cached_per_million

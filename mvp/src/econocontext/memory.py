@@ -154,6 +154,17 @@ class MemoryStore:
             "INSERT INTO bindings VALUES(?,?,?) ON CONFLICT(run_id,source) DO UPDATE SET evidence_id=excluded.evidence_id",
             (run_id, source, evidence.id),
         )
+        await self.event(
+            run_id,
+            "evidence",
+            dict(
+                source=source,
+                evidence_id=evidence.id,
+                version=evidence.version,
+                bytes=len(raw),
+                attempt_id=attempt_id,
+            ),
+        )
         return evidence
 
     async def bindings(self, run_id):

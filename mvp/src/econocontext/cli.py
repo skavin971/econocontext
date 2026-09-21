@@ -68,6 +68,21 @@ async def run(args):
         try:
             if args.command == "profiles":
                 output(await build_profiles(memory, args.run_ids), args.output)
+            elif args.command == "explain":
+                from .explain import render
+
+                run = await memory.run(args.run_id)
+                text = render(
+                    run,
+                    await Telemetry(memory, config).metrics(args.run_id),
+                    await memory.all_events(args.run_id),
+                    lambda ref: memory.artifacts.read_json(ref) if ref else None,
+                    (run.get("request") or {}).get("limits") or {},
+                )
+                if args.output:
+                    Path(args.output).write_text(text + "\n")
+                else:
+                    print(text)
             elif args.command == "reconstruct":
                 from .assembler import Assembler
 
@@ -110,6 +125,9 @@ def main():
     export = sub.add_parser("export")
     export.add_argument("run_id")
     export.add_argument("--output")
+    explain = sub.add_parser("explain")
+    explain.add_argument("run_id")
+    explain.add_argument("--output")
     reconstruct = sub.add_parser("reconstruct")
     reconstruct.add_argument("manifest")
     reconstruct.add_argument("--output")
