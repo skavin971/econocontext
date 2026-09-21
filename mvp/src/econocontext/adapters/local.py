@@ -248,10 +248,6 @@ class LocalAdapter:
         if not self.goal:
             raise ValueError("A task with your own data requires a prompt")
         self.delegation_tool = False
-        # Representation control: how much subprocess output reaches a prompt.
-        # `read` keeps its full 16000 because its contract is an exact file;
-        # nobody expects a test run to return every byte.
-        self.output_budget = 16000
 
     async def prepare(self):
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -494,9 +490,7 @@ class LocalAdapter:
         try:
             output, _ = await asyncio.wait_for(process.communicate(), self.timeout)
             ref = self.memory.artifacts.put(output)
-            # Harness-supplied, never model-facing. Complete bytes stay in the
-            # store behind `original`, so nothing is lost by showing less.
-            budget = self.output_budget
+            budget = 16000
             return dict(
                 code=process.returncode,
                 output=output.decode(errors="replace")[:budget],

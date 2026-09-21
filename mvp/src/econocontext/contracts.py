@@ -68,9 +68,6 @@ class Limits(Record):
     # waiting too long leaves nothing worth moving.
     plan_pressure: float = Field(0.5, gt=0, le=1)
     max_plans: int = Field(64, ge=0)
-    # Characters of subprocess output shown once the root is under pressure.
-    # The complete bytes always remain in the store behind the `original` ref.
-    pressured_output_chars: int = Field(2000, ge=256)
 
 
 class Operation(Record):

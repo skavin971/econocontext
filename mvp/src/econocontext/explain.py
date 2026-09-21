@@ -4,7 +4,6 @@ import json
 
 WIDTH = 96
 BAR = "=" * WIDTH
-SUB = "-" * WIDTH
 
 
 def money(value):
@@ -267,8 +266,7 @@ class Narrator:
                 [
                     f"{event.get('tokens'):,} of {event.get('budget'):,} tokens"
                     f"   ({100 * (event.get('fill') or 0):.1f}% full)",
-                    "delegation is now offered for derived observations,"
-                    f" subprocess output narrowed to {event.get('output_chars')} chars",
+                    "delegation is now offered for derived observations",
                 ],
             )
         else:

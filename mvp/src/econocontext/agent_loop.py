@@ -47,26 +47,22 @@ class AgentLoop:
                 )
             assembled = await manager.assembler.assemble(worker, plan, state)
             if worker.role == "root" and state["method"] == "econocontext":
-                state["root_tokens"] = assembled.tokens
                 limits = state["limits"]
                 state["pressure"] = assembled.tokens >= limits.context_tokens * limits.plan_pressure
-                if state["pressure"]:
-                    # Flagged a turn before it bites, so the next derived
-                    # observation can be moved out rather than carried.
-                    adapter = state["adapter"]
-                    narrowed = adapter.output_budget != limits.pressured_output_chars
-                    adapter.output_budget = limits.pressured_output_chars
-                    if narrowed:
-                        await memory.event(
-                            worker.run_id,
-                            "context_pressure",
-                            dict(
-                                tokens=assembled.tokens,
-                                budget=limits.context_tokens,
-                                fill=round(assembled.tokens / limits.context_tokens, 3),
-                                output_chars=limits.pressured_output_chars,
-                            ),
-                        )
+                if state["pressure"] and not state.get("pressure_seen"):
+                    # Pressure decides whether delegation is offered. It does not
+                    # narrow anything by itself: content is only ever traded for a
+                    # finding a selected plan has paid for.
+                    state["pressure_seen"] = True
+                    await memory.event(
+                        worker.run_id,
+                        "context_pressure",
+                        dict(
+                            tokens=assembled.tokens,
+                            budget=limits.context_tokens,
+                            fill=round(assembled.tokens / limits.context_tokens, 3),
+                        ),
+                    )
             retry_of = None
             integration = (
                 state.get("integration") if worker.role == "root" and operation is None else None
