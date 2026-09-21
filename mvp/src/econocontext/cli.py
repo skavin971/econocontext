@@ -30,6 +30,11 @@ async def run(args):
                 if args.command == "demo"
                 else [(args.adapter, args.method)]
             )
+            overrides = {
+                field: getattr(args, field, None)
+                for field in ("max_cost", "max_attempts", "deadline", "output_tokens")
+                if getattr(args, field, None) is not None
+            }
             reports = []
             for adapter, method in tasks:
                 task = Task(adapter=adapter)
@@ -37,7 +42,12 @@ async def run(args):
                     task = (
                         Task.model_validate_json(Path(args.task).read_text()) if args.task else task
                     )
-                run = await manager.submit(RunRequest(task=task, method=method))
+                request = RunRequest(task=task, method=method)
+                if overrides:
+                    request = request.model_copy(
+                        update=dict(limits=request.limits.model_copy(update=overrides))
+                    )
+                run = await manager.submit(request)
                 final = await manager.wait(run["id"])
                 reports.append(dict(run=final, metrics=await manager.telemetry.metrics(run["id"])))
             output(reports)
@@ -78,6 +88,10 @@ def main():
     runner.add_argument(
         "--task", help="JSON Task file, including optional pinned local repository or corpus"
     )
+    runner.add_argument("--max-cost", type=float, help="Stop the run above this known spend")
+    runner.add_argument("--max-attempts", type=int, help="Model attempts allowed across the run")
+    runner.add_argument("--deadline", type=float, help="Run deadline in seconds")
+    runner.add_argument("--output-tokens", type=int, help="Output token limit per model call")
     sub.add_parser("demo")
     profiles = sub.add_parser("profiles")
     profiles.add_argument("run_ids", nargs="+")

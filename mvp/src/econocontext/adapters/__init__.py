@@ -31,6 +31,16 @@ def tool(name, description, properties, required=()):
 
 STRING = {"type": "string"}
 STRINGS = {"type": "array", "items": STRING}
+# Real models otherwise invent citation formats such as "file.txt:<id>"; the
+# store only resolves the opaque id exactly as a tool returned it.
+EVIDENCE = {
+    "type": "array",
+    "items": STRING,
+    "description": (
+        "Evidence ids copied verbatim from the 'evidence' field of earlier tool "
+        "results. Use the opaque id alone; never add a filename, prefix or suffix."
+    ),
+}
 
 
 def controls(worker, method):
@@ -39,7 +49,7 @@ def controls(worker, method):
             tool(
                 "complete_task",
                 "Finish the task with answer and evidence references.",
-                {"answer": STRING, "evidence": STRINGS},
+                {"answer": STRING, "evidence": EVIDENCE},
                 ["answer", "evidence"],
             )
         ]
@@ -51,7 +61,7 @@ def controls(worker, method):
             tool(
                 "complete_operation",
                 "Finish the active operation, not the entire task.",
-                {"answer": STRING, "evidence": STRINGS},
+                {"answer": STRING, "evidence": EVIDENCE},
                 ["answer", "evidence"],
             )
         )

@@ -14,17 +14,34 @@ class Pricing(Record):
     output_per_million: float = Field(ge=0)
 
 
+def load_env_file(path=Path(".env")):
+    """Populate os.environ from a KEY=VALUE file; existing variables always win."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
 class Config(Record):
     data_dir: Path = Path("data")
     backend: Literal["scripted", "openai"] = "scripted"
     base_url: str = "https://api.openai.com/v1"
     model: str = "scripted-v1"
     credential_env: str = "OPENAI_API_KEY"
+    # Google's OpenAI-compatible endpoints reject Bearer and require x-goog-api-key
+    # with a bare value, so both the header and its scheme are configurable.
+    auth_header: str = "Authorization"
+    auth_scheme: str = "Bearer"
     output_parameter: Literal["max_completion_tokens", "max_tokens"] = "max_completion_tokens"
     timeout: float = Field(30, gt=0)
     pricing: Pricing | None = None
     live_context_tokens: int | None = Field(None, ge=256)
     profile_path: Path | None = None
+    call_log: Path | None = None
 
     @model_validator(mode="after")
     def live_capacity(self):
@@ -35,12 +52,18 @@ class Config(Record):
         return self
 
     def fingerprint(self) -> str:
+        # Observability paths and credentials never change model behaviour, so they
+        # stay out of the fingerprint that gates worker reuse and profile matching.
         return digest(
-            self.model_dump(mode="json", exclude={"data_dir", "credential_env", "profile_path"})
+            self.model_dump(
+                mode="json",
+                exclude={"data_dir", "credential_env", "profile_path", "call_log"},
+            )
         )
 
     @classmethod
     def from_env(cls):
+        load_env_file()
         prefix = "ECONOCONTEXT_"
         values = {
             k: os.environ[prefix + k.upper()]

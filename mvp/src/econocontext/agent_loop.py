@@ -9,6 +9,16 @@ import httpx
 from .contracts import FeasibilityError, canonical
 
 
+def reject(exc):
+    """A malformed completion is recoverable: tell the worker how to retry."""
+    if isinstance(exc, KeyError):
+        return (
+            f"Unknown evidence reference {exc}. Use the exact id strings returned in the "
+            "evidence field of tool results, copied verbatim and unmodified."
+        )
+    return str(exc)
+
+
 class AgentLoop:
     def __init__(self, manager):
         self.manager = manager
@@ -157,7 +167,19 @@ class AgentLoop:
                     if operation is None:
                         output = {"error": "No active operation"}
                     else:
-                        await manager.validate_result(args, operation, state)
+                        try:
+                            await manager.validate_result(args, operation, state)
+                        except (ValueError, KeyError) as exc:
+                            output = {"error": reject(exc)}
+                            await memory.append(
+                                worker,
+                                dict(
+                                    role="tool",
+                                    tool_call_id=call["id"],
+                                    content=canonical(output),
+                                ),
+                            )
+                            continue
                         await memory.append(
                             worker,
                             dict(
@@ -178,7 +200,19 @@ class AgentLoop:
                     if operation:
                         output = {"error": "Complete the active operation first"}
                     else:
-                        await manager.validate_result(args, None, state)
+                        try:
+                            await manager.validate_result(args, None, state)
+                        except (ValueError, KeyError) as exc:
+                            output = {"error": reject(exc)}
+                            await memory.append(
+                                worker,
+                                dict(
+                                    role="tool",
+                                    tool_call_id=call["id"],
+                                    content=canonical(output),
+                                ),
+                            )
+                            continue
                         await memory.append(
                             worker,
                             dict(

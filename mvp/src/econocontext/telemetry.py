@@ -1,5 +1,6 @@
 """Attempt accounting independent of the planner, also usable by external runners."""
 
+import json
 import math
 import statistics
 from collections import defaultdict
@@ -12,7 +13,22 @@ def normalize(raw):
     if raw is None:
         return dict(uncached=None, cached=None, output=None, complete=False, error=None)
     try:
-        total, output = raw["prompt_tokens"], raw["completion_tokens"]
+        total = raw["prompt_tokens"]
+        reported_total = raw.get("total_tokens")
+        reasoning = (raw.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
+        output = raw.get("completion_tokens")
+        # Some providers omit completion_tokens entirely when a turn produces no
+        # content tokens; the reported total still accounts for the work done.
+        if output is None and reported_total is not None:
+            output = reported_total - total - reasoning
+        if output is None:
+            raise KeyError("completion_tokens")
+        # Providers disagree on whether reasoning tokens are already inside
+        # completion_tokens. The provider's own total disambiguates, and both
+        # categories bill at the output rate either way.
+        excluded = reasoning and reported_total == total + output + reasoning
+        if excluded:
+            output += reasoning
         cached = (raw.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
         cache_reported = "cached_tokens" in (raw.get("prompt_tokens_details") or {})
         if (
@@ -23,11 +39,11 @@ def normalize(raw):
             or cached > total
         ):
             raise ValueError("Invalid disjoint token counts")
-        # Completion tokens include reasoning tokens; never charge those again.
         return dict(
             uncached=total - cached,
             cached=cached,
             output=output,
+            reasoning=reasoning,
             complete=True,
             cache_reported=cache_reported,
             error=None,
@@ -51,9 +67,101 @@ def charge(usage, pricing):
     ) / 1_000_000
 
 
+RULE = "=" * 100
+THIN = "-" * 100
+
+
+def render_messages(messages):
+    out = []
+    for message in messages:
+        role = message.get("role", "?")
+        header = f"  [{role}]"
+        if message.get("tool_call_id"):
+            header += f" (responding to {message['tool_call_id']})"
+        out.append(header)
+        if message.get("content"):
+            for line in str(message["content"]).splitlines() or [""]:
+                out.append("      " + line)
+        for call in message.get("tool_calls") or []:
+            function = call.get("function", {})
+            out.append(
+                f"      -> {function.get('name')}({function.get('arguments')})"
+                f"   [id {call.get('id')}]"
+            )
+        out.append("")
+    return out
+
+
 class Telemetry:
     def __init__(self, memory, config):
         self.memory, self.config = memory, config
+
+    def log_call(self, attempt, response):
+        """Append a full human-readable record of one call to the plain-text call log."""
+        path = self.config.call_log
+        if not path:
+            return
+        raw = attempt.get("raw_usage") or {}
+        usage = attempt.get("usage") or {}
+        reasoning = (raw.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+        lines = [
+            RULE,
+            f"[{attempt['ended']}]  {attempt['kind'].upper()}  {attempt['name']}",
+            f"  attempt={attempt['id']}  run={attempt['run_id']}  worker={attempt['worker_id']}",
+            f"  phase={attempt['phase']}  status={attempt['status']}"
+            f"  duration={attempt['duration']:.3f}s"
+            if attempt.get("duration")
+            else "",
+            f"  operation={attempt['operation_id']}  plan={attempt['plan_id']}",
+        ]
+        if attempt.get("error"):
+            lines.append(f"  ERROR: {attempt['error']}")
+        try:
+            request = self.memory.artifacts.read_json(attempt["request"])
+        except Exception:
+            request = None
+        lines.append(THIN)
+        if attempt["kind"] == "model" and isinstance(request, dict):
+            messages = (request.get("body") or request).get("messages") or []
+            lines.append(
+                f"INPUT  ({len(messages)} messages, prompt_tokens={raw.get('prompt_tokens')})"
+            )
+            lines.extend(render_messages(messages))
+        else:
+            lines.append("INPUT")
+            lines.append("      " + json.dumps(request))
+            lines.append("")
+        lines.append(THIN)
+        lines.append(
+            f"OUTPUT (completion={raw.get('completion_tokens')}"
+            f"  reasoning={reasoning}  billed_output={usage.get('output')})"
+        )
+        if isinstance(response, dict) and (response.get("content") or response.get("tool_calls")):
+            lines.extend(render_messages([response]))
+        else:
+            lines.append("      " + json.dumps(response)[:20000])
+            lines.append("")
+        lines.append(THIN)
+        lines.append(
+            f"TOKENS  prompt={raw.get('prompt_tokens')}  completion={raw.get('completion_tokens')}"
+            f"  reasoning={reasoning}  total={raw.get('total_tokens')}"
+            f"  billed_input={usage.get('uncached')}  cached={usage.get('cached')}"
+            f"  billed_output={usage.get('output')}"
+        )
+        cost = attempt.get("cost")
+        lines.append(
+            f"COST    {'$%.6f' % cost if cost is not None else 'unknown'}"
+            f"   cache_reported={usage.get('cache_reported', False)}"
+        )
+        lines.append(RULE)
+        lines.append("")
+        lines.append("")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(line for line in lines if line is not None) + "\n")
+        except OSError:
+            pass
 
     async def begin(
         self,
@@ -120,6 +228,7 @@ class Telemetry:
         )
         await self.memory.save("attempt", attempt)
         await self.memory.event(attempt["run_id"], "attempt", attempt, attempt["id"])
+        self.log_call(attempt, response)
         return attempt
 
     async def metrics(self, run_id):

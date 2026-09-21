@@ -21,9 +21,10 @@ class OpenAIBackend:
         async with httpx.AsyncClient(
             timeout=self.config.timeout, transport=self.transport
         ) as client:
+            scheme = self.config.auth_scheme
             response = await client.post(
                 self.config.base_url.rstrip("/") + "/chat/completions",
-                headers={"Authorization": f"Bearer {key}"},
+                headers={self.config.auth_header: f"{scheme} {key}" if scheme else key},
                 json=request,
             )
             response.raise_for_status()
