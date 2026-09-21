@@ -69,12 +69,44 @@ def controls(worker, method):
             result.append(
                 tool(
                     "request_operation",
-                    "Request bounded side-effect-free analysis; no nested requests.",
+                    "Delegate one bounded, side-effect-free investigation to a "
+                    "separate worker that reads on your behalf and reports back a "
+                    "finding. You receive only its result, so the reading it does "
+                    "never enters your own context. Delegation costs one extra "
+                    "exchange, so it pays off for a sub-problem that needs real "
+                    "investigation and not for something you can settle in a turn. "
+                    "Request operations one after another as needed, but never "
+                    "while one is already active. A delegated worker cannot edit "
+                    "files or delegate further.",
                     {
-                        "goal": STRING,
-                        "scope": STRING,
-                        "kind": {"type": "string", "enum": ["analysis", "diagnosis", "research"]},
-                        "required": STRINGS,
+                        "goal": {
+                            "type": "string",
+                            "description": (
+                                "What the worker must determine, stated so its answer "
+                                "stands on its own without your context."
+                            ),
+                        },
+                        "scope": {
+                            "type": "string",
+                            "description": (
+                                "Stable name for the area under investigation, such as "
+                                "a file path or module. This is the reuse key: an "
+                                "identical scope continues the worker that already "
+                                "studied that area, keeping what it learned, while a "
+                                "different scope starts a fresh worker with an empty "
+                                "context."
+                            ),
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["analysis", "diagnosis", "research"],
+                            "description": (
+                                "diagnosis to find the cause of a defect, analysis to "
+                                "reason over known material, research to locate "
+                                "information."
+                            ),
+                        },
+                        "required": EVIDENCE,
                     },
                     ["goal", "scope", "kind"],
                 )

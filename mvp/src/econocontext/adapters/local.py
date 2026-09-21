@@ -12,6 +12,114 @@ BUGGY = '''def parse_numbers(text):
     """Parse comma-separated numbers; ignore whitespace-only fields."""
     return [int(part) for part in text.split(",")]
 '''
+LEDGER_README = """# ledger
+
+Utilities for parsing and summarising transaction records.
+
+## Contract
+
+`parsing.parse_amounts(text)`
+    Split a comma-separated string into integer amounts. Blank and
+    whitespace-only fields are ignored entirely. Signed values are preserved.
+    An empty string yields an empty list.
+
+`validation.is_within_limit(amount, limit)`
+    True when an amount is permitted. An amount exactly equal to the limit is
+    permitted; only amounts strictly greater than the limit are rejected.
+
+`aggregate.mean_amount(amounts)`
+    Arithmetic mean of the non-None amounts. None entries are skipped and must
+    not contribute to the denominator. Returns 0.0 when nothing remains.
+
+`report.rank(entries)`
+    Given (name, amount) pairs, return them ordered by amount, largest first,
+    compared numerically. Entries with equal amounts keep their input order.
+
+Run `python -m pytest tests -q` to exercise the visible checks.
+"""
+
+LEDGER = {
+    "README.md": LEDGER_README,
+    "ledger/__init__.py": '"""Transaction ledger utilities."""\n',
+    "ledger/parsing.py": '''def parse_amounts(text):
+    """Split a comma-separated string into integer amounts."""
+    return [int(part) for part in text.split(",")]
+''',
+    "ledger/validation.py": '''def is_within_limit(amount, limit):
+    """True when an amount is permitted by the limit."""
+    return amount < limit
+''',
+    "ledger/aggregate.py": '''def mean_amount(amounts):
+    """Arithmetic mean of the non-None amounts."""
+    values = [amount for amount in amounts if amount is not None]
+    if not values:
+        return 0.0
+    return sum(values) / len(amounts)
+''',
+    "ledger/report.py": '''def rank(entries):
+    """Order (name, amount) pairs by amount, largest first."""
+    return sorted(entries, key=lambda entry: str(entry[1]), reverse=True)
+''',
+    "tests/test_smoke.py": """from ledger.aggregate import mean_amount
+from ledger.parsing import parse_amounts
+from ledger.report import rank
+from ledger.validation import is_within_limit
+
+
+def test_parse_skips_blank_fields():
+    assert parse_amounts("4, ,5,,") == [4, 5]
+
+
+def test_limit_allows_exact_match():
+    assert is_within_limit(10, 10) is True
+    assert is_within_limit(11, 10) is False
+
+
+def test_mean_skips_none_entries():
+    assert mean_amount([2, None, 4]) == 3.0
+
+
+def test_rank_orders_numerically():
+    assert rank([("a", 8), ("b", 70)]) == [("b", 70), ("a", 8)]
+""",
+}
+
+# Hidden verification deliberately uses different inputs from the visible tests,
+# so special-casing the visible values cannot pass it.
+LEDGER_VERIFY = """
+import sys
+sys.path.insert(0, '.')
+from ledger.parsing import parse_amounts
+from ledger.validation import is_within_limit
+from ledger.aggregate import mean_amount
+from ledger.report import rank
+assert parse_amounts('') == [], 'parse_amounts empty string'
+assert parse_amounts(' 7 , , -3 ,') == [7, -3], 'parse_amounts blank and signed'
+assert is_within_limit(50, 50) is True, 'limit boundary is inclusive'
+assert is_within_limit(51, 50) is False, 'limit rejects above'
+assert mean_amount([10, None, 20]) == 15.0, 'mean denominator skips None'
+assert mean_amount([None]) == 0.0, 'mean of nothing'
+assert rank([('a', 9), ('b', 100)]) == [('b', 100), ('a', 9)], 'rank numeric order'
+print('ledger fixture verified')
+"""
+
+GOALS = {
+    "coding": (
+        "Fix parse_numbers so empty or whitespace-only comma-separated fields are "
+        "ignored. Preserve valid integers."
+    ),
+    "ledger": (
+        "The ledger package does not match the contract documented in README.md. "
+        "Four separate functions are wrong, one in each of parsing.py, validation.py, "
+        "aggregate.py and report.py. Diagnose and fix all four without changing the "
+        "documented contract or weakening the tests."
+    ),
+    "research": (
+        "What happened to annual fuel expenditure in the town's 2024 electric bus "
+        "pilot? Cite the corpus."
+    ),
+}
+
 CORPUS = {
     "policy.txt": "The town's 2024 pilot replaced diesel buses with electric buses. Annual fuel expenditure fell from 100 units to 60 units.",
     "report.txt": "The 2024 bus pilot's maintenance expenditure was unchanged at 20 units. The fleet size remained ten buses.",
@@ -25,11 +133,7 @@ class LocalAdapter:
         self.name, self.timeout = task.adapter, timeout
         self.baseline = {}
         self.processes = set()
-        self.goal = task.goal or (
-            "Fix parse_numbers so empty or whitespace-only comma-separated fields are ignored. Preserve valid integers."
-            if self.name == "coding"
-            else "What happened to annual fuel expenditure in the town's 2024 electric bus pilot? Cite the corpus."
-        )
+        self.goal = task.goal or GOALS[self.name]
 
     async def prepare(self):
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -53,6 +157,11 @@ class LocalAdapter:
                 raise ValueError("Pinned checkout failed")
         elif self.name == "coding":
             (self.workspace / "parser.py").write_text(BUGGY)
+        elif self.name == "ledger":
+            for name, value in LEDGER.items():
+                target = self.workspace / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(value)
         elif self.task.corpus:
             for file in sorted(Path(self.task.corpus).resolve().glob("*.txt"))[:100]:
                 (self.workspace / file.name).write_text(file.read_text())
@@ -117,7 +226,16 @@ class LocalAdapter:
                 else "Only you may edit task source files. "
             )
             + (
-                " Request bounded analysis when useful. Complete an inline operation before another request."
+                (
+                    " You may delegate a bounded investigation with request_operation:"
+                    " the worker reads in its own context and you receive only its"
+                    " finding, so your context stays small as the task grows. That"
+                    " costs an extra exchange, so weigh it against reading directly."
+                    " Reuse a scope to continue the worker that already studied that"
+                    " area. Complete an inline operation before another request."
+                    if worker.role == "root"
+                    else " Answer the assigned operation only, then finish it."
+                )
                 if method == "econocontext"
                 else " Work directly using domain tools."
             )
@@ -138,7 +256,7 @@ class LocalAdapter:
                 ["path"],
             ),
         ]
-        if self.name == "coding":
+        if self.name in ("coding", "ledger"):
             if worker.role == "root":
                 result.append(
                     tool(
@@ -156,7 +274,15 @@ class LocalAdapter:
                         ["argv"],
                     )
                 )
-                result.append(tool("test", "Run visible parser contract smoke checks now.", {}))
+                result.append(
+                    tool(
+                        "test",
+                        "Run the visible test suite now and return its output."
+                        if self.name == "ledger"
+                        else "Run visible parser contract smoke checks now.",
+                        {},
+                    )
+                )
         return result + controls(worker, method)
 
     async def execute(self, name, arguments, worker):
@@ -191,7 +317,7 @@ class LocalAdapter:
             return dict(matches=matches)
         if worker.role != "root":
             raise PermissionError("Children cannot edit or execute commands")
-        if name == "apply_patch" and self.name == "coding":
+        if name == "apply_patch" and self.name in ("coding", "ledger"):
             path = self.path(arguments["path"])
             text = path.read_text()
             if not arguments["old"] or text.count(arguments["old"]) != 1:
@@ -199,6 +325,8 @@ class LocalAdapter:
             path.write_text(text.replace(arguments["old"], arguments["new"], 1))
             await self.refresh()
             return dict(applied=True)
+        if name == "test" and self.name == "ledger":
+            return await self.command([sys.executable, "-m", "pytest", "tests", "-q"])
         if name == "test" and self.name == "coding":
             return await self.command(
                 [
@@ -207,7 +335,7 @@ class LocalAdapter:
                     "from parser import parse_numbers; assert parse_numbers('1, ,2,,') == [1,2]; print('visible checks passed')",
                 ]
             )
-        if name == "command" and self.name == "coding":
+        if name == "command" and self.name in ("coding", "ledger"):
             argv = arguments["argv"]
             if not argv or argv[0] not in ("python", "python3", "pytest"):
                 raise PermissionError(
@@ -254,6 +382,9 @@ class LocalAdapter:
             return dict(
                 status="unverified", reason="External task requires an external benchmark verifier"
             )
+        if self.name == "ledger":
+            outcome = await self.command([sys.executable, "-c", LEDGER_VERIFY])
+            return dict(status="verified" if outcome["code"] == 0 else "failed", details=outcome)
         if self.name == "coding":
             code = "from parser import parse_numbers as p; assert p('') == []; assert p(' , ') == []; assert p('1, -2,, 3,') == [1,-2,3]; print('fixture verified')"
             outcome = await self.command([sys.executable, "-c", code])

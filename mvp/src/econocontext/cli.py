@@ -32,7 +32,15 @@ async def run(args):
             )
             overrides = {
                 field: getattr(args, field, None)
-                for field in ("max_cost", "max_attempts", "deadline", "output_tokens")
+                for field in (
+                    "max_cost",
+                    "max_attempts",
+                    "deadline",
+                    "output_tokens",
+                    "context_tokens",
+                    "max_children",
+                    "retries",
+                )
                 if getattr(args, field, None) is not None
             }
             reports = []
@@ -83,7 +91,7 @@ def main():
     parser.add_argument("--data-dir")
     sub = parser.add_subparsers(dest="command", required=True)
     runner = sub.add_parser("run")
-    runner.add_argument("--adapter", choices=["coding", "research"], default="coding")
+    runner.add_argument("--adapter", choices=["coding", "ledger", "research"], default="coding")
     runner.add_argument("--method", choices=["react", "econocontext"], default="econocontext")
     runner.add_argument(
         "--task", help="JSON Task file, including optional pinned local repository or corpus"
@@ -92,6 +100,9 @@ def main():
     runner.add_argument("--max-attempts", type=int, help="Model attempts allowed across the run")
     runner.add_argument("--deadline", type=float, help="Run deadline in seconds")
     runner.add_argument("--output-tokens", type=int, help="Output token limit per model call")
+    runner.add_argument("--context-tokens", type=int, help="Context budget per assembled request")
+    runner.add_argument("--max-children", type=int, help="Reusable child workers allowed")
+    runner.add_argument("--retries", type=int, help="Retries per model call on transient errors")
     sub.add_parser("demo")
     profiles = sub.add_parser("profiles")
     profiles.add_argument("run_ids", nargs="+")

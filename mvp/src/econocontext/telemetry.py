@@ -95,6 +95,35 @@ def render_messages(messages):
 class Telemetry:
     def __init__(self, memory, config):
         self.memory, self.config = memory, config
+        self.first_seen = {}
+        self.last_end = {}
+        self.call_index = defaultdict(int)
+
+    def timing(self, attempt):
+        """Per-call latency plus where this call sits in the run's elapsed time."""
+        run_id = attempt["run_id"]
+        try:
+            started = datetime.fromisoformat(attempt["started"])
+            ended = datetime.fromisoformat(attempt["ended"])
+        except (TypeError, ValueError):
+            return "LATENCY  unavailable"
+        origin = self.first_seen.setdefault(run_id, started)
+        previous = self.last_end.get(run_id)
+        self.last_end[run_id] = ended
+        self.call_index[run_id] += 1
+        latency = attempt.get("duration") or (ended - started).total_seconds()
+        parts = [
+            f"LATENCY  call #{self.call_index[run_id]}",
+            f"request_to_response={latency:.3f}s",
+            f"run_elapsed_at_end={(ended - origin).total_seconds():.3f}s",
+        ]
+        if previous is not None:
+            # Time between the last response and this request: local work, not the model.
+            parts.append(f"local_gap_before={(started - previous).total_seconds():.3f}s")
+        output = (attempt.get("usage") or {}).get("output")
+        if attempt["kind"] == "model" and output and latency > 0:
+            parts.append(f"throughput={output / latency:.1f} out_tok/s")
+        return "  ".join(parts)
 
     def log_call(self, attempt, response):
         """Append a full human-readable record of one call to the plain-text call log."""
@@ -108,10 +137,7 @@ class Telemetry:
             RULE,
             f"[{attempt['ended']}]  {attempt['kind'].upper()}  {attempt['name']}",
             f"  attempt={attempt['id']}  run={attempt['run_id']}  worker={attempt['worker_id']}",
-            f"  phase={attempt['phase']}  status={attempt['status']}"
-            f"  duration={attempt['duration']:.3f}s"
-            if attempt.get("duration")
-            else "",
+            f"  phase={attempt['phase']}  status={attempt['status']}",
             f"  operation={attempt['operation_id']}  plan={attempt['plan_id']}",
         ]
         if attempt.get("error"):
@@ -153,6 +179,7 @@ class Telemetry:
             f"COST    {'$%.6f' % cost if cost is not None else 'unknown'}"
             f"   cache_reported={usage.get('cache_reported', False)}"
         )
+        lines.append(self.timing(attempt))
         lines.append(RULE)
         lines.append("")
         lines.append("")

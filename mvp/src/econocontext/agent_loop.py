@@ -9,6 +9,19 @@ import httpx
 from .contracts import FeasibilityError, canonical
 
 
+def backoff(exc, attempt_index):
+    """Seconds to wait before retrying; honours Retry-After when the provider sends one."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        header = exc.response.headers.get("retry-after")
+        if header:
+            try:
+                return min(float(header), 60.0)
+            except ValueError:
+                pass
+    # Retrying a rate limit immediately just spends another attempt on the same refusal.
+    return min(2.0**attempt_index, 30.0)
+
+
 def reject(exc):
     """A malformed completion is recoverable: tell the worker how to retry."""
     if isinstance(exc, KeyError):
@@ -103,6 +116,7 @@ class AgentLoop:
                     )
                     if retry == state["limits"].retries or not retryable:
                         raise
+                    await asyncio.sleep(backoff(exc, retry))
             await manager.check(state)
             if integration:
                 state.pop("integration", None)

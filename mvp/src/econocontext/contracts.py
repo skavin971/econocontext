@@ -196,7 +196,7 @@ class ModelResponse(Record):
 
 
 class Task(Record):
-    adapter: Literal["coding", "research"] = "coding"
+    adapter: Literal["coding", "ledger", "research"] = "coding"
     goal: str | None = None
     repository: str | None = None
     commit: str | None = None
