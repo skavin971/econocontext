@@ -37,6 +37,8 @@ class MemoryStore:
         self.root = root
         self.artifacts = Artifacts(root / "artifacts")
         self.lock = asyncio.Lock()
+        # Set to narrate events as they are written; see `econocontext run --step`.
+        self.observer = None
 
     async def open(self):
         self.db = await aiosqlite.connect(self.root / "state.sqlite3")
@@ -199,6 +201,8 @@ class MemoryStore:
             "INSERT OR IGNORE INTO events(id,run_id,kind,payload) VALUES(?,?,?,?)",
             (event_id or uid(), run_id, kind, self.artifacts.json(payload)),
         )
+        if self.observer:
+            self.observer(dict(payload, kind=kind, run_id=run_id))
 
     async def events(self, run_id, after=0, limit=100):
         rows = await self.query(

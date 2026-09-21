@@ -18,6 +18,41 @@ def output(data, path=None):
         print(text)
 
 
+def stepper(memory, config, limits):
+    """Narrate each event as it is written, pausing so one run can be walked."""
+    from .assembler import Assembler
+    from .explain import Narrator
+
+    narrator = Narrator(
+        lambda ref: memory.artifacts.read_json(ref) if ref else None,
+        limits,
+        Assembler(memory, config).reconstruct,
+    )
+    mode = {"at": "step"}
+
+    def observe(event):
+        if mode["at"] == "quiet":
+            return
+        lines = narrator.render_event(event)
+        if not lines:
+            return
+        print("\n".join(lines), flush=True)
+        if mode["at"] != "step":
+            return
+        try:
+            answer = input("   [enter] next    [c] run on    [q] stop narrating > ").strip().lower()
+            print()
+        except (EOFError, KeyboardInterrupt):
+            mode["at"] = "run"
+            return
+        if answer == "c":
+            mode["at"] = "run"
+        elif answer == "q":
+            mode["at"] = "quiet"
+
+    return observe
+
+
 async def run(args):
     config = Config.from_env()
     if args.data_dir:
@@ -54,6 +89,10 @@ async def run(args):
                 if overrides:
                     request = request.model_copy(
                         update=dict(limits=request.limits.model_copy(update=overrides))
+                    )
+                if getattr(args, "step", False):
+                    manager.memory.observer = stepper(
+                        manager.memory, config, request.limits.model_dump(mode="json")
                     )
                 run = await manager.submit(request)
                 final = await manager.wait(run["id"])
@@ -121,6 +160,9 @@ def main():
     runner.add_argument("--context-tokens", type=int, help="Context budget per assembled request")
     runner.add_argument("--max-children", type=int, help="Reusable child workers allowed")
     runner.add_argument("--retries", type=int, help="Retries per model call on transient errors")
+    runner.add_argument(
+        "--step", action="store_true", help="Narrate each component handoff and pause between them"
+    )
     sub.add_parser("demo")
     profiles = sub.add_parser("profiles")
     profiles.add_argument("run_ids", nargs="+")

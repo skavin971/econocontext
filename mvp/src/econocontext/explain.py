@@ -87,6 +87,161 @@ def message_rows(messages, seen):
     return rows
 
 
+class Narrator:
+    """Renders events one at a time, so batch and live stepping share a format."""
+
+    def __init__(self, artifacts, limits, reconstruct=None):
+        self.artifacts = artifacts
+        self.reconstruct = reconstruct
+        self.budget = (limits or {}).get("context_tokens") or 0
+        self.workers, self.shown, self.step = {}, {}, 0
+
+    def label(self, worker_id, add=False):
+        if add:
+            return self.workers.setdefault(
+                worker_id, "root" if not self.workers else f"child-{len(self.workers)}"
+            )
+        return self.workers.get(worker_id, "root")
+
+    def assembly(self, event):
+        who = self.label(event["worker_id"], add=True)
+        tokens = event.get("tokens") or 0
+        fill = f"{100 * tokens / self.budget:.1f}%" if self.budget else "n/a"
+        rows = [
+            f"{tokens:,} tokens assembled   context fill {fill} of {self.budget:,}",
+            f"manifest {event.get('manifest')}   took {1000 * (event.get('duration') or 0):.1f}ms",
+        ]
+        if self.reconstruct:
+            try:
+                body = self.reconstruct(event["manifest"])
+                messages = (body.get("body") or body).get("messages") or []
+                seen = self.shown.get(event["worker_id"], 0)
+                added = message_rows(messages, seen)
+                self.shown[event["worker_id"]] = len(messages)
+                if added:
+                    rows += ["", "full prompt:" if seen == 0 else "added to this context:"]
+                    rows += added
+            except Exception as exc:
+                rows.append(f"(could not reconstruct request: {exc})")
+        return f"ASSEMBLER  build request  [{who}]", rows
+
+    def planning(self, event):
+        candidates = event.get("candidates") or []
+        rows = [
+            f"trigger: {event.get('trigger')}",
+            f"operation: {event.get('operation_id')}",
+            f"considered {len(candidates)} candidate plan(s):",
+            "",
+        ]
+        for candidate in candidates:
+            rows.extend(candidate_rows(candidate, event.get("selected")))
+            rows.append("")
+        chosen = next((c for c in candidates if c.get("id") == event.get("selected")), None)
+        rows.append(
+            "decision: "
+            + (
+                f"{chosen['mode']}{'/' + chosen['view'] if chosen.get('view') else ''}"
+                f" (cheapest feasible of {len(candidates)})"
+                if chosen
+                else "NO FEASIBLE PLAN"
+            )
+        )
+        rows.append(f"planning took {1000 * (event.get('duration') or 0):.1f}ms")
+        return "PLANNER -> CANDIDATES -> COST MODEL -> OPTIMIZER", rows
+
+    def attempt(self, event):
+        who = self.label(event["worker_id"])
+        raw = event.get("raw_usage") or {}
+        usage = event.get("usage") or {}
+        rows = []
+        if raw:
+            prompt = raw.get("prompt_tokens") or 0
+            cached = usage.get("cached") or 0
+            reasoning = (raw.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+            share = f"{100 * cached / prompt:.1f}%" if prompt else "0%"
+            rows += [
+                f"model {event.get('name')}   phase {event.get('phase')}",
+                f"INPUT   {prompt:,} prompt tokens   {cached:,} served from cache ({share})",
+                f"OUTPUT  content {raw.get('completion_tokens')}"
+                f"   reasoning {reasoning}   billed {usage.get('output')}",
+            ]
+            for row in describe_call(self.artifacts(event.get("response"))):
+                rows.append("  ->  " + row[: WIDTH - 12])
+            rows.append(
+                f"cost {money(event.get('cost'))}"
+                f"   latency {event.get('duration', 0):.3f}s"
+                f"   status {event.get('status')}"
+            )
+            title = f"BACKEND  model call  [{who}]"
+        else:
+            payload = self.artifacts(event.get("response"))
+            rows.append(f"tool {event.get('name')}   status {event.get('status')}")
+            rows.append(
+                f"request  {json.dumps(self.artifacts(event.get('request')))[: WIDTH - 14]}"
+            )
+            summary = payload
+            if isinstance(payload, dict):
+                summary = payload.get("output") or payload.get("text") or payload
+            rows.extend(wrap(json.dumps(summary)[:600], indent=2))
+            title = f"ADAPTER  tool call  [{who}]"
+        if event.get("error"):
+            rows.append(f"ERROR {event['error']}")
+        return title, rows
+
+    def render_event(self, event):
+        """Return rendered lines for one event, or [] for kinds we do not narrate."""
+        kind = event.get("kind")
+        if kind == "assembly":
+            title, rows = self.assembly(event)
+        elif kind == "planning":
+            title, rows = self.planning(event)
+        elif kind == "attempt":
+            title, rows = self.attempt(event)
+        elif kind == "selection":
+            plan = event.get("plan") or {}
+            estimate = plan.get("estimate") or {}
+            title, rows = (
+                "MANAGER  plan committed",
+                [
+                    f"{plan.get('mode')}{'/' + plan['view'] if plan.get('view') else ''}"
+                    f"   predicted {money(estimate.get('cost'))}"
+                    f"   predicted tokens {estimate.get('tokens')}",
+                    f"evidence attached: {plan.get('evidence')}",
+                ],
+            )
+        elif kind == "assembly_rejected":
+            title, rows = (
+                "ASSEMBLER  plan rejected",
+                [f"plan {event.get('plan_id')}", f"reason: {event.get('reason')}"],
+            )
+        elif kind == "evidence":
+            title, rows = (
+                "MEMORY  store evidence",
+                [
+                    f"source {event.get('source')}   {event.get('bytes')} bytes",
+                    f"evidence id {event.get('evidence_id')}",
+                    f"version {event.get('version')}",
+                ],
+            )
+        elif kind == "operation_outcome":
+            title, rows = (
+                "MANAGER  operation finished",
+                [
+                    f"operation {event.get('operation_id')} delivered via {event.get('mode')}",
+                    f"stored result {event.get('result_id')}",
+                ],
+            )
+        elif kind == "integration_complete":
+            title, rows = (
+                "MANAGER  root integrated result",
+                [f"operation {event.get('operation_id')}  plan {event.get('plan_id')}"],
+            )
+        else:
+            return []
+        self.step += 1
+        return block(f"STEP {self.step}  {title}", rows) + [""]
+
+
 def render(run, metrics, events, artifacts, limits, reconstruct=None):
     request = run.get("request") or {}
     task = request.get("task") or {}
@@ -103,156 +258,9 @@ def render(run, metrics, events, artifacts, limits, reconstruct=None):
         BAR,
         "",
     ]
-    workers, shown, step = {}, {}, 0
+    narrator = Narrator(artifacts, limits, reconstruct)
     for event in events:
-        kind = event["kind"]
-        if kind == "assembly":
-            step += 1
-            label = workers.setdefault(
-                event["worker_id"], "root" if not workers else f"child-{len(workers)}"
-            )
-            tokens = event.get("tokens") or 0
-            fill = f"{100 * tokens / context_budget:.1f}%" if context_budget else "n/a"
-            rows = [
-                "assembler.py built the exact request from selected evidence + history",
-                f"{tokens:,} tokens assembled   context fill {fill} of {context_budget:,}",
-                f"manifest {event.get('manifest')}   took {1000 * (event.get('duration') or 0):.1f}ms",
-            ]
-            if reconstruct:
-                try:
-                    body = reconstruct(event["manifest"])
-                    messages = (body.get("body") or body).get("messages") or []
-                    seen = shown.get(event["worker_id"], 0)
-                    added = message_rows(messages, seen)
-                    shown[event["worker_id"]] = len(messages)
-                    if added:
-                        rows.append("")
-                        rows.append(
-                            "full prompt:" if seen == 0 else "added to this worker's context:"
-                        )
-                        rows.extend(added)
-                except Exception as exc:
-                    rows.append(f"(could not reconstruct request: {exc})")
-            lines.extend(block(f"STEP {step}  ASSEMBLE INPUT  [{label}]", rows))
-        elif kind == "planning":
-            step += 1
-            candidates = event.get("candidates") or []
-            rows = [
-                f"trigger: {event.get('trigger')}",
-                f"operation: {event.get('operation_id')}",
-                f"planner considered {len(candidates)} candidate plan(s):",
-                "",
-            ]
-            for candidate in candidates:
-                rows.extend(candidate_rows(candidate, event.get("selected")))
-                rows.append("")
-            chosen = next((c for c in candidates if c.get("id") == event.get("selected")), None)
-            rows.append(
-                "decision: "
-                + (
-                    f"{chosen['mode']}{'/' + chosen['view'] if chosen.get('view') else ''}"
-                    f" (cheapest feasible of {len(candidates)})"
-                    if chosen
-                    else "NO FEASIBLE PLAN"
-                )
-            )
-            rows.append(f"planning took {1000 * (event.get('duration') or 0):.1f}ms")
-            lines.extend(block(f"STEP {step}  PLANNER", rows))
-        elif kind == "selection":
-            plan = event.get("plan") or {}
-            estimate = plan.get("estimate") or {}
-            step += 1
-            lines.extend(
-                block(
-                    f"STEP {step}  PLAN COMMITTED",
-                    [
-                        f"{plan.get('mode')}{'/' + plan['view'] if plan.get('view') else ''}"
-                        f"   predicted {money(estimate.get('cost'))}"
-                        f"   predicted tokens {estimate.get('tokens')}",
-                        f"evidence attached: {plan.get('evidence')}",
-                    ],
-                )
-            )
-        elif kind == "assembly_rejected":
-            step += 1
-            lines.extend(
-                block(
-                    f"STEP {step}  PLAN REJECTED AT ASSEMBLY",
-                    [f"plan {event.get('plan_id')}", f"reason: {event.get('reason')}"],
-                )
-            )
-        elif kind == "evidence":
-            step += 1
-            lines.extend(
-                block(
-                    f"STEP {step}  STORE EVIDENCE",
-                    [
-                        f"source {event.get('source')}   {event.get('bytes')} bytes",
-                        f"evidence id {event.get('evidence_id')}",
-                        f"version {event.get('version')}",
-                    ],
-                )
-            )
-        elif kind == "operation_outcome":
-            step += 1
-            lines.extend(
-                block(
-                    f"STEP {step}  OPERATION FINISHED",
-                    [
-                        f"operation {event.get('operation_id')} delivered via {event.get('mode')}",
-                        f"stored result {event.get('result_id')}",
-                    ],
-                )
-            )
-        elif kind == "integration_complete":
-            step += 1
-            lines.extend(
-                block(
-                    f"STEP {step}  ROOT INTEGRATED RESULT",
-                    [f"operation {event.get('operation_id')}  plan {event.get('plan_id')}"],
-                )
-            )
-        elif kind == "attempt":
-            step += 1
-            label = workers.get(event["worker_id"], "root")
-            raw = event.get("raw_usage") or {}
-            usage = event.get("usage") or {}
-            rows = []
-            if (
-                event["kind"] == "attempt"
-                and event.get("name", "").startswith(("gpt", "google"))
-                or raw
-            ):
-                prompt = raw.get("prompt_tokens") or 0
-                cached = usage.get("cached") or 0
-                reasoning = (raw.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
-                share = f"{100 * cached / prompt:.1f}%" if prompt else "0%"
-                rows += [
-                    f"model {event.get('name')}   phase {event.get('phase')}",
-                    f"INPUT   {prompt:,} prompt tokens   {cached:,} served from cache ({share})",
-                    f"OUTPUT  content {raw.get('completion_tokens')}"
-                    f"   reasoning {reasoning}   billed {usage.get('output')}",
-                ]
-                for row in describe_call(artifacts(event.get("response"))):
-                    rows.append("  ->  " + row[: WIDTH - 12])
-                rows += [
-                    f"cost {money(event.get('cost'))}"
-                    f"   latency {event.get('duration', 0):.3f}s"
-                    f"   status {event.get('status')}",
-                ]
-            else:
-                payload = artifacts(event.get("response"))
-                rows.append(f"tool {event.get('name')}   status {event.get('status')}")
-                rows.append(f"request  {json.dumps(artifacts(event.get('request')))[: WIDTH - 14]}")
-                summary = payload
-                if isinstance(payload, dict):
-                    summary = payload.get("output") or payload.get("text") or payload
-                rows.extend(wrap(json.dumps(summary)[:600], indent=2))
-            if event.get("error"):
-                rows.append(f"ERROR {event['error']}")
-            title = "MODEL CALL" if raw else "TOOL CALL"
-            lines.extend(block(f"STEP {step}  {title}  [{label}]", rows))
-        lines.append("")
+        lines.extend(narrator.render_event(event))
 
     tokens = metrics.get("tokens") or {}
     total_input = (tokens.get("uncached") or 0) + (tokens.get("cached") or 0)
