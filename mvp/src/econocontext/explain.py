@@ -236,6 +236,15 @@ class Narrator:
                 "MANAGER  root integrated result",
                 [f"operation {event.get('operation_id')}  plan {event.get('plan_id')}"],
             )
+        elif kind == "operation_abandoned":
+            title, rows = (
+                "MANAGER  optimisation abandoned",
+                [
+                    f"scope {event.get('scope')}",
+                    f"reason: {event.get('reason')}",
+                    "the literal result answers the call; the run is unaffected",
+                ],
+            )
         elif kind == "representation":
             inline = event.get("inline_tokens") or 0
             delivered = event.get("delivered_tokens") or 0

@@ -75,6 +75,8 @@ async def run(args):
                     "context_tokens",
                     "max_children",
                     "retries",
+                    "plan_pressure",
+                    "observation_tokens",
                 )
                 if getattr(args, field, None) is not None
             }
@@ -181,6 +183,12 @@ def main():
     runner.add_argument("--context-tokens", type=int, help="Context budget per assembled request")
     runner.add_argument("--max-children", type=int, help="Reusable child workers allowed")
     runner.add_argument("--retries", type=int, help="Retries per model call on transient errors")
+    runner.add_argument(
+        "--plan-pressure", type=float, help="Context fill fraction at which delegation is offered"
+    )
+    runner.add_argument(
+        "--observation-tokens", type=int, help="Smallest observation worth an operation"
+    )
     runner.add_argument(
         "--step", action="store_true", help="Narrate each component handoff and pause between them"
     )

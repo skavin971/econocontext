@@ -351,12 +351,27 @@ class Manager:
                 operation, state, item["call_id"], ",".join(sorted(triggers))
             )
             payloads[index] = result.get("payload", item["output"])
-        except FeasibilityError:
-            # A derived operation is an optimisation. The literal result still
-            # answers the call; a plan that will not fit is simply not taken.
+        except (asyncio.CancelledError, StopRun):
+            raise
+        except Exception as exc:
+            # A derived operation is an optimisation the worker never asked for,
+            # so nothing it does may fail the run: a plan that will not fit, or a
+            # child that answers badly, leaves the literal result answering the
+            # call exactly as it would have without any of this. Record why,
+            # because a silently abandoned optimisation looks identical to one
+            # that was never attempted.
             state.pop("active_operation", None)
             operation.status = "failed"
             await self.memory.save("operation", operation)
+            await self.memory.event(
+                worker.run_id,
+                "operation_abandoned",
+                dict(
+                    operation_id=operation.id,
+                    scope=operation.scope,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ),
+            )
         finally:
             state.pop("observation", None)
             state.pop("pressure_selected", None)
