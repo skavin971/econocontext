@@ -30,7 +30,9 @@ flowchart TD
 
 `manager.py` owns run/operation state, the worker pool, cancellation, budgets, plan execution, result publication and parent delivery. It coordinates planning and assembly. `agent_loop.py` contains the shared protocol-valid model/tool loop, not a second planner. Per-worker role, permissions, history and budgets determine available actions.
 
-`planner.py` retrieves bounded metadata and coordinates `candidates.py`, `cost_model.py`, and `optimizer.py`. The planner runs at operation boundaries and final-assembly invalidation. Ordinary continuation retains its selected plan. Changed active inputs cause a controlled stop; V1 does not repair contexts.
+`planner.py` retrieves bounded metadata and coordinates `candidates.py`, `cost_model.py`, and `optimizer.py`. A lightweight check runs at every root prompt construction and returns without querying unless a trigger fired: a tool observation larger than the finding that would replace it, a source change, context pressure, a failure, or an explicit delegation request. Ordinary continuation retains its selected plan. Changed active inputs cause a controlled stop; V1 does not repair contexts.
+
+The worker is never told this happens. A tool request supplies the operation's lookup keys — its name, arguments and the versions it touched — but is never *answered* by planning: the literal tool result is always delivered in full, and a delegated finding only ever arrives alongside it.
 
 `assembler.py` renders the system instructions followed by append-only history and ordered selected evidence/assignments. Tools retain their original order. It assembles every actual model request, including retries and ordinary turns. The optional plan argument is `None` for ordinary root work and root integration. Preview assembly checks feasibility without recording an actual model attempt.
 

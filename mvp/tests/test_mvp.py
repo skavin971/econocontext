@@ -404,7 +404,9 @@ async def test_no_cross_run_reuse(manager):
 
 async def test_parent_headroom_rejects_delegation(manager):
     operation, state = await make_state(manager)
-    state["limits"].context_tokens = 1800
+    # Tight enough that no candidate survives: delegation loses parent headroom
+    # and continuing does not fit either.
+    state["limits"].context_tokens = 1500
     state["limits"].output_tokens = 1024
     with pytest.raises(FeasibilityError):
         await manager.planner.plan(operation, state)
@@ -415,6 +417,62 @@ async def test_parent_headroom_rejects_delegation(manager):
         "insufficient parent integration headroom" in c["rejections"]
         for c in decisions[0]["candidates"]
     )
+
+
+async def test_harness_plans_without_a_delegation_request(tmp_path):
+    """The planner must run on what the root is already doing.
+
+    A live model is never offered request_operation, so if planning only
+    happened on an explicit delegation request it would never happen at all.
+    """
+    import json
+
+    from econocontext.contracts import ModelResponse
+
+    class Direct:
+        """Runs the visible tests, then finishes. Never asks to delegate."""
+
+        def __init__(self):
+            self.turn = 0
+
+        async def complete(self, request, context):
+            self.turn += 1
+            name, args = ("test", {}) if self.turn == 1 else ("complete_task", {})
+            if name == "complete_task":
+                refs = context["evidence"][:1]
+                args = dict(answer="Reported the failing checks.", evidence=refs)
+            message = dict(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    dict(
+                        id=f"c{self.turn}",
+                        type="function",
+                        function=dict(name=name, arguments=json.dumps(args)),
+                    )
+                ],
+            )
+            return ModelResponse(message=message, usage=None, synthetic=True)
+
+    config = Config(data_dir=tmp_path, delegation_tool=False)
+    manager = await Manager(config, Direct()).start()
+    try:
+        run = await manager.submit(RunRequest(task=Task(adapter="ledger"), method="econocontext"))
+        await manager.wait(run["id"])
+        events = await manager.memory.all_events(run["id"])
+        planning = [e for e in events if e["kind"] == "planning"]
+        assert planning, "harness raised no operation from a large tool observation"
+        assert any("tool-result" in e["trigger"] for e in planning)
+        # The mechanism stays out of the model's head entirely: neither the
+        # prompt nor the offered tool schemas mention it.
+        from econocontext.assembler import Assembler
+
+        assembly = next(e for e in events if e["kind"] == "assembly")
+        sent = json.dumps(Assembler(manager.memory, config).reconstruct(assembly["manifest"]))
+        assert "request_operation" not in sent
+        assert "delegate" not in sent and "child" not in sent
+    finally:
+        await manager.close()
 
 
 async def test_live_backend_contract_without_network(tmp_path, monkeypatch):

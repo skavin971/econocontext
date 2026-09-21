@@ -25,6 +25,33 @@ from .memory import MemoryStore
 from .planner import Planner
 from .telemetry import Telemetry
 
+# A tool request supplies the lookup keys for the operation it implies: its name,
+# its arguments and the versions of what it touched. The goal interpolates only
+# the scope and the immutable task goal -- never anything from the worker's
+# context, because key() omits context and reuse would otherwise be unsound.
+OBSERVATIONS = {
+    "read": (
+        "analysis",
+        lambda a: a["path"],
+        "Report what {scope} contains that bears on: {task}",
+    ),
+    "search": (
+        "research",
+        lambda a: "search:" + a.get("query", ""),
+        "Report what a search for {scope} found that bears on: {task}",
+    ),
+    "test": (
+        "diagnosis",
+        lambda a: "tests",
+        "Explain why the checks reported what they did, for: {task}",
+    ),
+    "command": (
+        "diagnosis",
+        lambda a: "command:" + " ".join(a.get("argv", []))[:80],
+        "Explain what running {scope} reported, for: {task}",
+    ),
+}
+
 
 class Manager:
     def __init__(self, config, backend=None):
@@ -145,6 +172,7 @@ class Manager:
             run_id,
             request.limits.tool_timeout,
         )
+        adapter.delegation_tool = bool(self.config.delegation_tool)
         state["adapter"] = adapter
         try:
             async with asyncio.timeout(request.limits.deadline):
@@ -243,6 +271,92 @@ class Manager:
             if "version" not in evidence:
                 raise ValueError("Result reference is not evidence")
 
+    def _planning_limits(self, state):
+        remaining = state["limits"].model_copy()
+        if remaining.max_cost is not None:
+            remaining.max_cost = max(0, remaining.max_cost - state["known_cost"])
+        remaining.latency = min(
+            remaining.latency, max(0.001, remaining.deadline - (time.monotonic() - state["start"]))
+        )
+        return remaining
+
+    def note_observation(self, state, name, args, output, observation, observed_refs):
+        """In-process only: record triggers and lookup keys. Never plans, because
+        sibling tool calls in the same turn may still be pending."""
+        triggers = state.setdefault("replan", set())
+        if isinstance(output, dict) and (output.get("error") or output.get("code")):
+            triggers.add("failure")
+        if name not in OBSERVATIONS:
+            return  # apply_patch mutates the workspace; a mutation is not an operation
+        size = token_count(output, state["limits"].safety_margin)
+        if size < state["limits"].observation_tokens:
+            return
+        state["last_request"] = dict(
+            name=name,
+            arguments=args,
+            size=size,
+            evidence=list(observed_refs) or [observation.id],
+        )
+        triggers.add("tool-result")
+
+    async def derive_operation(self, worker, state, request, triggers):
+        if not request or "tool-result" not in triggers:
+            return None
+        limits = state["limits"]
+        if state.get("root_tokens", 0) < limits.context_tokens * limits.plan_pressure:
+            return None
+        kind, scope_of, template = OBSERVATIONS[request["name"]]
+        scope = scope_of(request["arguments"])
+        bindings = {}
+        for ref in request["evidence"]:
+            try:
+                evidence = await self.memory.get(ref, worker.run_id)
+            except KeyError:
+                continue
+            bindings[evidence["source"]] = evidence["version"]
+        return Operation(
+            run_id=worker.run_id,
+            worker_id=worker.id,
+            origin="observation",
+            kind=kind,
+            goal=template.format(scope=scope, task=state["adapter"].goal),
+            scope=scope,
+            arguments=request["arguments"],
+            required=request["evidence"],
+            bindings=bindings,
+            # Sized against the observation it competes with, so a delegated
+            # finding can never be larger than the bytes it saves the root.
+            result_tokens=max(32, min(512, request["size"] // 2)),
+            status="running",
+        )
+
+    async def consider(self, worker, state):
+        """The lightweight check at prompt construction. No triggers, no queries."""
+        triggers = state.pop("replan", set())
+        if not triggers or state.get("plans", 0) >= state["limits"].max_plans:
+            return None
+        operation = await self.derive_operation(worker, state, state.get("last_request"), triggers)
+        if operation is None:
+            return None
+        state["plans"] = state.get("plans", 0) + 1
+        state["pressure"] = "context-pressure" in triggers
+        state["versions"] = await self.memory.versions(worker.run_id)
+        state["planning_limits"] = self._planning_limits(state)
+        state.update(worker=worker, active_operation=operation.id)
+        await self.memory.save("operation", operation)
+        state.pop("last_request", None)
+        try:
+            return await self._select_and_execute(
+                operation, state, None, ",".join(sorted(triggers))
+            )
+        except FeasibilityError:
+            # A derived operation is an optimisation. If no plan is feasible the
+            # root simply carries on with what it already has.
+            state.pop("active_operation", None)
+            operation.status = "failed"
+            await self.memory.save("operation", operation)
+            return None
+
     async def request_operation(self, worker, state, args, call_id):
         await state["adapter"].refresh()
         versions = await self.memory.versions(worker.run_id)
@@ -261,15 +375,13 @@ class Manager:
             bindings=bindings,
             status="running",
         )
-        remaining = state["limits"].model_copy()
-        if remaining.max_cost is not None:
-            remaining.max_cost = max(0, remaining.max_cost - state["known_cost"])
-        remaining.latency = min(
-            remaining.latency, max(0.001, remaining.deadline - (time.monotonic() - state["start"]))
-        )
-        state["planning_limits"] = remaining
+        state["planning_limits"] = self._planning_limits(state)
         state.update(versions=versions, worker=worker, active_operation=operation.id)
         await self.memory.save("operation", operation)
+        return await self._select_and_execute(operation, state, call_id)
+
+    async def _select_and_execute(self, operation, state, call_id, trigger="operation-boundary"):
+        worker = state["worker"]
         rejected, exact = set(), {}
         for cycle in range(12):
             await self.check(state)
@@ -278,7 +390,7 @@ class Manager:
                 operation,
                 state,
                 rejected,
-                "operation-boundary" if cycle == 0 else "final-assembly-reselection",
+                trigger if cycle == 0 else "final-assembly-reselection",
             )
             try:
                 result = await self.execute(plan, operation, state, call_id, preflight=True)
@@ -301,6 +413,16 @@ class Manager:
             return await self.execute(plan, operation, state, call_id)
         raise FeasibilityError("Assembly reselection limit reached")
 
+    @staticmethod
+    def delivery(call_id, payload):
+        """A model-requested operation answers its pending call; a harness-raised
+        one has no call to answer, so its finding arrives as ordinary input."""
+        return (
+            dict(role="tool", tool_call_id=call_id, content=canonical(payload))
+            if call_id
+            else dict(role="user", content="Finding: " + canonical(payload))
+        )
+
     async def execute(self, plan, operation, state, call_id, preflight=False):
         root, memory = state["worker"], self.memory
         await state["adapter"].refresh()
@@ -318,11 +440,7 @@ class Manager:
             await self.validate_result(output, operation, state)
             if preflight:
                 # Parent-only validation, no dummy worker and no child prompt.
-                parent = dict(
-                    role="tool",
-                    tool_call_id=call_id,
-                    content=canonical(dict(operation_result=output, mode="REUSE")),
-                )
+                parent = self.delivery(call_id, dict(operation_result=output, mode="REUSE"))
                 await self.assembler.assemble(
                     root,
                     None,
@@ -338,12 +456,7 @@ class Manager:
                 dict(operation_id=operation.id, mode="REUSE", result_id=result.id),
             )
             await memory.append(
-                root,
-                dict(
-                    role="tool",
-                    tool_call_id=call_id,
-                    content=canonical(dict(operation_result=output, mode="REUSE")),
-                ),
+                root, self.delivery(call_id, dict(operation_result=output, mode="REUSE"))
             )
             state.pop("active_operation", None)
             state["integration"] = (operation.id, plan.id)
@@ -368,6 +481,19 @@ class Manager:
         )
         history = await memory.history(worker.id) if plan.worker_id else []
         inline = worker.id == root.id
+        if inline and operation.origin != "request":
+            # The root already holds this observation. "Keep reading it yourself"
+            # is the null plan: it is priced like any other candidate, but
+            # executing it means doing nothing the root can perceive.
+            if preflight:
+                current = await self.assembler.assemble(
+                    root, None, dict(state, preview=True, history=await memory.history(root.id))
+                )
+                return {"tokens": current.tokens}
+            operation.status, operation.ended = "succeeded", now()
+            await memory.save("operation", operation)
+            state.pop("active_operation", None)
+            return {"inline": False}
         ack = dict(
             role="tool",
             tool_call_id=call_id,
@@ -379,15 +505,12 @@ class Manager:
         assembled = await self.assembler.assemble(worker, plan, preview)
         if preflight:
             if not inline:
-                projected = dict(
-                    role="tool",
-                    tool_call_id=call_id,
-                    content=canonical(
-                        {
-                            "operation_result": "x" * (operation.result_tokens * 3),
-                            "mode": plan.mode.value,
-                        }
-                    ),
+                projected = self.delivery(
+                    call_id,
+                    {
+                        "operation_result": "x" * (operation.result_tokens * 3),
+                        "mode": plan.mode.value,
+                    },
                 )
                 await self.assembler.assemble(
                     root,
@@ -429,12 +552,7 @@ class Manager:
         result = await self.loop.run(worker, state, plan, operation)
         output = memory.artifacts.read_json(result.payload)
         await memory.append(
-            root,
-            dict(
-                role="tool",
-                tool_call_id=call_id,
-                content=canonical(dict(operation_result=output, mode=plan.mode.value)),
-            ),
+            root, self.delivery(call_id, dict(operation_result=output, mode=plan.mode.value))
         )
         state.pop("active_operation", None)
         state["integration"] = (operation.id, plan.id)

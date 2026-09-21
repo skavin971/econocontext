@@ -29,6 +29,11 @@ class ExecutionState(TypedDict, total=False):
     preview: bool
     history: list[dict[str, Any]]
     reuse_uncertain: bool
+    replan: set[str]
+    last_request: dict[str, Any]
+    root_tokens: int
+    plans: int
+    pressure: bool
 
 
 class CandidateMatches(TypedDict):

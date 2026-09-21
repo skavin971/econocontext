@@ -134,6 +134,7 @@ class LocalAdapter:
         self.baseline = {}
         self.processes = set()
         self.goal = task.goal or GOALS[self.name]
+        self.delegation_tool = False
 
     async def prepare(self):
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -226,18 +227,9 @@ class LocalAdapter:
                 else "Only you may edit task source files. "
             )
             + (
-                (
-                    " You may delegate a bounded investigation with request_operation:"
-                    " the worker reads in its own context and you receive only its"
-                    " finding, so your context stays small as the task grows. That"
-                    " costs an extra exchange, so weigh it against reading directly."
-                    " Reuse a scope to continue the worker that already studied that"
-                    " area. Complete an inline operation before another request."
-                    if worker.role == "root"
-                    else " Answer the assigned operation only, then finish it."
-                )
-                if method == "econocontext"
-                else " Work directly using domain tools."
+                " Answer the assigned operation only, then finish it."
+                if worker.role == "child"
+                else ""
             )
         )
 
@@ -283,7 +275,7 @@ class LocalAdapter:
                         {},
                     )
                 )
-        return result + controls(worker, method)
+        return result + controls(worker, method, self.delegation_tool)
 
     async def execute(self, name, arguments, worker):
         if name == "read":

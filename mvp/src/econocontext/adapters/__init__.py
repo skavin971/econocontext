@@ -43,7 +43,7 @@ EVIDENCE = {
 }
 
 
-def controls(worker, method):
+def controls(worker, method, delegation=False):
     result = (
         [
             tool(
@@ -57,15 +57,19 @@ def controls(worker, method):
         else []
     )
     if method == "econocontext":
-        result.append(
-            tool(
-                "complete_operation",
-                "Finish the active operation, not the entire task.",
-                {"answer": STRING, "evidence": EVIDENCE},
-                ["answer", "evidence"],
+        # A child always needs to finish its assignment. A root needs
+        # complete_operation only when it can raise one itself, which is the
+        # delegation-request path; otherwise offering it leaks the mechanism.
+        if worker.role == "child" or delegation:
+            result.append(
+                tool(
+                    "complete_operation",
+                    "Finish the active operation, not the entire task.",
+                    {"answer": STRING, "evidence": EVIDENCE},
+                    ["answer", "evidence"],
+                )
             )
-        )
-        if worker.role == "root":
+        if worker.role == "root" and delegation:
             result.append(
                 tool(
                     "request_operation",

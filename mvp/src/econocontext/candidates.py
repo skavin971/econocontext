@@ -69,7 +69,10 @@ class CandidateGenerator:
             plans.append(
                 CandidatePlan(**common, mode=Mode.CONTINUE, worker_id=prior[0].id, evidence=focused)
             )
-        if limits.max_children:
+        # A harness-raised observation only justifies a new child once the root is
+        # actually under pressure; a model-requested operation always may.
+        delegable = operation.origin == "request" or state.get("pressure", False)
+        if limits.max_children and delegable:
             plans.append(CandidatePlan(**common, mode=Mode.FRESH, view="FOCUSED", evidence=focused))
             if broader != focused:
                 plans.append(

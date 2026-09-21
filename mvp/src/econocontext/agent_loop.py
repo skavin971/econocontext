@@ -45,7 +45,18 @@ class AgentLoop:
                 raise FeasibilityError(
                     "Active operation inputs changed; controlled stop before model request"
                 )
+            # The lightweight check the design puts at prompt construction. It
+            # returns immediately unless something set a trigger, and a child
+            # never plans inside its own assignment.
+            if worker.role == "root" and operation is None and state["method"] == "econocontext":
+                await manager.consider(worker, state)
             assembled = await manager.assembler.assemble(worker, plan, state)
+            if worker.role == "root":
+                state["root_tokens"] = assembled.tokens
+                if assembled.tokens >= state["limits"].context_tokens * max(
+                    state["limits"].plan_pressure, 0.75
+                ):
+                    state.setdefault("replan", set()).add("context-pressure")
             retry_of = None
             integration = (
                 state.get("integration") if worker.role == "root" and operation is None else None
@@ -303,3 +314,5 @@ class AgentLoop:
                 if name not in control:
                     message["_evidence"] = [observation.id] + observed_refs
                 await memory.append(worker, message)
+                if name not in control and worker.role == "root" and operation is None:
+                    manager.note_observation(state, name, args, output, observation, observed_refs)

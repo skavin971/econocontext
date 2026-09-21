@@ -59,6 +59,11 @@ class Limits(Record):
     latency: float = Field(120, gt=0)
     safety_margin: float = Field(1.2, ge=1)
     retries: int = Field(1, ge=0, le=3)
+    # An observation smaller than the finding that would replace it is not worth
+    # an operation; delegating it would grow the parent rather than bound it.
+    observation_tokens: int = Field(512, ge=0)
+    plan_pressure: float = Field(0.0, ge=0, le=1)
+    max_plans: int = Field(64, ge=0)
 
 
 class Operation(Record):
@@ -80,6 +85,9 @@ class Operation(Record):
     selected_plan: str | None = None
     preceding_operation: str | None = None
     result_tokens: int = Field(512, ge=32, le=2048)
+    # How this operation was identified. Execution provenance, deliberately not
+    # part of key(): the same work must reuse whoever raised it.
+    origin: Literal["request", "observation"] = "request"
 
     def key(self, fingerprint: str) -> str:
         return digest(
@@ -91,7 +99,7 @@ class Operation(Record):
                 self.output_contract,
                 self.bindings,
                 fingerprint,
-                "prompt-v1",
+                "prompt-v2",
             ]
         )
 
