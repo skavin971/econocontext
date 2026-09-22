@@ -53,46 +53,134 @@ def stepper(memory, config, limits):
     return observe
 
 
+LIMIT_FIELDS = (
+    "max_cost",
+    "max_attempts",
+    "deadline",
+    "output_tokens",
+    "context_tokens",
+    "max_children",
+    "retries",
+    "plan_pressure",
+    "observation_tokens",
+)
+
+
+def build_task(args):
+    if args.task:
+        return Task.model_validate_json(Path(args.task).read_text())
+    return Task(
+        adapter=args.adapter,
+        prompt=args.prompt,
+        data=args.data,
+        commit=args.commit,
+        fixture=args.fixture,
+    )
+
+
+def build_request(args, task, method):
+    request = RunRequest(task=task, method=method)
+    overrides = {
+        field: getattr(args, field, None)
+        for field in LIMIT_FIELDS
+        if getattr(args, field, None) is not None
+    }
+    if overrides:
+        request = request.model_copy(update=dict(limits=request.limits.model_copy(update=overrides)))
+    return request
+
+
+def money(value):
+    return f"${value:.4f}"
+
+
+def summarize(arms):
+    """Cost and time for each arm, side by side, in the order they were run."""
+    header = f"{'ARM':<14}{'STATUS':<13}{'VERIFIED':<10}{'COST':>11}{'WALL':>10}{'CALLS':>7}{'TOKENS IN':>12}{'OUT':>9}"
+    lines = [header, "-" * len(header)]
+    for name, metrics in arms.items():
+        lines.append(
+            f"{name:<14}{metrics['status']:<13}{metrics['verification']:<10}"
+            f"{money(metrics['known_cost']):>11}"
+            f"{metrics['wall_seconds']:>9.1f}s"
+            f"{metrics['model_attempts']:>7}"
+            f"{metrics['tokens']['uncached'] + metrics['tokens']['cached']:>12,}"
+            f"{metrics['tokens']['output']:>9,}"
+        )
+    if len(arms) == 2:
+        (a, first), (b, second) = arms.items()
+        dc = second["known_cost"] - first["known_cost"]
+        dt = second["wall_seconds"] - first["wall_seconds"]
+        share = (dc / first["known_cost"] * 100) if first["known_cost"] else 0
+        lines += [
+            "-" * len(header),
+            f"{b} vs {a}:  cost {dc:+.4f} ({share:+.1f}%)   wall {dt:+.1f}s",
+        ]
+    incomplete = [n for n, m in arms.items() if not m["cost_complete"]]
+    if incomplete:
+        lines.append(f"NOTE  cost incomplete for {', '.join(incomplete)} — some calls had no usage")
+    return "\n".join(lines)
+
+
+async def compare(args, config):
+    """Run every method over one identical task and report cost against time."""
+    from agents import build
+
+    from ..assembler import Assembler
+    from .explain import render
+
+    out = Path(args.output)
+    out.mkdir(parents=True, exist_ok=True)
+    task = build_task(args)
+    arms, manager = {}, await Manager(config, adapter=build).start()
+    try:
+        for method in args.methods:
+            print(f"\n=== {method} ===", flush=True)
+            run = await manager.submit(build_request(args, task, method))
+            final = await manager.wait(run["id"])
+            metrics = await manager.telemetry.metrics(run["id"])
+            arms[method] = metrics
+            print(
+                f"{final['status']}  {money(metrics['known_cost'])}  "
+                f"{metrics['wall_seconds']:.1f}s  {metrics['model_attempts']} calls",
+                flush=True,
+            )
+            events = await manager.memory.all_events(run["id"])
+            (out / f"{method}-walkthrough.txt").write_text(
+                render(
+                    final,
+                    metrics,
+                    events,
+                    lambda ref: manager.memory.artifacts.read_json(ref) if ref else None,
+                    (final.get("request") or {}).get("limits") or {},
+                    reconstruct=Assembler(manager.memory, config).reconstruct,
+                )
+                + "\n"
+            )
+            output(dict(run=final, metrics=metrics, trace=events), out / f"{method}-trace.json")
+    finally:
+        await manager.close()
+    table = summarize(arms)
+    print("\n" + table)
+    (out / "summary.txt").write_text(table + "\n")
+    output({m: arms[m] for m in arms}, out / "summary.json")
+    print(f"\nwritten to {out}/")
+    if config.call_log:
+        print(f"per-call logs in {Path(config.call_log)}/")
+
+
 async def run(args):
     config = Config.from_env()
     if args.data_dir:
         config.data_dir = Path(args.data_dir)
-    if args.command == "run":
+    if args.command == "compare":
+        await compare(args, config)
+    elif args.command == "run":
         from agents import build
 
         manager = await Manager(config, adapter=build).start()
         try:
-            overrides = {
-                field: getattr(args, field, None)
-                for field in (
-                    "max_cost",
-                    "max_attempts",
-                    "deadline",
-                    "output_tokens",
-                    "context_tokens",
-                    "max_children",
-                    "retries",
-                    "plan_pressure",
-                    "observation_tokens",
-                )
-                if getattr(args, field, None) is not None
-            }
-            task = (
-                Task.model_validate_json(Path(args.task).read_text())
-                if args.task
-                else Task(
-                    adapter=args.adapter,
-                    prompt=args.prompt,
-                    data=args.data,
-                    commit=args.commit,
-                    fixture=args.fixture,
-                )
-            )
-            request = RunRequest(task=task, method=args.method)
-            if overrides:
-                request = request.model_copy(
-                    update=dict(limits=request.limits.model_copy(update=overrides))
-                )
+            request = build_request(args, build_task(args), args.method)
             if args.step:
                 manager.memory.observer = stepper(
                     manager.memory, config, request.limits.model_dump(mode="json")
@@ -111,7 +199,7 @@ async def run(args):
             if args.command == "profiles":
                 output(await build_profiles(memory, args.run_ids), args.output)
             elif args.command == "explain":
-                from .assembler import Assembler
+                from ..assembler import Assembler
                 from .explain import render
 
                 assembler = Assembler(memory, config)
@@ -129,7 +217,7 @@ async def run(args):
                 else:
                     print(text)
             elif args.command == "reconstruct":
-                from .assembler import Assembler
+                from ..assembler import Assembler
 
                 output(Assembler(memory, config).reconstruct(args.manifest), args.output)
             else:
@@ -146,41 +234,55 @@ async def run(args):
             await memory.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(prog="econocontext")
-    parser.add_argument("--data-dir")
-    sub = parser.add_subparsers(dest="command", required=True)
-    runner = sub.add_parser("run")
-    runner.add_argument(
-        "--adapter",
-        choices=["coding", "research"],
-        default="coding",
-        help="Domain toolset",
+def add_task_flags(p):
+    """The task and limit flags shared by `run` and `compare`."""
+    p.add_argument(
+        "--adapter", choices=["coding", "research"], default="coding", help="Domain toolset"
     )
-    runner.add_argument("--prompt", help="What the harness should do")
-    runner.add_argument("--data", help="Directory of your own files, or a git repo")
-    runner.add_argument("--commit", help="Pin a commit when --data is a git repo")
-    runner.add_argument(
+    p.add_argument("--prompt", help="What the harness should do")
+    p.add_argument("--data", help="Directory of your own files, or a git repo")
+    p.add_argument("--commit", help="Pin a commit when --data is a git repo")
+    p.add_argument(
         "--fixture",
         choices=["parser", "ledger", "corpus"],
         help="Built-in demonstration task instead of your own data",
     )
-    runner.add_argument("--method", choices=["react", "econocontext"], default="econocontext")
-    runner.add_argument(
+    p.add_argument(
         "--task", help="JSON Task file, including optional pinned local repository or corpus"
     )
-    runner.add_argument("--max-cost", type=float, help="Stop the run above this known spend")
-    runner.add_argument("--max-attempts", type=int, help="Model attempts allowed across the run")
-    runner.add_argument("--deadline", type=float, help="Run deadline in seconds")
-    runner.add_argument("--output-tokens", type=int, help="Output token limit per model call")
-    runner.add_argument("--context-tokens", type=int, help="Context budget per assembled request")
-    runner.add_argument("--max-children", type=int, help="Reusable child workers allowed")
-    runner.add_argument("--retries", type=int, help="Retries per model call on transient errors")
-    runner.add_argument(
+    p.add_argument("--max-cost", type=float, help="Stop the run above this known spend")
+    p.add_argument("--max-attempts", type=int, help="Model attempts allowed across the run")
+    p.add_argument("--deadline", type=float, help="Run deadline in seconds")
+    p.add_argument("--output-tokens", type=int, help="Output token limit per model call")
+    p.add_argument("--context-tokens", type=int, help="Context budget per assembled request")
+    p.add_argument("--max-children", type=int, help="Reusable child workers allowed")
+    p.add_argument("--retries", type=int, help="Retries per model call on transient errors")
+    p.add_argument(
         "--plan-pressure", type=float, help="Context fill fraction at which delegation is offered"
     )
-    runner.add_argument(
-        "--observation-tokens", type=int, help="Smallest observation worth an operation"
+    p.add_argument("--observation-tokens", type=int, help="Smallest observation worth an operation")
+    return p
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="econocontext")
+    parser.add_argument("--data-dir")
+    sub = parser.add_subparsers(dest="command", required=True)
+    runner = add_task_flags(sub.add_parser("run"))
+    runner.add_argument("--method", choices=["react", "econocontext"], default="econocontext")
+
+    versus = add_task_flags(
+        sub.add_parser("compare", help="Run each method over one task; report cost against time")
+    )
+    versus.add_argument(
+        "--methods",
+        nargs="+",
+        choices=["react", "econocontext"],
+        default=["react", "econocontext"],
+        help="Methods to run, in order. Every other setting is held identical.",
+    )
+    versus.add_argument(
+        "--output", default="docs/runs/latest", help="Directory for trajectories and the summary"
     )
     runner.add_argument(
         "--step", action="store_true", help="Narrate each component handoff and pause between them"

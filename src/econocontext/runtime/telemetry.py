@@ -3,8 +3,10 @@
 import json
 import math
 import statistics
+import time
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 from ..contracts import digest, now, uid
 
@@ -98,6 +100,23 @@ class Telemetry:
         self.first_seen = {}
         self.last_end = {}
         self.call_index = defaultdict(int)
+        self.run_log = {}
+
+    def log_path(self, run_id):
+        """One file per run, opened on the first call and named for when it began.
+
+        A single shared log appends across every run, which has already spoiled
+        one measurement here: growth attributed to a run was really the previous
+        run still sitting in the file. A per-run file cannot be misread that way.
+        """
+        root = self.config.call_log
+        if not root:
+            return None
+        path = self.run_log.get(run_id)
+        if path is None:
+            path = Path(root) / f"run-{int(time.time())}-{run_id}.txt"
+            self.run_log[run_id] = path
+        return path
 
     def timing(self, attempt):
         """Per-call latency plus where this call sits in the run's elapsed time."""
@@ -126,8 +145,8 @@ class Telemetry:
         return "  ".join(parts)
 
     def log_call(self, attempt, response):
-        """Append a full human-readable record of one call to the plain-text call log."""
-        path = self.config.call_log
+        """Append a full human-readable record of one call to this run's log."""
+        path = self.log_path(attempt["run_id"])
         if not path:
             return
         raw = attempt.get("raw_usage") or {}

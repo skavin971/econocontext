@@ -41,6 +41,8 @@ class Config(Record):
     pricing: Pricing | None = None
     live_context_tokens: int | None = Field(None, ge=256)
     profile_path: Path | None = None
+    # Directory for per-run call logs. Each run writes its own
+    # run-<unix>-<run_id>.txt holding every request and response in full.
     call_log: Path | None = None
     # Whether the worker is offered request_operation. Planning is the harness's
     # job, so a live model is never told workers exist; the stand-in used in
