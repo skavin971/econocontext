@@ -28,9 +28,9 @@ def load_env_file(path=Path(".env")):
 
 class Config(Record):
     data_dir: Path = Path("data")
-    backend: Literal["scripted", "live"] = "scripted"
+    backend: Literal["fake", "live"] = "fake"
     base_url: str = "https://api.openai.com/v1"
-    model: str = "scripted-v1"
+    model: str = "fake-model"
     credential_env: str = "OPENAI_API_KEY"
     # Google's OpenAI-compatible endpoints reject Bearer and require x-goog-api-key
     # with a bare value, so both the header and its scheme are configurable.
@@ -43,16 +43,16 @@ class Config(Record):
     profile_path: Path | None = None
     call_log: Path | None = None
     # Whether the worker is offered request_operation. Planning is the harness's
-    # job, so a live model is never told workers exist; the scripted backend
-    # keeps the delegation-request path exercised. None resolves by backend.
+    # job, so a live model is never told workers exist; the stand-in used in
+    # tests keeps the delegation-request path exercised. None resolves by backend.
     delegation_tool: bool | None = None
 
     @model_validator(mode="after")
     def live_capacity(self):
-        if self.backend == "live" and (not self.live_context_tokens or self.model == "scripted-v1"):
+        if self.backend == "live" and (not self.live_context_tokens or self.model == "fake-model"):
             raise ValueError("Live backend requires model and explicit live_context_tokens")
         if self.delegation_tool is None:
-            object.__setattr__(self, "delegation_tool", self.backend == "scripted")
+            object.__setattr__(self, "delegation_tool", self.backend == "fake")
         return self
 
     def fingerprint(self) -> str:

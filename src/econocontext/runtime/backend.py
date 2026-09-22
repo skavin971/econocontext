@@ -1,4 +1,4 @@
-"""A client for any OpenAI-compatible Chat Completions endpoint.
+"""The model backend: a client for any OpenAI-compatible Chat Completions endpoint.
 
 The wire format is OpenAI's; the provider need not be. Google's Vertex
 endpoint is reached through this same class, which is why the header and
@@ -7,10 +7,15 @@ and httpx makes no implicit retries.
 """
 
 import os
+from typing import Protocol
 
 import httpx
 
 from ..contracts import ModelResponse
+
+
+class ModelBackend(Protocol):
+    async def complete(self, request: dict, context: dict) -> ModelResponse: ...
 
 
 class CompatibleBackend:

@@ -1,10 +1,15 @@
-"""Synthetic protocol scenarios, not an intelligent task-solving model."""
+"""A deterministic stand-in model, for tests only. Never shipped.
+
+The library has exactly one backend, which talks to a real endpoint. This
+reproduces the tool-call protocol so planner decisions can be asserted exactly,
+the way the Direct and Reader fakes in the test module already do.
+"""
 
 import json
 from collections import defaultdict
 
-from ..assembler import token_count
-from ..contracts import ModelResponse
+from econocontext.assembler import token_count
+from econocontext.contracts import ModelResponse
 
 
 class ScriptedBackend:

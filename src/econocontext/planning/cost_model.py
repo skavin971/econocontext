@@ -14,7 +14,7 @@ class CostModel:
             if config.profile_path
             else {
                 "revision": "synthetic-default-v1"
-                if config.backend == "scripted"
+                if config.backend == "fake"
                 else "conservative-default-v1",
                 "profiles": [],
             }
@@ -95,13 +95,13 @@ class CostModel:
             additional = profile.get("additional_frequency", 0.1) * profile.get(
                 "additional_cost", execution / max(calls, 1)
             )
-            basis = "synthetic-USD" if self.config.backend == "scripted" else "USD"
+            basis = "synthetic-USD" if self.config.backend == "fake" else "USD"
         else:
             execution = retained + output
             integration = parent_tokens + 256 if parent else 0
             preparation, additional = 1, profile.get("additional_frequency", 0.1) * 256
             basis = (
-                "synthetic-token-units" if self.config.backend == "scripted" else "fixed-fallback"
+                "synthetic-token-units" if self.config.backend == "fake" else "fixed-fallback"
             )
         breakdown = dict(
             preparation=preparation,

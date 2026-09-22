@@ -4,8 +4,6 @@ import asyncio
 import time
 
 from ..assembler import Assembler, token_count
-from ..backends.compatible import CompatibleBackend
-from ..backends.scripted import ScriptedBackend
 from ..config import Pricing
 from ..contracts import (
     FeasibilityError,
@@ -23,6 +21,7 @@ from ..planning import representation
 from ..planning.planner import Planner
 from ..store.memory import MemoryStore
 from .agent_loop import AgentLoop
+from .backend import CompatibleBackend
 from .telemetry import Telemetry
 
 # A tool request supplies the lookup keys for the operation it implies: its name,
@@ -55,7 +54,7 @@ OBSERVATIONS = {
 
 class Manager:
     def __init__(self, config, backend=None, adapter=None):
-        if config.backend == "scripted" and config.pricing is None:
+        if config.backend == "fake" and config.pricing is None:
             config = config.model_copy(
                 update={
                     "pricing": Pricing(
@@ -72,9 +71,8 @@ class Manager:
         self.assembler = Assembler(self.memory, config)
         self.planner = Planner(self.memory, config, self.assembler)
         self.loop = AgentLoop(self)
-        self.backend = backend or (
-            ScriptedBackend() if config.backend == "scripted" else CompatibleBackend(config)
-        )
+        # One backend. A stand-in for tests is injected, never built here.
+        self.backend = backend or CompatibleBackend(config)
         # The harness carries no domain knowledge: what tools exist, what
         # verification means and where data comes from are the agent's business.
         self.adapter_factory = adapter

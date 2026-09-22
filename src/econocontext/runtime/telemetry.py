@@ -222,7 +222,7 @@ class Telemetry:
             usage=normalize(None),
             raw_usage=None,
             cost=None,
-            synthetic=self.config.backend == "scripted",
+            synthetic=self.config.backend == "fake",
             fingerprint=self.config.fingerprint(),
             pricing=self.config.pricing.model_dump() if self.config.pricing else None,
         )

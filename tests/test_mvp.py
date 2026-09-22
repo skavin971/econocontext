@@ -3,10 +3,10 @@ import time
 
 import httpx
 import pytest
+from fake_model import ScriptedBackend
 
 from agents import build
 from econocontext.assembler import FeasibilityError, validate_protocol
-from econocontext.backends.scripted import ScriptedBackend
 from econocontext.config import Config, Pricing
 from econocontext.contracts import Limits, Mode, Operation, RunRequest, Task, Worker
 from econocontext.interfaces.api import create_app
@@ -17,7 +17,7 @@ from econocontext.store.memory import MemoryStore
 
 @pytest.fixture
 async def manager(tmp_path):
-    instance = await Manager(Config(data_dir=tmp_path), adapter=build).start()
+    instance = await Manager(Config(data_dir=tmp_path), ScriptedBackend(), build).start()
     yield instance
     await instance.close()
 
@@ -59,7 +59,7 @@ async def test_verified_fixtures(manager, adapter, method):
 
 
 async def test_api_lifecycle_idempotency(tmp_path):
-    app = create_app(Config(data_dir=tmp_path))
+    app = create_app(Config(data_dir=tmp_path), ScriptedBackend())
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -333,7 +333,7 @@ async def test_interrupted_startup(tmp_path):
     run, _ = await memory.create_run(RunRequest(), "fixture")
     await memory.update_run(run["id"], status="running")
     await memory.close()
-    manager = await Manager(Config(data_dir=tmp_path), adapter=build).start()
+    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(), build).start()
     try:
         assert (await manager.memory.run(run["id"]))["status"] == "interrupted"
         assert not await manager.memory.records(run["id"], "attempt")
@@ -579,7 +579,7 @@ async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
 async def test_live_backend_contract_without_network(tmp_path, monkeypatch):
     import json
 
-    from econocontext.backends.compatible import CompatibleBackend
+    from econocontext.runtime.backend import CompatibleBackend
 
     monkeypatch.setenv("TEST_MODEL_SECRET", "test-secret-never-record")
     requests = []
