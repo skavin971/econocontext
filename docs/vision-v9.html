@@ -249,26 +249,6 @@
   <h2>What you are actually paying for</h2>
   <p class="sub">Everything in a context was computed once. A stateless API makes you pay for it again, every turn.</p>
 
-  <ul>
-    <li>An agent reads a file, reasons about it, runs a test. All of that becomes tokens sitting in a context window.</li>
-    <li>Each token was paid for when it arrived — <b>and again on the next call, and the next</b>, because the model holds no memory between requests.</li>
-    <li>A context is not storage. It is <b>a subscription to everything you have already bought</b>.</li>
-  </ul>
-
-  <p class="lede">So the question is never "is this context too big?" It is: <b>is keeping this cheaper than getting it back?</b></p>
-
-  <ul>
-    <li>That reframing does the work. <b>Compaction, eviction, summarisation, sub-agents, cache reuse</b> — every one is the same recovery-cost question, asked somewhere different.</li>
-    <li>And it cannot be answered about memory alone, because <b><em>where the work runs</em> decides what has to be kept at all</b>.</li>
-  </ul>
-
-  <h3>And the obvious proxy is not merely imprecise — it is inverted</h3>
-
-  <ul>
-    <li>Providers bill <b>disjoint categories at different rates</b>: uncached input, cache reads, cache writes, output.</li>
-    <li>Once cached input is an order of magnitude cheaper, <b>a <em>larger</em> retained context can cost less than a <em>smaller</em> fresh one</b>.</li>
-  </ul>
-
   <figure>
     <div class="frame">
       <svg viewBox="0 0 860 190" role="img" aria-label="At a ten to one cache discount, twenty thousand cached tokens cost less than eight thousand fresh tokens. A token-counting heuristic prefers the smaller context and picks the more expensive plan.">
@@ -446,16 +426,6 @@
     <figcaption>Wanted less often, yet far more worth preserving. A stale grep is cheap to recompute; a diagnosis is not; a user constraint cannot be safely lost at all. <code>P(reuse) &times; C_recover</code> is a good way to <em>rank</em> what deserves attention — but it is not the optimizer, because the optimizer compares whole actions rather than a single product.</figcaption>
   </figure>
 
-  <h3>Four options for any one piece of evidence</h3>
-
-  <ul>
-    <li><b>Keep it in full</b>, <b>keep a compression</b>, <b>keep a pointer</b> and fetch on demand, or <b>drop it</b> and re-read later.</li>
-    <li><b>Keeping</b> costs a small certain amount — re-sending it every remaining turn at the cached rate. <b>Dropping</b> costs an uncertain larger one — the chance you need it again, times what recovery costs.</li>
-    <li>On price the pointer usually wins: 30 tokens against 8,000. Then it loses — an <em>apply a patch</em> operation needs exact bytes, and a pointer or a summary is an <em>interpretation</em> of the file, not the file.</li>
-  </ul>
-
-  <p><b>Price is the objective, not the decision.</b> Options that cannot meet the required fidelity are removed before anything is compared, so the run gets more expensive on purpose. Which is why representations belong to the optimizer, not to a storage policy.</p>
-
   <div class="cite"><p>The typed pages and the four-rung ladder are <b>ClawVM</b>'s. Our addition: the ladder is <b>priced against a specific operation</b>, not scored by a standing weight.</p></div>
 </section>
 
@@ -631,20 +601,7 @@
 </section>
 
 <!-- ─────────────────────────  PART V  ───────────────────────── -->
-<div class="part"><span>Part V — Priced together, and made real</span> <i>the claim, and the layer that keeps it true</i></div>
-
-<section>
-  <h2>One plan, priced whole</h2>
-  <p class="sub">Chosen together, because chosen apart they get each other wrong.</p>
-
-  <ul>
-    <li>A plan names all three at once: <b>which worker</b>, <b>which view of the state</b>, <b>which mode</b>. Each choice is locally defensible; only the combination has a price.</li>
-  </ul>
-
-  <p class="lede">Rank plans on the first three terms and the one that loads the main context wins. Add the fourth and <b>it becomes the most expensive on the table</b> — the tokens it parks there are not free on any later turn. It is also the plan that walks a fixed budget into the wall.</p>
-
-  <p class="lede">Which is the whole relationship in one line: the agent names the result it needs, and the planner chooses the access path — <b>the same relationship a query optimizer has to SQL</b>, where the application never names an index scan.</p>
-</section>
+<div class="part"><span>Part V — Making the prices hold</span> <i>rendering, not choosing</i></div>
 
 <section>
   <h2>Assembly, ordering, and what a rebuild costs</h2>
@@ -664,8 +621,6 @@
     <div class="cell"><h4>WARM</h4><p>Reusable evidence, appended when a plan pays for it. Grows; does not shuffle.</p></div>
     <div class="cell"><h4>VOLATILE</h4><p>The current request and its observations. Different every turn, and last on purpose.</p></div>
   </div>
-
-  <p class="lede">The ordering is not tidiness. <b>Inserting into zone <em>k</em> invalidates only the zones after <em>k</em></b> — and everything after WARM was changing this turn anyway, so adding evidence there costs nothing extra. That is the whole reason zones are sorted by rate of change.</p>
 
   <figure>
     <div class="frame">
@@ -777,13 +732,6 @@
 
   <div class="cite"><p><b>ClawVM</b> re-orders freely, because ordering is free when the budget is tokens. Our addition is the figure above: under per-token billing, <b>layout is an expense</b>.</p></div>
 
-  <h3>What this layer is ultimately for</h3>
-
-  <ul>
-    <li>Today the placement rule is fixed: append within your zone. That is deliberately dumb, and the right place to start — <b>a fixed rule you can price beats a clever one you cannot.</b></li>
-    <li><b>The goal is that placement becomes a priced decision</b> like every other one here: a policy choosing not only what enters the context but where it may go, with rebuild cost as a term it has to justify.</li>
-    <li><b>Deterministic code always performs the final render.</b> A policy proposes a layout; it never emits the bytes and never violates an invariant.</li>
-  </ul>
 </section>
 
 <footer>
