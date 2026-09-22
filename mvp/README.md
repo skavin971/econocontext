@@ -109,10 +109,9 @@ ruff check .
 ruff format --check .
 pytest -q
 python -m build --no-isolation
-docker compose up --build
 ```
 
-Compose publishes the API on localhost and mounts `/data` as a named local volume. Use one application process; do not place SQLite WAL storage on network filesystems. No model is bundled.
+Use one application process; do not place SQLite WAL storage on network filesystems. No model is bundled.
 
 ## Outputs and limitations
 
@@ -120,4 +119,4 @@ Compose publishes the API on localhost and mounts `/data` as a named local volum
 
 The coding adapter supports trusted local code, root-only unique-span patches, and bounded commands. It is **not an OS sandbox for hostile code**. External repository/corpus tasks remain `unverified` until an external evaluator checks them. Official SWE-bench execution, ACM and Context-Folding baselines, live web research, `REPAIR`, recursive delegation, RL and distributed execution are deferred.
 
-Start with [EXPERIMENTS.md](EXPERIMENTS.md) to run it and read the results. See [architecture](docs/architecture.md), [measurement](docs/measurement.md), [decisions](docs/decisions.md), and [benchmark protocol](docs/benchmark_protocol.md). Validation details are in `docs/validation.md`.
+Start with [EXPERIMENTS.md](EXPERIMENTS.md) to run it and read the results. The design record is in [architecture](docs/architecture.md), [measurement](docs/measurement.md) and [decisions](docs/decisions.md).
