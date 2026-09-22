@@ -169,6 +169,48 @@ async def compare(args, config):
         print(f"per-call logs in {Path(config.call_log)}/")
 
 
+async def show_schema(memory, args):
+    """The DDL in force, and what a real database actually accumulated under it."""
+    from ..store.memory import SCHEMA
+
+    if not args.counts_only:
+        print(SCHEMA.rstrip())
+        print()
+    tables = [
+        r["name"]
+        for r in await memory.query(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        )
+    ]
+    scope = " WHERE run_id=?" if args.run_id else ""
+    params = (args.run_id,) if args.run_id else ()
+    print(f"{'TABLE':<16}{'ROWS':>10}{'PAYLOAD BYTES':>16}   {'per row':>9}")
+    print("-" * 55)
+    for table in tables:
+        columns = {
+            r["name"] for r in await memory.query(f"SELECT name FROM pragma_table_info('{table}')")
+        }
+        where = scope if "run_id" in columns else ""
+        args_ = params if where else ()
+        rows = (await memory.query(f"SELECT count(*) AS n FROM {table}{where}", args_))[0]["n"]
+        size = 0
+        if "payload" in columns and rows:
+            size = (
+                await memory.query(
+                    f"SELECT sum(length(payload)) AS b FROM {table}{where}", args_
+                )
+            )[0]["b"] or 0
+        per = f"{size / rows:,.0f}" if rows and size else "-"
+        print(f"{table:<16}{rows:>10,}{size:>16,}   {per:>9}")
+    blobs = list(memory.artifacts.root.rglob("*")) if memory.artifacts.root.exists() else []
+    files_ = [b for b in blobs if b.is_file()]
+    print(
+        f"\nartifact store   {len(files_):,} objects"
+        f"   {sum(f.stat().st_size for f in files_):,} bytes on disk"
+    )
+    print("Rows hold references; the bytes they point at live in the artifact store.")
+
+
 async def run(args):
     config = Config.from_env()
     if args.data_dir:
@@ -196,7 +238,9 @@ async def run(args):
     else:
         memory = await MemoryStore(config.data_dir).open()
         try:
-            if args.command == "profiles":
+            if args.command == "schema":
+                await show_schema(memory, args)
+            elif args.command == "profiles":
                 output(await build_profiles(memory, args.run_ids), args.output)
             elif args.command == "explain":
                 from ..assembler import Assembler
@@ -283,6 +327,12 @@ def main():
     )
     versus.add_argument(
         "--output", default="docs/runs/latest", help="Directory for trajectories and the summary"
+    )
+
+    schema = sub.add_parser("schema", help="The store's DDL, and what it has accumulated")
+    schema.add_argument("run_id", nargs="?", help="Count one run only, instead of the whole store")
+    schema.add_argument(
+        "--counts-only", action="store_true", help="Skip the DDL and print only the table sizes"
     )
     runner.add_argument(
         "--step", action="store_true", help="Narrate each component handoff and pause between them"
