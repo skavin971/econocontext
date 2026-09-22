@@ -20,7 +20,7 @@ class CostModel:
             }
         )
 
-        if config.backend == "openai" and (
+        if config.backend == "live" and (
             self.profiles.get("synthetic")
             or any(p.get("synthetic") for p in self.profiles["profiles"])
         ):

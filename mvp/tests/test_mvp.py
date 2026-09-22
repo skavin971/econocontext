@@ -579,7 +579,7 @@ async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
 async def test_live_backend_contract_without_network(tmp_path, monkeypatch):
     import json
 
-    from econocontext.backends.openai import OpenAIBackend
+    from econocontext.backends.compatible import CompatibleBackend
 
     monkeypatch.setenv("TEST_MODEL_SECRET", "test-secret-never-record")
     requests = []
@@ -628,13 +628,13 @@ async def test_live_backend_contract_without_network(tmp_path, monkeypatch):
 
     config = Config(
         data_dir=tmp_path,
-        backend="openai",
+        backend="live",
         model="mock-contract-model",
         credential_env="TEST_MODEL_SECRET",
         live_context_tokens=16384,
         pricing=Pricing(input_per_million=1, cached_per_million=0.25, output_per_million=2),
     )
-    backend = OpenAIBackend(config, transport=httpx.MockTransport(endpoint))
+    backend = CompatibleBackend(config, transport=httpx.MockTransport(endpoint))
     manager = await Manager(config, backend, build).start()
     try:
         run = await complete(manager, "research", "react")

@@ -45,7 +45,7 @@ Put credentials in `mvp/.env` (gitignored). For Google's OpenAI-compatible
 endpoint, verified working:
 
 ```sh
-ECONOCONTEXT_BACKEND=openai
+ECONOCONTEXT_BACKEND=live
 ECONOCONTEXT_BASE_URL=https://aiplatform.googleapis.com/v1/projects/PROJECT/locations/global/endpoints/openapi
 ECONOCONTEXT_MODEL=google/gemini-3.5-flash
 ECONOCONTEXT_AUTH_HEADER=x-goog-api-key      # NOT Authorization: Bearer

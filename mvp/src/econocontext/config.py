@@ -28,7 +28,7 @@ def load_env_file(path=Path(".env")):
 
 class Config(Record):
     data_dir: Path = Path("data")
-    backend: Literal["scripted", "openai"] = "scripted"
+    backend: Literal["scripted", "live"] = "scripted"
     base_url: str = "https://api.openai.com/v1"
     model: str = "scripted-v1"
     credential_env: str = "OPENAI_API_KEY"
@@ -49,9 +49,7 @@ class Config(Record):
 
     @model_validator(mode="after")
     def live_capacity(self):
-        if self.backend == "openai" and (
-            not self.live_context_tokens or self.model == "scripted-v1"
-        ):
+        if self.backend == "live" and (not self.live_context_tokens or self.model == "scripted-v1"):
             raise ValueError("Live backend requires model and explicit live_context_tokens")
         if self.delegation_tool is None:
             object.__setattr__(self, "delegation_tool", self.backend == "scripted")

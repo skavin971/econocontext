@@ -6,7 +6,7 @@ import time
 from . import representation
 from .agent_loop import AgentLoop
 from .assembler import Assembler, token_count
-from .backends.openai import OpenAIBackend
+from .backends.compatible import CompatibleBackend
 from .backends.scripted import ScriptedBackend
 from .config import Pricing
 from .contracts import (
@@ -73,7 +73,7 @@ class Manager:
         self.planner = Planner(self.memory, config, self.assembler)
         self.loop = AgentLoop(self)
         self.backend = backend or (
-            ScriptedBackend() if config.backend == "scripted" else OpenAIBackend(config)
+            ScriptedBackend() if config.backend == "scripted" else CompatibleBackend(config)
         )
         # The harness carries no domain knowledge: what tools exist, what
         # verification means and where data comes from are the agent's business.
@@ -108,7 +108,7 @@ class Manager:
 
     async def submit(self, request: RunRequest):
         if (
-            self.config.backend == "openai"
+            self.config.backend == "live"
             and request.limits.context_tokens > self.config.live_context_tokens
         ):
             raise ValueError("Requested context exceeds configured live model capacity")

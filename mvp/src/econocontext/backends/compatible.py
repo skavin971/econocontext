@@ -1,4 +1,10 @@
-"""Non-streaming Chat Completions; httpx has no implicit request retries."""
+"""A client for any OpenAI-compatible Chat Completions endpoint.
+
+The wire format is OpenAI's; the provider need not be. Google's Vertex
+endpoint is reached through this same class, which is why the header and
+scheme are configurable rather than a hardcoded bearer token. Non-streaming,
+and httpx makes no implicit retries.
+"""
 
 import os
 
@@ -7,7 +13,7 @@ import httpx
 from ..contracts import ModelResponse
 
 
-class OpenAIBackend:
+class CompatibleBackend:
     def __init__(self, config, transport=None):
         self.config = config
         self.transport = transport
