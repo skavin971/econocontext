@@ -1,0 +1,1 @@
+The ledger package does not match the contract documented in README.md. Four separate functions are wrong, one in each of parsing.py, validation.py, aggregate.py and report.py. Diagnose and fix all four without changing the documented contract or weakening the tests.
