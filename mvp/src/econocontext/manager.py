@@ -106,6 +106,12 @@ class Manager:
             await asyncio.gather(self.runner, return_exceptions=True)
         await self.memory.close()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.close()
+
     async def submit(self, request: RunRequest):
         if (
             self.config.backend == "live"

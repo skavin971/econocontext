@@ -5,18 +5,15 @@ work is done -- reuse a result it already has, continue a worker that already
 holds the context, or hand a scoped child the evidence and take back only the
 finding -- and prices those alternatives before choosing.
 
-    from econocontext import Harness, Config, Limits
+    import econocontext
 
-    harness = await Harness.open(Config.from_env())
-    try:
-        run = await harness.submit(
+    async with econocontext.open() as eco:
+        run = await eco.submit(
             prompt="Fix the failing parser test",
             data="./myrepo",
-            limits=Limits(max_cost=1.00, context_tokens=32000),
+            limits=econocontext.Limits(max_cost=1.00, context_tokens=32000),
         )
-        result = await harness.wait(run["id"])
-    finally:
-        await harness.close()
+        result = await eco.wait(run["id"])
 
 Nothing starts a server or opens a database on import.
 """
@@ -38,7 +35,34 @@ __all__ = [
     "RunRequest",
     "Task",
     "__version__",
+    "open",
 ]
+
+
+class _Opening:
+    """The result of `econocontext.open(...)`: awaited, or entered as a context.
+
+    `await econocontext.open()` hands back a started harness the caller closes;
+    `async with econocontext.open() as eco` closes it on the way out.
+    """
+
+    def __init__(self, *args):
+        self.args, self.harness = args, None
+
+    def __await__(self):
+        return Harness.open(*self.args).__await__()
+
+    async def __aenter__(self):
+        self.harness = await Harness.open(*self.args)
+        return self.harness
+
+    async def __aexit__(self, *exc):
+        await self.harness.close()
+
+
+def open(config=None, backend=None, adapter=None):  # noqa: A001 - the module's entry point
+    """Start a harness. Shadows the builtin inside this module only."""
+    return _Opening(config, backend, adapter)
 
 
 class Harness(Manager):
