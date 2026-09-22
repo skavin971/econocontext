@@ -1,32 +1,16 @@
-import asyncio
-import time
+"""Planning: candidate generation, pricing, selection, delegation.
 
-import httpx
+Owned by the planning workstream -- planning/ and assembler.py."""
+
 import pytest
-from fake_model import ScriptedBackend
+from conftest import complete, make_state
 
 from agents import build
-from econocontext.assembler import FeasibilityError, validate_protocol
-from econocontext.config import Config, Pricing
-from econocontext.contracts import Limits, Mode, Operation, RunRequest, Task, Worker
-from econocontext.interfaces.api import create_app
+from econocontext.assembler import validate_protocol
+from econocontext.config import Config
+from econocontext.contracts import FeasibilityError, Limits, Mode, RunRequest, Task, Worker
 from econocontext.runtime.manager import Manager
-from econocontext.runtime.telemetry import build_profiles, normalize
-from econocontext.store.memory import MemoryStore
-
-
-@pytest.fixture
-async def manager(tmp_path):
-    instance = await Manager(Config(data_dir=tmp_path), ScriptedBackend(), build).start()
-    yield instance
-    await instance.close()
-
-
-async def complete(manager, adapter="coding", method="econocontext", limits=None):
-    run = await manager.submit(
-        RunRequest(task=Task(adapter=adapter), method=method, limits=limits or Limits())
-    )
-    return await manager.wait(run["id"])
+from econocontext.runtime.telemetry import build_profiles
 
 
 @pytest.mark.parametrize("adapter", ["coding", "research"])
@@ -58,35 +42,6 @@ async def test_verified_fixtures(manager, adapter, method):
         assert profiles["profiles"] and all(p["synthetic"] for p in profiles["profiles"])
 
 
-async def test_api_lifecycle_idempotency(tmp_path):
-    app = create_app(Config(data_dir=tmp_path), ScriptedBackend())
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            assert (await client.get("/health")).status_code == 200
-            body = {"idempotency_key": "test-1", "task": {"adapter": "coding"}}
-            first = await client.post("/runs", json=body)
-            assert first.status_code == 202
-            run_id = first.json()["run_id"]
-            assert (await client.post("/runs", json=body)).json()["run_id"] == run_id
-            assert (await client.post("/runs", json={**body, "method": "react"})).status_code == 409
-            run = await app.state.manager.wait(run_id)
-            assert run["verification"] == "verified", run
-            assert (await client.get(f"/runs/{run_id}")).json()["status"] == "succeeded"
-            page = (await client.get(f"/runs/{run_id}/trace?limit=2")).json()
-            page2 = (
-                await client.get(f"/runs/{run_id}/trace?after={page['next_cursor']}&limit=2")
-            ).json()
-            assert page2["events"][0]["seq"] > page["events"][-1]["seq"]
-            assert (await client.get(f"/runs/{run_id}/metrics")).json()["cost_complete"]
-            assert (await client.post(f"/runs/{run_id}/cancel")).json()[
-                "cancellation"
-            ] == "already-terminal"
-            assert (await client.get("/runs/missing")).status_code == 404
-            assert (await client.post("/runs", json={"method": "unknown"})).status_code == 422
-
-
 async def test_inline_continuation(manager):
     run = await complete(manager, limits=Limits(max_children=0))
     assert run["status"] == "succeeded", run
@@ -100,57 +55,6 @@ async def test_inline_continuation(manager):
         for a in await manager.memory.records(run["id"], "attempt")
         if a["operation_id"] == op_id and a["phase"] == "integration"
     ]
-
-
-async def make_state(manager):
-    # Construct a real local run/worker without enqueuing execution.
-    request = RunRequest(task=Task(adapter="research"))
-    run, _ = await manager.memory.create_run(request, manager.config.fingerprint())
-    adapter = build(
-        request.task, manager.config.data_dir / "planning", manager.memory, run["id"], 30
-    )
-    await adapter.prepare()
-    worker = Worker(run_id=run["id"], scope="policy.txt", fingerprint=manager.config.fingerprint())
-    await manager.memory.save("worker", worker, worker.scope)
-    evidence = (await manager.memory.bindings(run["id"]))["policy.txt"]
-    versions = await manager.memory.versions(run["id"])
-    operation = Operation(
-        run_id=run["id"],
-        worker_id=worker.id,
-        goal="fuel expenditure",
-        scope="policy.txt",
-        required=[evidence],
-        bindings={"policy.txt": versions["policy.txt"]},
-        status="running",
-    )
-    await manager.memory.save("operation", operation)
-    await manager.memory.append(
-        worker,
-        dict(
-            role="assistant",
-            content=None,
-            tool_calls=[
-                dict(
-                    id="request",
-                    type="function",
-                    function=dict(name="request_operation", arguments="{}"),
-                )
-            ],
-        ),
-    )
-    state = dict(
-        run_id=run["id"],
-        worker=worker,
-        adapter=adapter,
-        limits=Limits(),
-        method="econocontext",
-        versions=versions,
-        fingerprint=manager.config.fingerprint(),
-        attempts=0,
-        known_cost=0,
-        start=time.monotonic(),
-    )
-    return operation, state
 
 
 async def test_broader_profile_drives_actual_execution(manager):
@@ -247,59 +151,6 @@ async def test_final_assembly_reselects_before_call(manager):
     )
 
 
-async def test_attempt_accounting_retry_unknown_and_replay(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(failures=1), build).start()
-    try:
-        run = await complete(manager)
-        assert run["status"] == "succeeded"
-        attempts = await manager.memory.records(run["id"], "attempt")
-        failed = [a for a in attempts if a["status"] == "failed"]
-        assert len(failed) == 1 and failed[0]["cost"] is None
-        assert any(a["retry_of"] == failed[0]["id"] for a in attempts)
-        before = await manager.telemetry.metrics(run["id"])
-        assert not before["cost_complete"] and not before["usage_complete"]
-        assert before["known_cost"] == sum(
-            a["cost"] or 0 for a in attempts if a["phase"] != "external_grader"
-        )
-        for attempt in attempts:
-            await manager.telemetry.finish(
-                attempt,
-                duration=999,
-                status="succeeded",
-                raw_usage={"prompt_tokens": 999, "completion_tokens": 999},
-            )
-        after = await manager.telemetry.metrics(run["id"])
-        assert before == after
-    finally:
-        await manager.close()
-
-
-@pytest.mark.parametrize(
-    "raw",
-    [
-        None,
-        {},
-        {"prompt_tokens": -1, "completion_tokens": 2},
-        {"prompt_tokens": 3, "completion_tokens": 2, "prompt_tokens_details": {"cached_tokens": 4}},
-    ],
-)
-def test_unknown_usage(raw):
-    normalized = normalize(raw)
-    assert not normalized["complete"] and normalized["uncached"] is None
-
-
-def test_cache_disjoint():
-    usage = normalize(
-        dict(
-            prompt_tokens=100,
-            completion_tokens=20,
-            prompt_tokens_details={"cached_tokens": 40},
-            completion_tokens_details={"reasoning_tokens": 10},
-        )
-    )
-    assert usage["uncached"] == 60 and usage["cached"] == 40 and usage["output"] == 20
-
-
 async def test_budget_and_no_feasible(manager):
     run = await complete(manager, limits=Limits(max_attempts=1))
     assert run["status"] == "budget-exceeded"
@@ -307,88 +158,6 @@ async def test_budget_and_no_feasible(manager):
     assert run["status"] == "failed" and "No feasible" in run["reason"]
     run = await complete(manager, limits=Limits(max_cost=0))
     assert run["status"] == "budget-exceeded"
-
-
-async def test_cancel_and_deadline(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=0.5), build).start()
-    try:
-        run = await manager.submit(RunRequest())
-        while not await manager.memory.records(run["id"], "attempt"):
-            await asyncio.sleep(0.01)
-        await manager.cancel(run["id"])
-        final = await manager.wait(run["id"])
-        assert final["status"] == "cancelled"
-        attempts = await manager.memory.records(run["id"], "attempt")
-        assert attempts[0]["status"] == "cancelled" and attempts[0]["cost"] is None
-        run = await complete(manager, limits=Limits(deadline=0.05))
-        assert run["status"] == "budget-exceeded"
-    finally:
-        await manager.close()
-
-
-async def test_interrupted_startup(tmp_path):
-    memory = await MemoryStore(tmp_path).open()
-    run, _ = await memory.create_run(RunRequest(), "fixture")
-    await memory.update_run(run["id"], status="running")
-    await memory.close()
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(), build).start()
-    try:
-        assert (await manager.memory.run(run["id"]))["status"] == "interrupted"
-        assert not await manager.memory.records(run["id"], "attempt")
-    finally:
-        await manager.close()
-
-
-async def test_tool_timeout_scope_and_original_output(manager):
-    operation, state = await make_state(manager)
-    adapter = state["adapter"]
-    adapter.timeout = 0.03
-    import sys
-
-    with pytest.raises(TimeoutError):
-        await adapter.command([sys.executable, "-c", "import time; time.sleep(10)"])
-    assert not adapter.processes
-    with pytest.raises(PermissionError):
-        adapter.path("../escape")
-    adapter.timeout = 5
-    result = await adapter.command([sys.executable, "-c", "print('x'*20000)"])
-    assert result["truncated"] and len(manager.memory.artifacts.get(result["original"])) > 20000
-
-
-async def test_external_measurement_fixture(manager):
-    run, _ = await manager.memory.create_run(
-        RunRequest(method="react"), manager.config.fingerprint()
-    )
-    attempt = await manager.telemetry.begin(
-        run["id"],
-        worker_id="external-session",
-        kind="model",
-        name="external-fixture",
-        request={"messages": []},
-        attempt_id="external-stable-1",
-    )
-    await manager.telemetry.finish(
-        attempt,
-        duration=0.01,
-        status="succeeded",
-        raw_usage={"prompt_tokens": 10, "completion_tokens": 2},
-    )
-    assert attempt["operation_id"] is None and attempt["plan_id"] is None
-    assert (await manager.telemetry.metrics(run["id"]))["model_attempts"] == 1
-
-
-async def test_shutdown_active_run_is_interrupted(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=5), build).start()
-    run = await manager.submit(RunRequest())
-    while not await manager.memory.records(run["id"], "attempt"):
-        await asyncio.sleep(0.01)
-    await asyncio.wait_for(manager.close(), 2)
-    memory = await MemoryStore(tmp_path).open()
-    try:
-        assert (await memory.run(run["id"]))["status"] == "interrupted"
-        assert (await memory.records(run["id"], "attempt"))[0]["status"] == "cancelled"
-    finally:
-        await memory.close()
 
 
 async def test_no_cross_run_reuse(manager):
@@ -570,122 +339,5 @@ async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
             assert token_count(tool_message("x", payload), 1.2) < token_count(
                 tool_message("x", dict(payload, text="y" * 6000)), 1.2
             )
-    finally:
-        await manager.close()
-
-
-async def test_live_backend_contract_without_network(tmp_path, monkeypatch):
-    import json
-
-    from econocontext.runtime.backend import CompatibleBackend
-
-    monkeypatch.setenv("TEST_MODEL_SECRET", "test-secret-never-record")
-    requests = []
-
-    async def endpoint(request):
-        body = json.loads(request.content)
-        requests.append(body)
-        assert request.headers["authorization"] == "Bearer test-secret-never-record"
-        assert body["max_completion_tokens"] == 1024
-        if len(requests) == 1:
-            name, args = "read", {"path": "policy.txt"}
-        else:
-            tool_output = json.loads(body["messages"][-1]["content"])
-            name, args = (
-                "complete_task",
-                {
-                    "answer": "Fuel expenditure fell from 100 to 60 units.",
-                    "evidence": tool_output["evidence"],
-                },
-            )
-        return httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [
-                                {
-                                    "id": f"live-{len(requests)}",
-                                    "type": "function",
-                                    "function": {"name": name, "arguments": json.dumps(args)},
-                                }
-                            ],
-                        }
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 100,
-                    "completion_tokens": 20,
-                    "prompt_tokens_details": {"cached_tokens": 40},
-                },
-            },
-        )
-
-    config = Config(
-        data_dir=tmp_path,
-        backend="live",
-        model="mock-contract-model",
-        credential_env="TEST_MODEL_SECRET",
-        live_context_tokens=16384,
-        pricing=Pricing(input_per_million=1, cached_per_million=0.25, output_per_million=2),
-    )
-    backend = CompatibleBackend(config, transport=httpx.MockTransport(endpoint))
-    manager = await Manager(config, backend, build).start()
-    try:
-        run = await complete(manager, "research", "react")
-        assert run["verification"] == "verified", run
-        assert len(requests) == 2
-        metrics = await manager.telemetry.metrics(run["id"])
-        assert not metrics["synthetic"]
-        assert metrics["known_cost"] == pytest.approx(0.00022)
-        for artifact in manager.memory.artifacts.root.iterdir():
-            assert b"test-secret-never-record" not in artifact.read_bytes()
-    finally:
-        await manager.close()
-
-
-async def test_tool_timeout_is_recorded(tmp_path):
-    from econocontext.contracts import ModelResponse
-
-    class TimeoutToolBackend(ScriptedBackend):
-        async def complete(self, request, context):
-            if self.turns[context["worker_id"]] == 0:
-                self.turns[context["worker_id"]] += 1
-                return ModelResponse(
-                    message={
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": "slow",
-                                "type": "function",
-                                "function": {
-                                    "name": "command",
-                                    "arguments": '{"argv":["python","-c","import time; time.sleep(10)"]}',
-                                },
-                            }
-                        ],
-                    },
-                    usage={
-                        "prompt_tokens": 1,
-                        "completion_tokens": 1,
-                        "prompt_tokens_details": {"cached_tokens": 0},
-                    },
-                    synthetic=True,
-                )
-            return await super().complete(request, context)
-
-    manager = await Manager(Config(data_dir=tmp_path), TimeoutToolBackend(), build).start()
-    try:
-        run = await complete(manager, method="react", limits=Limits(tool_timeout=0.05))
-        attempts = await manager.memory.records(run["id"], "attempt")
-        assert any(
-            a["name"] == "command" and a["error"] == "TimeoutError" and a["status"] == "failed"
-            for a in attempts
-        )
-        assert run["status"] == "succeeded", run
     finally:
         await manager.close()
