@@ -120,4 +120,4 @@ Compose publishes the API on localhost and mounts `/data` as a named local volum
 
 The coding adapter supports trusted local code, root-only unique-span patches, and bounded commands. It is **not an OS sandbox for hostile code**. External repository/corpus tasks remain `unverified` until an external evaluator checks them. Official SWE-bench execution, ACM and Context-Folding baselines, live web research, `REPAIR`, recursive delegation, RL and distributed execution are deferred.
 
-See [architecture](docs/architecture.md), [measurement](docs/measurement.md), [decisions](docs/decisions.md), and [benchmark protocol](docs/benchmark_protocol.md). Validation details are in `docs/validation.md`.
+Start with [EXPERIMENTS.md](EXPERIMENTS.md) to run it and read the results. See [architecture](docs/architecture.md), [measurement](docs/measurement.md), [decisions](docs/decisions.md), and [benchmark protocol](docs/benchmark_protocol.md). Validation details are in `docs/validation.md`.
