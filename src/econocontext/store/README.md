@@ -43,32 +43,6 @@ content-addressed, so re-reading a changed file creates a *new* evidence row;
 comes from comparing an operation's recorded `bindings` against current ones
 (`MemoryStore.compatible`). Get this wrong and REPAIR and REUSE become unsound.
 
-## Known weak points — the brief
-
-These are real and they are yours.
-
-**Retrieval is a LIKE scan** (`memory.py:224`). Candidate evidence is ranked by
-summing `text LIKE ?` over up to twelve extracted words, across every row for the
-run, capped at 24 results. It avoided an FTS5 dependency and it works at fixture
-scale. It is O(rows × words) with no index, it cannot rank by relevance beyond
-counting substring hits, and it is the first thing that will fall over on a real
-repository. FTS5 is the obvious answer; measure before and after.
-
-**`records` is one table for six types.** Workers, operations, plans, results,
-evidence and attempts all share `(id, run_id, kind, lookup, payload)`, with the
-structure hidden inside a JSON blob. Nothing can be queried by a field. You
-cannot ask "which plans overestimated cost" in SQL — `telemetry.metrics()` loads
-everything and does it in Python. Typed tables, or generated columns over the
-JSON, would make the measurement questions answerable directly.
-
-**Nothing is ever deleted.** No retention, no vacuum. The artifact store grows
-without bound across runs, and blobs are shared, so deleting safely needs
-refcounting or a mark-and-sweep against every referencing row.
-
-**`search_text` duplicates the blob store.** Evidence text exists both as an
-artifact and as a row here. Necessary today because SQLite cannot search the
-blob store, but it means every file read is stored twice.
-
 ## Where to start
 
 1. `econocontext compare --fixture ledger --methods react econocontext` — make
@@ -80,8 +54,7 @@ blob store, but it means every file read is stored twice.
 
 Design v2 against what runs actually produce, not against what the tables look
 like they should hold. The measurements the project needs are in
-`docs/runs/*/README.md`; if a question there took Python to answer, that is a
-schema requirement.
+`docs/runs/*/README.md`; 
 
 ## Changing it
 
