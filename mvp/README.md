@@ -51,8 +51,9 @@ As a library:
 from econocontext import Harness, Limits
 
 harness = await Harness.open()
-run = await harness.submit(prompt="Fix the failing parser test", data="./myrepo",
-                           limits=Limits(max_cost=1.00))
+run = await harness.submit(
+    prompt="Fix the failing parser test", data="./myrepo", limits=Limits(max_cost=1.00)
+)
 ```
 
 ## Layout

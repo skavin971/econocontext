@@ -552,7 +552,15 @@ class Manager:
         additions = await self.assembler.additions(plan, state)
         assignment = dict(
             role="user",
-            content="Operation: " + operation.goal + "\nContract: " + operation.output_contract,
+            content=(
+                "Operation: "
+                + operation.goal
+                + "\nContract: "
+                + operation.output_contract
+                # A worker that is not told its budget overruns it, and the finding
+                # is then rejected after the call has already been paid for.
+                + f"\nAnswer within roughly {operation.result_tokens // 2} words."
+            ),
         )
         history = await memory.history(worker.id) if plan.worker_id else []
         inline = worker.id == root.id
@@ -640,7 +648,16 @@ class Manager:
             # Keep the same worker object used by the outer root loop.
             root.bindings, root.revision = worker.bindings, worker.revision
             return dict(inline=True, operation=operation, plan=plan)
-        result = await self.loop.run(worker, state, plan, operation)
+        try:
+            result = await self.loop.run(worker, state, plan, operation)
+        finally:
+            # complete_operation releases a worker that finished. One that failed
+            # was never released, so a pool capped at max_children silently filled
+            # with workers stuck running and later delegations could find nothing
+            # idle to retire.
+            if worker.status == "running":
+                worker.status = "idle"
+                await memory.save("worker", worker, worker.scope)
         output = memory.artifacts.read_json(result.payload)
         message, payload = self.answer(state, operation, call_id, output, plan.mode.value)
         if operation.origin == "request":
