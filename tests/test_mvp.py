@@ -106,9 +106,7 @@ async def make_state(manager):
     # Construct a real local run/worker without enqueuing execution.
     request = RunRequest(task=Task(adapter="research"))
     run, _ = await manager.memory.create_run(request, manager.config.fingerprint())
-    from agents.local import LocalAdapter
-
-    adapter = LocalAdapter(
+    adapter = build(
         request.task, manager.config.data_dir / "planning", manager.memory, run["id"], 30
     )
     await adapter.prepare()
