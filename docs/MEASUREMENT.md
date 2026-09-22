@@ -8,7 +8,7 @@ Supported Chat Completions usage splits total prompt tokens into uncached input 
 
 Missing usage stays unknown. When total usage exists but cache detail is absent, normalized input is shown without a cache discount, `cache_reported` is false, and the whole prompt is charged at the uncached rate. That is an upper bound rather than a refusal: excluding such calls from run totals understated measured Gemini runs by roughly 2.5x, because that endpoint omits `prompt_tokens_details` entirely on calls where nothing was cached. Failed requests can incur unknown charges. Reports show known subtotals separately from completeness; a zero known subtotal does not imply a free run.
 
-Rates are explicit versioned per-million token prices. The scripted backend uses labeled synthetic rates. Live runs without prices retain usage but no invented dollar total. Their fixed fallback order is REUSE, CONTINUE, then FRESH; this is reported as not cost-optimized. Monetary preparation cost defaults to zero (unpriced local work); measured local overhead is reported separately, not silently converted to dollars.
+Rates are explicit versioned per-million token prices. Live runs without prices retain usage but no invented dollar total. Their fixed fallback order is REUSE, CONTINUE, then FRESH; this is reported as not cost-optimized. Monetary preparation cost defaults to zero (unpriced local work); measured local overhead is reported separately, not silently converted to dollars.
 
 Run totals sum unique actual attempts, not nested worker/operation subtotals. The external fixture verifier is tagged `external_grader` and excluded from agent cost. Tests invoked by the agent remain agent tool attempts. Run wall time is start-to-finish elapsed time, not the sum of attempt durations.
 
