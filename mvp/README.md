@@ -14,22 +14,54 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pip install --no-deps --no-build-isolation -e .
-econocontext demo
 ```
 
-`demo` runs coding and research fixtures under both `react` and `econocontext`, verifies the final artifacts, and prints run IDs and metrics. Each run gets an isolated workspace. The scripted backend recognizes only the shipped protocol scenarios; it is not a general coding model.
+A task is a prompt, your data, and constraints:
 
 ```sh
-econocontext run --adapter coding --method econocontext
-econocontext run --adapter research --method react
-econocontext --data-dir ./data run --task examples/pinned-task.json --method econocontext
+econocontext run --prompt "Fix the failing parser test" --data ./myrepo --max-cost 1.00
+```
+
+Your directory is snapshot-copied into the run workspace, so a failed run never
+touches your files. Such tasks finish `unverified`: the harness has no grader
+for your work. Add `--commit SHA` when `--data` is a git repository.
+
+Built-in fixtures need no data and are verified, so the harness can be exercised
+without credentials or spend:
+
+```sh
+econocontext run --fixture ledger --method econocontext
+econocontext run --fixture ledger --method react        # the baseline
+econocontext run --fixture corpus --adapter research
+```
+
+`--step` walks one run component by component, pausing at each handoff.
+Afterwards:
+
+```sh
+econocontext explain RUN_ID --output walkthrough.txt
 econocontext export RUN_ID --output report.json
 econocontext profiles CALIBRATION_RUN_ID --output profiles.json
 econocontext reconstruct MANIFEST_HASH --output request.json
-python examples/external_runner.py
 ```
 
-Replace uppercase placeholders with IDs printed by the demo or found in its trace. The pinned-task example must be edited to reference a local repository, commit, and problem statement. Use a real backend for arbitrary tasks.
+As a library:
+
+```python
+from econocontext import Harness, Limits
+
+harness = await Harness.open()
+run = await harness.submit(prompt="Fix the failing parser test", data="./myrepo",
+                           limits=Limits(max_cost=1.00))
+```
+
+## Layout
+
+`src/econocontext/` is the harness: planning, costing, assembly, memory,
+measurement. It carries no domain knowledge and imports nothing from `agents`.
+`src/agents/` holds the domain agents built on it — tools, verification, and the
+fixtures the test suite runs on. The dependency runs one way, so a different
+agent is a new module rather than a change to the harness.
 
 ## API
 
@@ -83,8 +115,8 @@ Compose publishes the API on localhost and mounts `/data` as a named local volum
 
 ## Outputs and limitations
 
-`data/state.sqlite3` contains indexed record references, bindings, messages and events; `data/artifacts/` contains immutable hash-addressed payloads. `data/workspaces/RUN_ID/` contains task files. The run's `final_artifact` points to a JSONL patch record with `instance_id`, `model_name_or_path`, and `model_patch`. Exact model requests reconstruct from assembly manifests using the CLI.
+`data/state.sqlite3` contains indexed record references, bindings, messages and events; `data/artifacts/` contains immutable hash-addressed payloads. `data/workspaces/RUN_ID/` contains the staged task files. The run's `final_artifact` points to a JSONL patch record with `instance_id`, `model_name_or_path`, and `model_patch`. Exact model requests reconstruct from assembly manifests using the CLI.
 
 The coding adapter supports trusted local code, root-only unique-span patches, and bounded commands. It is **not an OS sandbox for hostile code**. External repository/corpus tasks remain `unverified` until an external evaluator checks them. Official SWE-bench execution, ACM and Context-Folding baselines, live web research, `REPAIR`, recursive delegation, RL and distributed execution are deferred.
 
-See [architecture](docs/architecture.md), [measurement](docs/measurement.md), [decisions](docs/decisions.md), and [benchmark protocol](docs/benchmark_protocol.md). Executed synthetic reports and validation details are under `examples/` and `docs/validation.md`.
+See [architecture](docs/architecture.md), [measurement](docs/measurement.md), [decisions](docs/decisions.md), and [benchmark protocol](docs/benchmark_protocol.md). Validation details are in `docs/validation.md`.

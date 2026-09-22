@@ -4,6 +4,7 @@ import time
 import httpx
 import pytest
 
+from agents import build
 from econocontext.api import create_app
 from econocontext.assembler import FeasibilityError, validate_protocol
 from econocontext.backends.scripted import ScriptedBackend
@@ -16,7 +17,7 @@ from econocontext.telemetry import build_profiles, normalize
 
 @pytest.fixture
 async def manager(tmp_path):
-    instance = await Manager(Config(data_dir=tmp_path)).start()
+    instance = await Manager(Config(data_dir=tmp_path), adapter=build).start()
     yield instance
     await instance.close()
 
@@ -105,7 +106,7 @@ async def make_state(manager):
     # Construct a real local run/worker without enqueuing execution.
     request = RunRequest(task=Task(adapter="research"))
     run, _ = await manager.memory.create_run(request, manager.config.fingerprint())
-    from econocontext.adapters.local import LocalAdapter
+    from agents.local import LocalAdapter
 
     adapter = LocalAdapter(
         request.task, manager.config.data_dir / "planning", manager.memory, run["id"], 30
@@ -249,7 +250,7 @@ async def test_final_assembly_reselects_before_call(manager):
 
 
 async def test_attempt_accounting_retry_unknown_and_replay(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(failures=1)).start()
+    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(failures=1), build).start()
     try:
         run = await complete(manager)
         assert run["status"] == "succeeded"
@@ -311,7 +312,7 @@ async def test_budget_and_no_feasible(manager):
 
 
 async def test_cancel_and_deadline(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=0.5)).start()
+    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=0.5), build).start()
     try:
         run = await manager.submit(RunRequest())
         while not await manager.memory.records(run["id"], "attempt"):
@@ -332,7 +333,7 @@ async def test_interrupted_startup(tmp_path):
     run, _ = await memory.create_run(RunRequest(), "fixture")
     await memory.update_run(run["id"], status="running")
     await memory.close()
-    manager = await Manager(Config(data_dir=tmp_path)).start()
+    manager = await Manager(Config(data_dir=tmp_path), adapter=build).start()
     try:
         assert (await manager.memory.run(run["id"]))["status"] == "interrupted"
         assert not await manager.memory.records(run["id"], "attempt")
@@ -379,7 +380,7 @@ async def test_external_measurement_fixture(manager):
 
 
 async def test_shutdown_active_run_is_interrupted(tmp_path):
-    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=5)).start()
+    manager = await Manager(Config(data_dir=tmp_path), ScriptedBackend(delay=5), build).start()
     run = await manager.submit(RunRequest())
     while not await manager.memory.records(run["id"], "attempt"):
         await asyncio.sleep(0.01)
@@ -455,7 +456,7 @@ async def test_harness_plans_without_a_delegation_request(tmp_path):
             return ModelResponse(message=message, usage=None, synthetic=True)
 
     config = Config(data_dir=tmp_path, delegation_tool=False)
-    manager = await Manager(config, Direct()).start()
+    manager = await Manager(config, Direct(), build).start()
     try:
         run = await manager.submit(
             RunRequest(task=Task(adapter="coding", fixture="ledger"), method="econocontext")
@@ -534,7 +535,7 @@ async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
             )
 
     config = Config(data_dir=tmp_path, delegation_tool=False)
-    manager = await Manager(config, Reader()).start()
+    manager = await Manager(config, Reader(), build).start()
     try:
         run = await manager.submit(
             RunRequest(
@@ -634,7 +635,7 @@ async def test_live_backend_contract_without_network(tmp_path, monkeypatch):
         pricing=Pricing(input_per_million=1, cached_per_million=0.25, output_per_million=2),
     )
     backend = OpenAIBackend(config, transport=httpx.MockTransport(endpoint))
-    manager = await Manager(config, backend).start()
+    manager = await Manager(config, backend, build).start()
     try:
         run = await complete(manager, "research", "react")
         assert run["verification"] == "verified", run
@@ -679,7 +680,7 @@ async def test_tool_timeout_is_recorded(tmp_path):
                 )
             return await super().complete(request, context)
 
-    manager = await Manager(Config(data_dir=tmp_path), TimeoutToolBackend()).start()
+    manager = await Manager(Config(data_dir=tmp_path), TimeoutToolBackend(), build).start()
     try:
         run = await complete(manager, method="react", limits=Limits(tool_timeout=0.05))
         attempts = await manager.memory.records(run["id"], "attempt")

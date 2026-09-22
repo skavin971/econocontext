@@ -4,7 +4,6 @@ import asyncio
 import time
 
 from . import representation
-from .adapters.local import LocalAdapter
 from .agent_loop import AgentLoop
 from .assembler import Assembler, token_count
 from .backends.openai import OpenAIBackend
@@ -55,7 +54,7 @@ OBSERVATIONS = {
 
 
 class Manager:
-    def __init__(self, config, backend=None):
+    def __init__(self, config, backend=None, adapter=None):
         if config.backend == "scripted" and config.pricing is None:
             config = config.model_copy(
                 update={
@@ -76,6 +75,9 @@ class Manager:
         self.backend = backend or (
             ScriptedBackend() if config.backend == "scripted" else OpenAIBackend(config)
         )
+        # The harness carries no domain knowledge: what tools exist, what
+        # verification means and where data comes from are the agent's business.
+        self.adapter_factory = adapter
         self.queue = asyncio.Queue()
         self.cancelled = set()
         self.active_id, self.active_task = None, None
@@ -166,7 +168,9 @@ class Manager:
             start=time.monotonic(),
         )
         await self.memory.update_run(run_id, status="running", started=now())
-        adapter = LocalAdapter(
+        if self.adapter_factory is None:
+            raise ValueError("Manager needs an adapter factory; see econocontext.Harness")
+        adapter = self.adapter_factory(
             request.task,
             self.config.data_dir / "workspaces" / run_id,
             self.memory,

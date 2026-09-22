@@ -21,9 +21,9 @@ finding -- and prices those alternatives before choosing.
 Nothing starts a server or opens a database on import.
 """
 
-from .adapters import DomainAdapter
 from .config import Config, Pricing
 from .contracts import Limits, RunRequest, Task
+from .domain import DomainAdapter
 from .manager import Manager
 
 __version__ = "0.1.0"
@@ -45,8 +45,12 @@ class Harness(Manager):
     """The library entry point: a task is a prompt, some data, and constraints."""
 
     @classmethod
-    async def open(cls, config=None, backend=None):
-        return await cls(config or Config.from_env(), backend).start()
+    async def open(cls, config=None, backend=None, adapter=None):
+        """Start a harness. `adapter` builds the domain agent for each run;
+        the default bundle is used when none is given."""
+        if adapter is None:
+            from agents import build as adapter
+        return await cls(config or Config.from_env(), backend, adapter).start()
 
     async def submit(self, request=None, **task):
         """Accept either a built RunRequest or prompt/data/limits directly."""

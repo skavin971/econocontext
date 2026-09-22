@@ -25,6 +25,6 @@ The default local text corpus is reproducible and verified deterministically. A 
 
 ## Later integrations
 
-An ACM runner can wrap its existing model/tool calls using the public `Telemetry` interface, as demonstrated by `examples/external_runner.py`. No adoption of the EconoContext planner is required. A future Context-Folding integration would similarly preserve the execution/measurement boundary while explicitly accounting for additional model actions and training differences.
+An ACM runner can wrap its existing model/tool calls using the public `Telemetry` interface directly. No adoption of the EconoContext planner is required. A future Context-Folding integration would similarly preserve the execution/measurement boundary while explicitly accounting for additional model actions and training differences.
 
 ACM and Context-Folding are not implemented baselines here. Their current checkpoint/environment support must be checked at integration time; this MVP makes no support or reproduction claims about their repositories.

@@ -7,17 +7,17 @@ ruff check .
 ruff format --check .
 pytest -q
 python -m build --no-isolation
-econocontext demo
+econocontext run --fixture ledger --method econocontext
 docker compose up --build   # container starts and serves /health; not exercised as part of automated checks
 ```
 
 ## Results
 
 - `ruff check .` — all checks passed.
-- `ruff format --check .` — 28 files already formatted.
-- `pytest -q` — **25 passed**, 0 failed, 0 skipped.
+- `ruff format --check .` — all files already formatted.
+- `pytest -q` — **27 passed**, 0 failed, 0 skipped.
 - `python -m build --no-isolation` — produced `dist/econocontext-0.1.0-py3-none-any.whl` and `dist/econocontext-0.1.0.tar.gz`.
-- `econocontext demo` — ran coding and research fixtures under both `react` and `econocontext`, all four verified. Full output saved at `examples/demo_report.json`.
+- Fixture runs under both `react` and `econocontext` verified end to end.
 - Docker is installed and running locally; the image builds and the API starts under `docker compose up --build`, but no additional checks beyond a running `/health` were exercised through the container.
 
 ## What the test suite covers
@@ -36,11 +36,16 @@ docker compose up --build   # container starts and serves /health; not exercised
 - Cross-run isolation — no reuse of results or workers across separate runs.
 - Parent integration headroom rejecting delegation when the parent lacks capacity.
 - The live OpenAI-compatible backend's request/response contract, checked against a mock HTTP transport (no network call, no paid model).
-- The external-run measurement fixture (`examples/external_runner.py`'s interface), independent of the planner.
+- The measurement interface, usable independently of the planner.
 
-## What `examples/demo_report.json` shows
+## What the live runs showed
 
-Four runs from an actual `econocontext demo` execution: coding/`react`, coding/`econocontext`, research/`react`, research/`econocontext`. All are `status: succeeded` and `verification: verified`. The two `econocontext`-method runs additionally report per-operation `comparisons` — predicted versus actual cost, tokens, and latency for the selected `FRESH`/`FOCUSED` and `REUSE` candidates, with signed `cost_error`/`latency_error`. These are synthetic scripted-backend numbers (`"synthetic": true`); they demonstrate the measurement and prediction plumbing works, not real model quality or cost savings.
+Against `google/gemini-3.5-flash` on the `ledger` fixture, delegation replaced
+observations with bounded views plus a finding: 3,006 tokens became 1,093, and
+3,059 became 1,391 — 55-64% less root context for the same answered call. Those
+runs did not complete the task: the root still overflowed because most
+delegations were abandoned, and the reasons are now recorded as
+`operation_abandoned` events. Reported spend was $0.1986 and $0.2565.
 
 ## Not verified here
 

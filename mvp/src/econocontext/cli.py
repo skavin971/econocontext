@@ -57,14 +57,11 @@ async def run(args):
     config = Config.from_env()
     if args.data_dir:
         config.data_dir = Path(args.data_dir)
-    if args.command in ("run", "demo"):
-        manager = await Manager(config).start()
+    if args.command == "run":
+        from agents import build
+
+        manager = await Manager(config, adapter=build).start()
         try:
-            tasks = (
-                [(a, m) for a in ("coding", "research") for m in ("react", "econocontext")]
-                if args.command == "demo"
-                else [(args.adapter, args.method)]
-            )
             overrides = {
                 field: getattr(args, field, None)
                 for field in (
@@ -80,33 +77,29 @@ async def run(args):
                 )
                 if getattr(args, field, None) is not None
             }
-            reports = []
-            for adapter, method in tasks:
-                task = Task(adapter=adapter)
-                if args.command == "run":
-                    task = (
-                        Task.model_validate_json(Path(args.task).read_text())
-                        if args.task
-                        else Task(
-                            adapter=adapter,
-                            prompt=args.prompt,
-                            data=args.data,
-                            commit=args.commit,
-                            fixture=args.fixture,
-                        )
-                    )
-                request = RunRequest(task=task, method=method)
-                if overrides:
-                    request = request.model_copy(
-                        update=dict(limits=request.limits.model_copy(update=overrides))
-                    )
-                if getattr(args, "step", False):
-                    manager.memory.observer = stepper(
-                        manager.memory, config, request.limits.model_dump(mode="json")
-                    )
-                run = await manager.submit(request)
-                final = await manager.wait(run["id"])
-                reports.append(dict(run=final, metrics=await manager.telemetry.metrics(run["id"])))
+            task = (
+                Task.model_validate_json(Path(args.task).read_text())
+                if args.task
+                else Task(
+                    adapter=args.adapter,
+                    prompt=args.prompt,
+                    data=args.data,
+                    commit=args.commit,
+                    fixture=args.fixture,
+                )
+            )
+            request = RunRequest(task=task, method=args.method)
+            if overrides:
+                request = request.model_copy(
+                    update=dict(limits=request.limits.model_copy(update=overrides))
+                )
+            if args.step:
+                manager.memory.observer = stepper(
+                    manager.memory, config, request.limits.model_dump(mode="json")
+                )
+            run = await manager.submit(request)
+            final = await manager.wait(run["id"])
+            reports = [dict(run=final, metrics=await manager.telemetry.metrics(run["id"]))]
             output(reports)
             if any(r["run"]["status"] != "succeeded" for r in reports):
                 raise SystemExit(1)
@@ -192,7 +185,6 @@ def main():
     runner.add_argument(
         "--step", action="store_true", help="Narrate each component handoff and pause between them"
     )
-    sub.add_parser("demo")
     profiles = sub.add_parser("profiles")
     profiles.add_argument("run_ids", nargs="+")
     profiles.add_argument("--output", required=True)

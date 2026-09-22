@@ -2,8 +2,8 @@
 
 from typing import Any, TypedDict
 
-from .adapters import DomainAdapter
 from .contracts import Evidence, Limits, Result, Worker
+from .domain import DomainAdapter
 
 
 class ExecutionState(TypedDict, total=False):

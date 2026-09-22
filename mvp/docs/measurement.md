@@ -32,7 +32,7 @@ Neither cache reads nor observed misses reveal physical KV eviction. No engine i
 
 ## External runner integration
 
-`examples/external_runner.py` runs without the planner. Create a run/session; call `Telemetry.begin` immediately before each actual model/tool attempt and `finish` after success, failure or cancellation. Supply stable IDs for replayable ingestion. Preserve raw usage and mark missing usage as unknown. Disable hidden retries in the external client or wrap each underlying attempt separately. No ACM checkout is assumed.
+`Telemetry` can be used without the planner. Create a run/session; call `Telemetry.begin` immediately before each actual model/tool attempt and `finish` after success, failure or cancellation. Supply stable IDs for replayable ingestion. Preserve raw usage and mark missing usage as unknown. Disable hidden retries in the external client or wrap each underlying attempt separately. No ACM checkout is assumed.
 
 ## Endpoint contract checked
 

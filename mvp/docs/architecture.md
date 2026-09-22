@@ -68,6 +68,6 @@ The focused view contains required evidence plus at most two direct lexical matc
 
 ## Inspect a complete operation
 
-`examples/operation_handoff.json` comes from an executed synthetic demo. It includes the root operation request, candidate predictions, selected plan, exact child request/manifest, stored result, the root integration request, and predicted-versus-actual measurements. The same demo then reuses the result through the shorter path.
+`econocontext run --step` walks one run component by component as it happens, and `econocontext explain RUN_ID` renders a finished one: evidence written to the store, each assembled prompt, every candidate with its estimate and rejection reasons, the child's own prompt, and what the root received back.
 
 At runtime, inspect `/runs/{id}/trace`, `/runs/{id}/metrics`, or `econocontext export`. Reconstruct any actual request with `econocontext reconstruct MANIFEST_HASH`. Reconstructed inputs are exact retained requests; repeated model outputs or provider tokenization are not guaranteed.

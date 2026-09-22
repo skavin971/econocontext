@@ -20,7 +20,9 @@ def create_app(config=None, backend=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        app.state.manager = await Manager(config, backend).start()
+        from agents import build
+
+        app.state.manager = await Manager(config, backend, build).start()
         try:
             yield
         finally:
