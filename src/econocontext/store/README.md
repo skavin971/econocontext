@@ -1,6 +1,8 @@
 # store — versioned run state
 
-Owned by the schema workstream.
+Owned by the schema workstream. **The assignment is in
+[docs/WORKSTREAM-STORE.md](../../../docs/WORKSTREAM-STORE.md)** — what is missing and what each
+gap blocks. This file is how to work in the code.
 
 Everything a run learns lands here: what it read, what it decided, what each
 call cost. The planner is only as good as what this can tell it, so the shape of
@@ -41,7 +43,7 @@ and `get()` re-hashes on read, so corruption is caught rather than served.
 content-addressed, so re-reading a changed file creates a *new* evidence row;
 `bindings` advances to point at it. Everything the planner knows about staleness
 comes from comparing an operation's recorded `bindings` against current ones
-(`MemoryStore.compatible`). Get this wrong and REPAIR and REUSE become unsound.
+(`MemoryStore.compatible`). Get this wrong and REUSE and CONTINUE become unsound.
 
 ## Where to start
 

@@ -5,6 +5,9 @@ Owned by the agent workstream.
 EconoContext is a harness: it decides *where* work runs, *what state* it sees
 and *how* it proceeds. It carries no idea what the work is. That is here.
 
+**The assignment is in [docs/WORKSTREAM-AGENTS.md](../../docs/WORKSTREAM-AGENTS.md)** — what to build
+next and the measurements that say why. This file is how to work in the code.
+
 ## The shape
 
 ```
@@ -40,7 +43,7 @@ snapshot-copied so a failed run never touches the caller's files), workspace pat
 containment, bounded subprocess execution, `read`, `search`, and `refresh()`.
 
 **`refresh()` is not optional.** After anything that changes a file, call it. The
-store detects staleness by comparing source versions, and REPAIR and REUSE are
+store detects staleness by comparing source versions, and REUSE and CONTINUE are
 only sound if it knows what moved. `CodingAgent.execute` calls it after every
 `apply_patch` for exactly this reason.
 
