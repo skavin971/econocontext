@@ -6,8 +6,8 @@ and `truncated` says so on the payload's face. A call is never answered by a
 different result -- only by less of its own.
 """
 
-from .assembler import token_count
-from .contracts import canonical
+from ..assembler import token_count
+from ..contracts import canonical
 
 # The one unbounded field per tool. Everything else -- exit codes, evidence ids,
 # paths -- is decisive at any size and is delivered whole.

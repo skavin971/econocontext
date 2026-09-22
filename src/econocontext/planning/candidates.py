@@ -1,5 +1,5 @@
-from .contracts import CandidatePlan, Mode, Operation
-from .state import CandidateMatches, ExecutionState
+from ..contracts import CandidatePlan, Mode, Operation
+from ..state import CandidateMatches, ExecutionState
 
 
 class CandidateGenerator:

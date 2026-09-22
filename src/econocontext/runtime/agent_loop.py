@@ -6,7 +6,7 @@ import time
 
 import httpx
 
-from .contracts import FeasibilityError, canonical
+from ..contracts import FeasibilityError, canonical
 
 
 def backoff(exc, attempt_index):

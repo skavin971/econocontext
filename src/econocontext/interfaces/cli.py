@@ -3,11 +3,11 @@ import asyncio
 import json
 from pathlib import Path
 
-from .config import Config
-from .contracts import RunRequest, Task
-from .manager import Manager
-from .memory import MemoryStore
-from .telemetry import Telemetry, build_profiles
+from ..config import Config
+from ..contracts import RunRequest, Task
+from ..runtime.manager import Manager
+from ..runtime.telemetry import Telemetry, build_profiles
+from ..store.memory import MemoryStore
 
 
 def output(data, path=None):
@@ -20,7 +20,7 @@ def output(data, path=None):
 
 def stepper(memory, config, limits):
     """Narrate each event as it is written, pausing so one run can be walked."""
-    from .assembler import Assembler
+    from ..assembler import Assembler
     from .explain import Narrator
 
     narrator = Narrator(

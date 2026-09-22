@@ -7,8 +7,8 @@ import signal
 import sys
 from pathlib import Path
 
+from econocontext.agent import STRING, STRINGS, controls, tool
 from econocontext.contracts import canonical
-from econocontext.domain import STRING, STRINGS, controls, tool
 
 from .fixtures import BUGGY, CORPUS, DEFAULT_FIXTURE, GOALS, LEDGER, LEDGER_VERIFY
 

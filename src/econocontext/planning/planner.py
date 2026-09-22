@@ -1,7 +1,7 @@
 import time
 
+from ..contracts import FeasibilityError, Mode, Worker, digest
 from .candidates import CandidateGenerator
-from .contracts import FeasibilityError, Mode, Worker, digest
 from .cost_model import CostModel
 from .optimizer import Optimizer
 

@@ -4,7 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .contracts import canonical
+from ..contracts import canonical
 
 
 class Artifacts:

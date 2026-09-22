@@ -7,9 +7,9 @@ from pathlib import Path
 
 import aiosqlite
 
+from ..contracts import Evidence, Operation, Result, Worker, digest, now, uid
+from ..state import CandidateMatches, ExecutionState
 from .artifacts import Artifacts
-from .contracts import Evidence, Operation, Result, Worker, digest, now, uid
-from .state import CandidateMatches, ExecutionState
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY);

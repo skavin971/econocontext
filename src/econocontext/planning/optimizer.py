@@ -1,4 +1,4 @@
-from .contracts import CandidatePlan, Estimate, FeasibilityError, Limits, Mode
+from ..contracts import CandidatePlan, Estimate, FeasibilityError, Limits, Mode
 
 
 class Optimizer:

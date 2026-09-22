@@ -18,10 +18,10 @@ finding -- and prices those alternatives before choosing.
 Nothing starts a server or opens a database on import.
 """
 
+from .agent import DomainAdapter
 from .config import Config, Pricing
 from .contracts import Limits, RunRequest, Task
-from .domain import DomainAdapter
-from .manager import Manager
+from .runtime.manager import Manager
 
 __version__ = "0.1.0"
 

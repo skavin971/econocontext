@@ -6,7 +6,7 @@ import statistics
 from collections import defaultdict
 from datetime import datetime
 
-from .contracts import digest, now, uid
+from ..contracts import digest, now, uid
 
 
 def normalize(raw):

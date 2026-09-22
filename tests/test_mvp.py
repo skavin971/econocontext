@@ -5,14 +5,14 @@ import httpx
 import pytest
 
 from agents import build
-from econocontext.api import create_app
 from econocontext.assembler import FeasibilityError, validate_protocol
 from econocontext.backends.scripted import ScriptedBackend
 from econocontext.config import Config, Pricing
 from econocontext.contracts import Limits, Mode, Operation, RunRequest, Task, Worker
-from econocontext.manager import Manager
-from econocontext.memory import MemoryStore
-from econocontext.telemetry import build_profiles, normalize
+from econocontext.interfaces.api import create_app
+from econocontext.runtime.manager import Manager
+from econocontext.runtime.telemetry import build_profiles, normalize
+from econocontext.store.memory import MemoryStore
 
 
 @pytest.fixture
@@ -489,7 +489,7 @@ async def test_delegated_answer_is_smaller_than_the_literal_one(tmp_path):
 
     from econocontext.assembler import token_count
     from econocontext.contracts import ModelResponse
-    from econocontext.representation import message as tool_message
+    from econocontext.planning.representation import message as tool_message
 
     class Reader:
         """Reads two large modules, then finishes. Never asks to delegate."""

@@ -3,13 +3,11 @@
 import asyncio
 import time
 
-from . import representation
-from .agent_loop import AgentLoop
-from .assembler import Assembler, token_count
-from .backends.compatible import CompatibleBackend
-from .backends.scripted import ScriptedBackend
-from .config import Pricing
-from .contracts import (
+from ..assembler import Assembler, token_count
+from ..backends.compatible import CompatibleBackend
+from ..backends.scripted import ScriptedBackend
+from ..config import Pricing
+from ..contracts import (
     FeasibilityError,
     Mode,
     Operation,
@@ -21,8 +19,10 @@ from .contracts import (
     canonical,
     now,
 )
-from .memory import MemoryStore
-from .planner import Planner
+from ..planning import representation
+from ..planning.planner import Planner
+from ..store.memory import MemoryStore
+from .agent_loop import AgentLoop
 from .telemetry import Telemetry
 
 # A tool request supplies the lookup keys for the operation it implies: its name,

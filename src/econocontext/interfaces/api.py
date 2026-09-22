@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 
-from .config import Config
-from .contracts import (
+from ..config import Config
+from ..contracts import (
     CancelView,
     HealthView,
     MetricsView,
@@ -12,7 +12,7 @@ from .contracts import (
     RunView,
     TracePage,
 )
-from .manager import Manager
+from ..runtime.manager import Manager
 
 
 def create_app(config=None, backend=None):
