@@ -70,7 +70,7 @@ Placeholders are marked in the code: `grep -rn "# PLACEHOLDER:"` lists them.
 
 - **`econocontext/pricing/ledger.py`: actual cost per call and per run.**
   - It saves token counts today; the cost columns are empty.
-  - The file's docstring gives the steps, and `tests/unit/test_ledger.py` holds the acceptance tests.
+  - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
   - Until it is built, only the step limit caps a paid run.
 - **`econocontext/planner/jev_planner.py`: Jev as the predictor of whether a tool result will be needed again.**
   - It is used only with `--jev`; without it the planner uses the fixed guess.

@@ -8,9 +8,10 @@ WHAT THE TWO TRACKS ARE
         config/econocontext.yaml -> predictor.kind_need_again. Code:
         econocontext/pricing/predictor.py.
     Track "econo+jev" (only with --jev)
-        The planner asks Jev instead: econocontext/planner/jev_planner.py.
-        That file is EMPTY until someone builds it (instructions inside). Until then a
-        --jev run falls back to the fixed guess and records why.
+        The planner asks econocontext/planner/jev_planner.py instead. It receives the
+        same inputs as the original planner (the result, its tool call, the full
+        window and planning context). Not built yet: its docstring is the spec.
+        Until it is built, a --jev run falls back to the fixed guess and records why.
 
     Either way the number only enters the POINTER option's cost:
         expected re-read cost = p_need_again x full tokens of the tool result.
@@ -23,7 +24,7 @@ WHAT THE TWO TRACKS ARE
    POINTER cost when present, a failing or unbuilt Jev falls back safely, and each
    run records whether Jev was on.
 
-2. ONE REAL JEV CALL (needs TYPESAFE_API_KEY in .env and a built jev_planner.py)
+2. ONE REAL JEV CALL THROUGH THE ENGINE (needs TYPESAFE_API_KEY in .env and a built jev_planner.py)
         set -a; . ./.env; set +a
         .venv/bin/python -m pytest -m live tests/test_planner_jev.py -v
    Passing means: Jev answered with a probability between 0 and 1.
@@ -86,15 +87,18 @@ def test_with_jev_its_number_is_used_and_the_guess_is_still_logged(make, monkeyp
     import json
     seen = {}
 
-    def fake_jev(tool_result_text, tool_call, task_text):
-        seen.update(result=tool_result_text, call=tool_call, task=task_text)
+    def fake_jev(segment, event, ctx, cfg, prior):
+        seen.update(segment=segment, event=event, ctx=ctx, prior=prior)
         return 0.9
 
     monkeypatch.setattr(jev_planner, "p_need_again", fake_jev)
     row = admit(make(jev=True))
     pred = json.loads(row["prediction"])
     assert pred["source"] == "jev" and pred["p_need_again"] == 0.9 and pred["prior"] < 0.3
-    assert seen["result"] == BIG and "read_file" in seen["call"] and "Fix the bug" in seen["task"]
+    # Jev gets what the original planner gets: the result, its tool call, and the full window.
+    assert seen["segment"].text == BIG and seen["event"].tool_name == "read_file"
+    assert any("Fix the bug" in s.text for s in seen["ctx"].window)
+    assert seen["prior"] == pred["prior"]
     tokens = -(-len(BIG) // 4)
     assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(0.9 * tokens)
 
@@ -124,10 +128,15 @@ def test_a_jev_run_is_recorded_as_such(make):
 @pytest.mark.live
 @pytest.mark.skipif(not os.environ.get("TYPESAFE_API_KEY"), reason="no TYPESAFE_API_KEY")
 def test_one_real_jev_call():
-    try:
-        p = jev_planner.p_need_again("def parse_items(x):\n    return x\n",
-                                     "read_file /testbed/src/app.py",
-                                     "Fix the bug in parse_items so it splits on commas.")
-    except NotImplementedError:
+    """One real call through the engine, on the same plain-data window as the unit tests."""
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        eco = EconoContext(str(CONFIG_DIR), FakeHost(), "run-1", host_name="test", arm="econo",
+                           db_path=f"{tmp}/db.sqlite3", mode="observe", jev=True)
+        eco.plan_prompt("run-1:root", HostRequest("run-1:root", conversation()))
+        pred = json.loads(admit(eco)["prediction"])
+    if "not built" in pred["source"]:
         pytest.skip("jev_planner.p_need_again is not built yet")
-    assert 0.0 <= p <= 1.0
+    assert pred["source"] == "jev", pred["source"]  # otherwise it shows why Jev failed
+    assert 0.0 <= pred["p_need_again"] <= 1.0

@@ -179,9 +179,8 @@ class EconoContext:
             if event.side_effect:
                 self.registry.mark_side_effect(agent_id)
             preview = pointer_text(segment, "<path>", self.cfg["planner"]["pointer_preview_lines"])
-            window = self.registry.window(agent_id)
-            ctx = self._context(agent_id, Intercept.ADMIT_TOOL_RESULT, window)
-            prediction = self._predict(segment, event, window)
+            ctx = self._context(agent_id, Intercept.ADMIT_TOOL_RESULT, self.registry.window(agent_id))
+            prediction = self._predict(segment, event, ctx)
             decision = select(planner.for_tool_result(ctx, self.cfg, segment, count_tokens(preview),
                                                       prediction["p_need_again"]),
                               ctx, self.config.constraints, self.cfg)
@@ -199,7 +198,7 @@ class EconoContext:
                                        ms, error)
         return result
 
-    def _predict(self, segment: Segment, event: ToolResultEvent, window: list[Segment]) -> dict:
+    def _predict(self, segment: Segment, event: ToolResultEvent, ctx: PlanContext) -> dict:
         """p_need_again for a tool result: the fixed guess, or Jev when the run uses --jev.
 
         Both numbers are logged (decisions.prediction), so the two tracks can be compared.
@@ -208,10 +207,8 @@ class EconoContext:
         prior = planner.prior_p_need_again(segment, self.cfg)
         if not self.jev:
             return dict(p_need_again=prior, source="prior", prior=prior)
-        task = next((s.text for s in window if s.kind == SegmentKind.TASK), "")
         try:
-            p = float(jev_planner.p_need_again(segment.text, f"{event.tool_name} {event.source or ''}",
-                                               task))
+            p = float(jev_planner.p_need_again(segment, event, ctx, self.cfg, prior))
             if not 0.0 <= p <= 1.0:
                 raise ValueError(f"Jev returned {p}, not a probability")
             return dict(p_need_again=p, source="jev", prior=prior)

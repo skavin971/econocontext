@@ -41,8 +41,9 @@ They start running once `econocontext/pricing/ledger.py` is built.
 ## 2. Planner with and without Jev
 
 See the top of [`tests/test_planner_jev.py`](../tests/test_planner_jev.py): it
-explains both tracks and gives every command. To build Jev, follow the numbered
-steps in [`econocontext/planner/jev_planner.py`](../econocontext/planner/jev_planner.py).
+explains both tracks and gives every command. The spec for the Jev module (inputs,
+contract, API, constraints) is the docstring of
+[`econocontext/planner/jev_planner.py`](../econocontext/planner/jev_planner.py).
 
 ## 3. One SWE-bench instance: paid, about $0.10 and a few minutes
 

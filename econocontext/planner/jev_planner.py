@@ -1,86 +1,57 @@
-"""Jev planner: ask Jev how likely a tool result is to be needed again later.
+"""Jev planner: predicts whether a tool result will be needed again. Not built yet.
 
-STATUS: empty. `p_need_again` below raises NotImplementedError until you build it.
-While it is empty, runs made with --jev fall back to the fixed guesses and log why.
+Called by `EconoContext._predict` (engine.py) at `admit_tool_result`, only in runs
+started with `--jev`. It replaces the fixed guess `planner.prior_p_need_again`
+(config `predictor.kind_need_again`: 0.3 for a tool result, scaled down above
+`planner.pointer_min_tokens`). It gets the same inputs the original planner has.
 
-------------------------------------------------------------------------------
-WHAT THIS IS FOR
-------------------------------------------------------------------------------
-Every time a tool returns a result (a file read, a grep, a test run), the planner
-needs one number: p_need_again, the probability (0 to 1) that the agent will need
-this exact content again later in the task.
+Contract
+    Return p in [0, 1]: the probability the agent needs this result's content again
+    later in the task. The engine uses it in the POINTER candidate's cost
+    (prepare += p x segment.tokens; see pricing/cost_model.py). Raise on any
+    failure: the engine falls back to `prior`, logs the reason, and the agent
+    keeps running. Every decision logs {p_need_again, source, prior} in
+    `decisions.prediction`, so --jev and non-Jev runs can be compared.
 
-Without Jev (the default), that number is a fixed guess from
-config/econocontext.yaml -> predictor.kind_need_again (0.3 for every tool result,
-scaled down for results over 2,000 tokens). See pricing/predictor.py.
+Inputs
+    segment  the new tool result (text, tokens, kind, source path, pair_id)
+    event    the tool call behind it (tool_name, args_key, source, reads, side_effect)
+    ctx      the planning context (types.PlanContext):
+               window           this agent's full window as sent on its last model
+                                call: system, tools, task, every message, tool call
+                                and tool result so far, in order. It does not yet
+                                contain `segment` or the assistant turn that
+                                requested it (both arrive with the next model call).
+               agent            AgentNode: turns taken, parent, read_set, side_effect
+               remaining_turns  the cost model's estimate of turns left
+               current_versions source -> version (what has been edited since)
+    cfg      the loaded config/econocontext.yaml (add a `jev:` section for your knobs)
+    prior    the fixed guess for this segment, if you want it as a feature
 
-With --jev, the planner calls p_need_again() below instead. The number is used in
-the cost of the POINTER option: expected re-read cost = p_need_again x full tokens.
-Nothing else in the cost formula changes.
+Jev API (docs.typesafe.ai/api.md, read 2026-09-27)
+    POST https://api.typesafe.ai/v1/systemone, Authorization: Bearer $TYPESAFE_API_KEY
+    {"model": "jev-latest", "state": <str | object>,
+     "questions": {"needed_again": {"type": "noul", "instructions": "..."}}}
+    -> {"answers": {"needed_again": {"type": "noul", "noul": 0.82}}, "usage": {...}}
+    Errors 401/422/429/529; back off on 429/529. Context limit 32K tokens per
+    AI/ML API's page (TODO: verify). Price $0.042/MTok input, output free.
 
-Jev (TypeSafe AI) is a "decision model": you send it some text (the "state") and
-typed questions; it answers each with a probability instead of generated text.
+Constraints
+    - Core rule: standard library only (urllib), no provider SDK; test_isolation.py
+      enforces the SDK part.
+    - Key from the environment only; never log it or put it in exceptions.
+    - Keep it fast (it runs on every tool result): short timeout, truncate `state`.
+    - Jev's own cost is not counted in run cost (out of scope for now).
 
-------------------------------------------------------------------------------
-HOW TO BUILD IT (about 30 lines, standard library only, no new dependency)
-------------------------------------------------------------------------------
-1. Get a TypeSafe API key and put it in the .env file at the repository root:
-       TYPESAFE_API_KEY=...
-   The run scripts load .env for you. NEVER print, log or commit the key.
-
-2. Send one HTTP request with urllib.request (standard library):
-       POST https://api.typesafe.ai/v1/systemone
-       headers: Authorization: Bearer <key>,  Content-Type: application/json
-       body:
-       {
-         "model": "jev-latest",
-         "state": "TASK:\\n<task_text>\\n\\nTOOL CALL:\\n<tool_call>\\n\\nRESULT:\\n<tool_result_text>",
-         "questions": {
-           "needed_again": {
-             "type": "noul",
-             "instructions": "Will the agent need the specific content of this tool
-                              result again later in this task (to edit it, quote it,
-                              or reason about its exact lines)?"
-           }
-         }
-       }
-   ("noul" is Jev's yes/no question type.)
-
-3. The reply looks like this. Return answers.needed_again.noul (a float 0-1):
-       {
-         "model": "jev-...",
-         "answers": {"needed_again": {"type": "noul", "noul": 0.82}},
-         "usage": {"input_tokens": 1234, "output_tokens": 0}
-       }
-
-4. Keep it safe:
-   - Truncate long text first: the state must fit Jev's context (32K tokens per
-     AI/ML API's page; TODO: verify on docs.typesafe.ai). About 4 characters is
-     1 token, so cutting the result to ~60,000 characters is plenty.
-   - Use a short timeout (e.g. 10 s). On any error just raise: the engine catches
-     it and falls back to the fixed guess, and the agent keeps running.
-   - On HTTP 429 or 529 (rate limit / overloaded) you may retry once after a pause.
-
-5. Test it:
-       .venv/bin/python -m pytest tests/test_planner_jev.py -v          (no key needed)
-       set -a; . ./.env; set +a
-       .venv/bin/python -m pytest -m live tests/test_planner_jev.py -v  (one real Jev call)
-
-6. Run both tracks on the same instance and compare (see tests/test_planner_jev.py
-   for the exact commands), then:
-       .venv/bin/python scripts/report.py --label <your label>
-   Runs with --jev are listed as "econo+jev", runs without as "econo".
-   Each tool-result decision in the DB (decisions.candidates) records p_need_again
-   and where it came from ("prior", "jev", or "prior (jev failed: ...)").
-
-API reference: https://docs.typesafe.ai/api.md (read 2026-09-27).
-Jev's own cost is NOT counted in run cost for now.
-------------------------------------------------------------------------------
+Test
+    tests/test_planner_jev.py: unit tests (Jev faked), one live call (-m live), and
+    the commands to run both tracks on SWE-bench and compare them in report.py.
 """
 
+from ..types import PlanContext, Segment, ToolResultEvent
 
-def p_need_again(tool_result_text: str, tool_call: str, task_text: str) -> float:
-    """Probability (0-1) that the agent will need this tool result again. See steps above."""
-    # PLACEHOLDER: not built yet. Build it by following steps 1-6 in the module docstring.
-    raise NotImplementedError("jev_planner.p_need_again is not built yet: "
-                              "see econocontext/planner/jev_planner.py")
+
+def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg: dict,
+                 prior: float) -> float:
+    # PLACEHOLDER: not built. See the contract above.
+    raise NotImplementedError("jev_planner.p_need_again is not built yet")
