@@ -1,0 +1,138 @@
+# Provider price cards.
+#
+# Rules (PLAN.md section 4):
+# - Only numbers read from an official page we opened; each card names that page
+#   and the date it was read. A field we could not verify is null with "# TODO: verify".
+# - Prices that depend on prompt length are recorded as tiers, never averaged.
+# - Prices that change on a date are recorded as periods; the ledger picks the
+#   period by the date of the call.
+# - All prices are USD per 1M tokens unless the key says otherwise.
+#
+# econocontext/pricing/rates.py turns a card into ratios relative to that model's
+# uncached input price (1 NU = one uncached input token of the model in use).
+
+vertex_gemini:
+  gemini-3.6-flash:
+    source_url: "https://cloud.google.com/vertex-ai/generative-ai/pricing"
+    retrieved_on: "2026-09-27"
+    endpoint: global                      # non-global endpoints are 10% more (same page)
+    caching_source_url: "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/context-cache/context-cache-overview"
+    # "Implicit caching provides a 90% discount on cached tokens"; Gemini 3.6 Flash
+    # is listed under implicit-caching supported models (read 2026-09-27).
+    implicit_cache_discount_applies: true
+    # "Minimum cache token count ... Gemini 3 family models: 4,096 tokens".
+    min_cacheable_tokens: 4096
+    # Explicit caches bill storage: $0.000001 per token-hour = $1 per 1M token-hours.
+    explicit_cache_storage_per_mtok_hour: 1.0
+    # Model page (docs.cloud.google.com/.../models/gemini/3-6-flash, read 2026-09-27).
+    context_window_tokens: 1048576
+    max_output_tokens: 65536
+    periods:
+      # Promotional pricing, marked "* through December 31, 2026" on the page.
+      - valid_from: null
+        valid_until: "2026-12-31"
+        tiers:
+          # Columns on the page: <=200K and >200K input tokens (identical for this model).
+          - max_prompt_tokens: 200000
+            input_per_mtok: 0.75
+            output_per_mtok: 3.75          # "Text output (response and reasoning)"
+            cache_read_per_mtok: 0.075
+            # "you're billed for the input tokens used to create the cache at the
+            # standard input token price" (caching overview): writes cost input price.
+            cache_write_per_mtok: 0.75
+          - max_prompt_tokens: null        # > 200K
+            input_per_mtok: 0.75
+            output_per_mtok: 3.75
+            cache_read_per_mtok: 0.075
+            cache_write_per_mtok: 0.75
+      # Standard pricing, "starting January 1, 2027".
+      - valid_from: "2027-01-01"
+        valid_until: null
+        tiers:
+          - max_prompt_tokens: 200000
+            input_per_mtok: 1.50
+            output_per_mtok: 7.50
+            cache_read_per_mtok: 0.15
+            cache_write_per_mtok: 1.50
+          - max_prompt_tokens: null
+            input_per_mtok: 1.50
+            output_per_mtok: 7.50
+            cache_read_per_mtok: 0.15
+            cache_write_per_mtok: 1.50
+
+anthropic:
+  claude-sonnet-5:
+    source_url: "https://platform.claude.com/docs/en/about-claude/pricing"
+    retrieved_on: "2026-09-27"
+    caching_source_url: "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+    min_cacheable_tokens: 1024
+    periods:
+      - valid_from: null
+        valid_until: null
+        tiers:
+          # "Claude 4.6 and later models ... include the full 1M token context
+          # window at standard pricing": a single tier.
+          - max_prompt_tokens: null
+            input_per_mtok: 2.00           # footnote 3: $2/$10 is now the standard price
+            output_per_mtok: 10.00
+            cache_read_per_mtok: 0.20      # "Cache hits and refreshes"
+            cache_write_per_mtok: 2.50     # 5-minute cache writes (1.25x)
+            cache_write_1h_per_mtok: 4.00  # 1-hour cache writes (2x)
+  claude-opus-5-5:
+    source_url: "https://platform.claude.com/docs/en/about-claude/pricing"
+    retrieved_on: "2026-09-27"
+    caching_source_url: "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+    min_cacheable_tokens: 512
+    periods:
+      - valid_from: null
+        valid_until: null
+        tiers:
+          - max_prompt_tokens: null
+            input_per_mtok: 4.00
+            output_per_mtok: 20.00
+            cache_read_per_mtok: 0.20      # 0.05x base input on this model (footnote 2)
+            cache_write_per_mtok: 5.00
+            cache_write_1h_per_mtok: 8.00
+
+openai:
+  gpt-6-sol:
+    source_url: "https://developers.openai.com/api/docs/pricing"
+    retrieved_on: "2026-09-27"
+    caching_source_url: "https://developers.openai.com/api/docs/guides/prompt-caching"
+    # "GPT-5.6 and later: 1,024 visible input tokens" before a prefix qualifies.
+    min_cacheable_tokens: 1024
+    periods:
+      - valid_from: null
+        valid_until: null
+        tiers:
+          # The page shows "Short context" and "Long context" columns but does not
+          # state where long context begins.
+          - max_prompt_tokens: null        # TODO: verify the short/long threshold
+            input_per_mtok: 2.00
+            output_per_mtok: 10.00
+            cache_read_per_mtok: 0.20
+            cache_write_per_mtok: 2.50
+          - max_prompt_tokens: null        # long context (threshold: TODO: verify)
+            input_per_mtok: 4.00
+            output_per_mtok: 15.00
+            cache_read_per_mtok: 0.40
+            cache_write_per_mtok: 5.00
+  gpt-6-astra:
+    source_url: "https://developers.openai.com/api/docs/pricing"
+    retrieved_on: "2026-09-27"
+    caching_source_url: "https://developers.openai.com/api/docs/guides/prompt-caching"
+    min_cacheable_tokens: 1024
+    periods:
+      - valid_from: null
+        valid_until: null
+        tiers:
+          - max_prompt_tokens: null        # TODO: verify the short/long threshold
+            input_per_mtok: 10.00
+            output_per_mtok: 50.00
+            cache_read_per_mtok: 1.00
+            cache_write_per_mtok: 12.50
+          - max_prompt_tokens: null        # long context (threshold: TODO: verify)
+            input_per_mtok: 20.00
+            output_per_mtok: 75.00
+            cache_read_per_mtok: 2.00
+            cache_write_per_mtok: 25.00

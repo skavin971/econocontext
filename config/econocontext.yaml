@@ -1,0 +1,111 @@
+# EconoContext configuration. Every number that affects a decision lives here,
+# with a comment saying where it came from. "PLACEHOLDER" marks a judgement or a
+# first estimate that a later version will replace with a measured or learned value.
+
+# observe: compute and log every decision, but always return the host default.
+# autopilot: apply decisions. The first live run of any change must be observe.
+mode: observe
+
+model:
+  provider: vertex_gemini           # a key in billing_rates.yaml
+  name: gemini-3.6-flash
+  # Gemini 3 default; the 3.6 Flash model page says custom temperature values are
+  # ignored, so both arms run (and record) the default (read 2026-09-27).
+  temperature: 1.0
+
+objective: cost                     # cost | latency | balanced
+
+constraints:
+  max_cost_nu: null                 # no per-decision cap; the run-level budget guards spend
+  max_latency_ms: null              # not constrained: the latency model is a placeholder
+  max_quality_risk: 0.0             # autopilot starts with exact operators only
+  latency_weight: null              # NU per ms; required only when objective = balanced
+
+# Host defaults (AS_IS, RUN_TOOL, KEEP_FULL, FRESH) are always allowed.
+allowlist:
+  AS_IS: true
+  ZONED: true
+  COMMIT_PENDING: false             # approximate: changes what the model sees
+  RETRIEVE_FROM_STORE: false        # approximate; off by default
+  RUN_TOOL: true
+  ANSWER_FROM_STORE: true           # exact: byte-identical output, versions checked
+  KEEP_FULL: true
+  POINTER: false                    # approximate: the model must reopen the content
+  FRESH: true
+  REUSE_RESULT: true                # exact: same task key, unchanged read-set, no side effects
+
+# PLACEHOLDER: judgement values for approximate operators. Exact operators are 0.0.
+quality_risk:
+  POINTER: 0.2
+  COMMIT_PENDING: 0.2
+  RETRIEVE_FROM_STORE: 0.5
+
+planner:
+  # PLACEHOLDER: a knob, a tenth of Deep Agents' native 20,000-token eviction threshold
+  # (deepagents 0.7.19 FilesystemMiddleware); tune from observe-mode data.
+  pointer_min_tokens: 2000
+  pointer_preview_lines: 10         # head/tail lines shown in a pointer (5 + 5, as Deep Agents' own preview)
+  retrieve_limit: 5                 # search() default in the spec
+
+cost_model:
+  # PLACEHOLDER: mean output tokens per Gemini 3.6 Flash call in the v0 pilot
+  # (345 over 618 calls; v0/docs/runs/2026-09-25-live-study/pilot-gemini*).
+  expected_output_tokens: 345
+  # PLACEHOLDER: a delegated task's cost. v0 pilot helpers made 3.2-6.8 calls per
+  # delegation (median of four runs ~5) with a median 8,950 input tokens per call.
+  fresh_expected_calls: 5
+  fresh_expected_input_tokens_per_call: 8950
+
+predictor:
+  # PLACEHOLDER: half the median model calls (36) of the v0 pilot's solved Gemini runs.
+  remaining_turns_default: 18
+  # PLACEHOLDER: how likely a segment of each kind is needed again (0-1), before
+  # any history is learned. System, tools and task are always needed.
+  kind_need_again:
+    system: 1.0
+    tools: 1.0
+    task: 1.0
+    message: 0.5
+    tool_call: 0.3
+    tool_result: 0.3
+    subagent_result: 0.5
+
+latency:
+  # PLACEHOLDER: median of 10 probe calls, Gemini 3.6 Flash, ~2.9K-token prompt, 2026-09-26.
+  model_base_ms: 1400
+  ms_per_output_token: null         # PLACEHOLDER: calibrate from observe-mode outcomes
+  # PLACEHOLDER: median tool latency in the v0 pilot (32 ms over 549 calls, host-side
+  # tools); container tools will be slower and this will be re-measured.
+  tool_ms: 32
+  store_lookup_ms: 1                # an indexed SQLite lookup; well under a millisecond
+
+cache:
+  # PLACEHOLDER: Google publishes no implicit-cache lifetime. 300 s is a starting
+  # assumption only, corrected by the observed hit ratio.
+  ttl_seconds: 300
+
+guard:
+  # Measured, not enforced, in this version. v1's adapter decisions took ~0.5 ms.
+  decision_deadline_ms: 50
+
+limits:
+  # Gemini 3.6 Flash context window (model page, 2026-09-27).
+  window_max_tokens: 1048576
+  # Whole live comparison: v0 pilot runs cost $0.15-0.71 each; 5 instances x 2 arms + dev runs.
+  live_run_budget_usd: 15.0
+  per_instance_budget_usd: 2.0
+  # Model calls per instance (root agent), identical in both arms.
+  per_instance_step_limit: 100
+
+instances:
+  dataset: SWE-bench/SWE-bench_Verified
+  dev: [pytest-dev__pytest-5809]
+  comparison:                       # a pipeline check, not an effectiveness comparison
+    - psf__requests-2317
+    - pallets__flask-5014
+    - pylint-dev__pylint-4970
+    - pytest-dev__pytest-7432
+    - sphinx-doc__sphinx-8721
+
+storage:
+  db_path: data/econocontext.sqlite3   # created on first run; gitignored
