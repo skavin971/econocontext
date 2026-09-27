@@ -1,0 +1,53 @@
+{
+  "instance_id": "stephenhillier__starlette_exporter-70",
+  "repo": "stephenhillier/starlette_exporter",
+  "image": "swerebench/sweb.eval.x86_64.stephenhillier_1776_starlette_exporter-70",
+  "base_commit": "bc4c110899ee01c0f0d9c1ab367c5bc71488c032",
+  "test_patch": "diff --git a/tests/test_middleware.py b/tests/test_middleware.py\nindex 22059d5..1faa917 100644\n--- a/tests/test_middleware.py\n+++ b/tests/test_middleware.py\n@@ -603,8 +603,13 @@ class TestDefaultLabels:\n \n     def test_from_header_allowed_values_disallowed_value(self, testapp):\n         \"\"\"test with the library-provided from_header function\"\"\"\n+\n+        async def async_bar(request):\n+            return \"bar\"\n+\n         labels = {\n             \"foo\": from_header(\"foo\", allowed_values=(\"bar\", \"baz\")),\n+            \"bar\": async_bar,\n             \"hello\": \"world\",\n         }\n         client = TestClient(testapp(labels=labels))\n@@ -612,12 +617,12 @@ class TestDefaultLabels:\n         metrics = client.get(\"/metrics\").content.decode()\n \n         assert (\n-            \"\"\"starlette_requests_total{app_name=\"starlette\",foo=\"zounds\",hello=\"world\",method=\"GET\",path=\"/200\",status_code=\"200\"} 1.0\"\"\"\n+            \"\"\"starlette_requests_total{app_name=\"starlette\",bar=\"bar\",foo=\"zounds\",hello=\"world\",method=\"GET\",path=\"/200\",status_code=\"200\"} 1.0\"\"\"\n             not in metrics\n         ), metrics\n \n         assert (\n-            \"\"\"starlette_requests_total{app_name=\"starlette\",foo=\"\",hello=\"world\",method=\"GET\",path=\"/200\",status_code=\"200\"} 1.0\"\"\"\n+            \"\"\"starlette_requests_total{app_name=\"starlette\",bar=\"bar\",foo=\"\",hello=\"world\",method=\"GET\",path=\"/200\",status_code=\"200\"} 1.0\"\"\"\n             in metrics\n         ), metrics\n \n",
+  "FAIL_TO_PASS": [
+    "tests/test_middleware.py::TestDefaultLabels::test_from_header_allowed_values_disallowed_value"
+  ],
+  "PASS_TO_PASS": [
+    "tests/test_middleware.py::TestMiddleware::test_200",
+    "tests/test_middleware.py::TestMiddleware::test_500",
+    "tests/test_middleware.py::TestMiddleware::test_unhandled",
+    "tests/test_middleware.py::TestMiddleware::test_histogram",
+    "tests/test_middleware.py::TestMiddleware::test_histogram_custom_buckets",
+    "tests/test_middleware.py::TestMiddleware::test_app_name",
+    "tests/test_middleware.py::TestMiddleware::test_filter_unhandled_paths",
+    "tests/test_middleware.py::TestMiddleware::test_mounted_path",
+    "tests/test_middleware.py::TestMiddleware::test_mounted_path_with_param",
+    "tests/test_middleware.py::TestMiddleware::test_mounted_path_unhandled",
+    "tests/test_middleware.py::TestMiddleware::test_staticfiles_path",
+    "tests/test_middleware.py::TestMiddleware::test_prefix",
+    "tests/test_middleware.py::TestMiddleware::test_multi_init",
+    "tests/test_middleware.py::TestMiddleware::test_multi_prefix",
+    "tests/test_middleware.py::TestMiddleware::test_requests_in_progress",
+    "tests/test_middleware.py::TestMiddleware::test_skip_paths",
+    "tests/test_middleware.py::TestMiddleware::test_skip_methods",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_200",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_200_options",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_500",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_unhandled",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_staticfiles_path",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_404",
+    "tests/test_middleware.py::TestMiddlewareGroupedPaths::test_histogram",
+    "tests/test_middleware.py::TestBackgroundTasks::test_background_task_endpoint",
+    "tests/test_middleware.py::TestOptionalMetrics::test_response_body_size",
+    "tests/test_middleware.py::TestOptionalMetrics::test_receive_body_size",
+    "tests/test_middleware.py::TestAlwaysUseIntStatus::test_200_with_always_use_int_status_set",
+    "tests/test_middleware.py::TestAlwaysUseIntStatus::test_200_always_use_int_status_set",
+    "tests/test_middleware.py::TestDefaultLabels::test_str_default_labels",
+    "tests/test_middleware.py::TestDefaultLabels::test_callable_default_values",
+    "tests/test_middleware.py::TestDefaultLabels::test_from_header",
+    "tests/test_middleware.py::TestDefaultLabels::test_from_header_allowed_values",
+    "tests/test_middleware.py::TestExemplars::test_exemplar"
+  ],
+  "reference": {
+    "runs": 5,
+    "turns_min": 54,
+    "turns_median": 61.0,
+    "solve_rate": 1.0,
+    "image_bytes": 1238550948
+  }
+}

@@ -1,123 +1,95 @@
 # EconoContext
 
-A cost-aware agent harness. You give it a prompt, some data and a budget; it
-decides where each piece of work runs, what state that work sees, and whether to
-reuse a result it already has, continue a worker that already holds the context,
-repair one whose state went stale, or start fresh — pricing those alternatives
-before choosing.
+A cost-based optimizer that plugs into an existing agent harness. The host
+keeps its loop, tools and history, and makes the logical decisions (what to do
+next). EconoContext makes the physical ones: how a window is sent, whether a
+tool result enters in full or as a pointer, and whether a stored result can
+answer a call or a delegated task. It prices each option in NU (one uncached
+input token of the model in use) and logs what it predicted beside what the
+provider billed. If anything fails, the host's default goes through unchanged.
 
-The idea, in full, is in **[docs/vision.html](docs/vision.html)** — open it in a
-browser. That page is the source of truth for what this is for; this file is the
-source of truth for how to run it.
+The approved design is [`PLAN.md`](PLAN.md). The previous prototype (a
+standalone runner, the vision pages and the September pilot) is in
+[`v0/`](v0/). It is kept for reproducibility and is not imported by anything
+here.
 
-```python
-import econocontext
-
-async with econocontext.open() as eco:
-    run = await eco.submit(
-        prompt="Fix the failing ledger test",
-        data="./repo",
-        limits=econocontext.Limits(max_cost=1.00, context_tokens=32_000),
-    )
-    result = await eco.wait(run["id"])
-```
-
-## Running it
-
-```sh
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.lock
-pip install --no-deps --no-build-isolation -e .
-pytest -q                              # 27 tests, no credentials, no spend
-```
-
-Then copy `.env.example` to `.env` and fill in a model endpoint and key. There is
-one backend: any OpenAI-compatible Chat Completions endpoint. Google's Vertex
-endpoint is reached through it too — see the commented block in `.env.example`
-for the header and model-name differences it needs.
-
-```sh
-# compare both methods on one task, and record what happened
-econocontext compare --fixture ledger --methods react econocontext \
-  --context-tokens 1048576 --plan-pressure 0.02 --max-cost 1.00 \
-  --output docs/runs/$(date +%F)-my-experiment
-
-# what the store holds, and what it accumulated
-econocontext schema
-
-# walk one run, one component handoff at a time
-econocontext run --fixture ledger --step
-```
-
-`compare` writes a walkthrough and a full trace per arm plus a cost/time summary.
-Every request and response is logged in full to `logs/run-<unix>-<run_id>.txt`,
-one file per run.
-
-**`--plan-pressure` is load-bearing.** Delegation is only offered once the root
-passes `context_tokens × plan_pressure`. Leave it at the 0.5 default with a large
-context budget and delegation never fires — both arms run identically and you get
-a null result that looks like a finding.
-
-### The database
-
-Nothing to set up. `data/` is created on first run: `MemoryStore.open()` applies
-`store/schema.sql` with `CREATE TABLE IF NOT EXISTS` every start. It is
-gitignored because it is derived state and it holds full prompts and model
-output. Delete it whenever you want a clean slate.
-
-## The repo
+## How a call flows
 
 ```
-src/econocontext/
-  planning/     propose candidates, price them, choose one
-  store/        versioned state: evidence, plans, results + the artifact store
-  runtime/      lifecycle and dispatch, the model call, accounting
-  interfaces/   cli · api · explain
-  assembler.py  renders the exact request; never chooses what goes in it
-  agent.py      the protocol an agent implements
-src/agents/
-  coding/       reads a codebase, patches it, runs its tests
-  research/     reads a corpus and answers from it  (thin — see its README)
-  base.py       staging, workspace, subprocess, read + search
-tests/          one file per owner, plus the stand-in model
-docs/           vision.html · EXPERIMENTS · MEASUREMENT · DECISIONS · runs/
+ hosts/swebench_deepagents          adapters/deepagents               econocontext/ (core)
+ ─────────────────────────          ───────────────────               ────────────────────
+ Deep Agents coding agent  ──hook──► middleware.py ──types.py──► engine.py
+   (Gemini on Vertex,                 wrap_model_call               │
+    SWE-bench Docker image)           wrap_tool_call                ├─ monitor/   registry, cache belief
+                                      after_model                   ├─ planner/   candidates per intercept (+ jev_planner with --jev)
+                          ◄─decision─ (applies it with the          ├─ pricing/   rates, cost model, predictor,
+                                       host's own machinery)        │             ledger (actual cost: to build)
+                                                                    ├─ optimizer/ gates → price → select
+                                                                    ├─ assembler/ zones + manifest (renders only)
+ every model call ─────────────────► callbacks.py ──usage──► record ├─ guard/     fail-open, validation
+                                      (both arms)                   └─ store/     Agent DB (SQLite + FTS5)
 ```
 
-The four sub-packages match the boxes in `docs/vision.html`, so a diagram there
-tells you which directory to open.
+The core imports only the standard library and pyyaml. A test
+(`tests/unit/test_isolation.py`) fails if it imports LangChain, Deep Agents, a
+provider SDK, swebench, `adapters/` or `hosts/`. In `hosts/`, only `run.py`
+(the composition root) knows EconoContext exists.
 
-## Who owns what
+## Intercepts
 
-| Area | Owner | Start at |
+| Intercept | Host default | Alternatives (exact / approximate) |
 |---|---|---|
-| `planning/`, `assembler.py` | planning | `tests/test_planning.py` |
-| `src/agents/` | agents | [src/agents/README.md](src/agents/README.md) |
-| `src/econocontext/store/` | schema | [src/econocontext/store/README.md](src/econocontext/store/README.md) |
-| `runtime/`, `contracts.py`, `config.py` | shared — ask first | `tests/test_runtime.py` |
+| `plan_prompt` | AS_IS | ZONED (exact); COMMIT_PENDING, RETRIEVE_FROM_STORE (approximate) |
+| `before_tool_call` | RUN_TOOL | ANSWER_FROM_STORE: byte-identical, only while nothing it read has changed |
+| `admit_tool_result` | KEEP_FULL | POINTER (approximate: the model must reopen the file) |
+| `plan_dispatch` | FRESH | REUSE_RESULT: same task, unchanged read set, no side effects |
+| `record`, `on_file_write`, `on_turn_end` | — | Measurement, the write barrier, bookkeeping |
 
-Directories do not overlap, so three people can work without colliding. Each
-owned area has a README where the work is.
+For each decision, feasibility gates run first (allowlist, quality risk,
+fidelity, version, side effects, window, pairing). The survivors are then
+priced on the four terms: prepare, work, integrate, and leaves_behind. Latency
+is kept separate. The cheapest wins; ties go to lower latency, then to the host
+default. Every loser's `why_not` is written to `decisions`. Mode `observe` logs
+the decision and returns the host default. Mode `autopilot` applies it.
 
-## Read this before quoting a number
+## Layout
 
-[docs/runs/2026-09-22-no-context-cap/README.md](docs/runs/2026-09-22-no-context-cap/README.md)
-records a live run where, at matched quality and with no artificial context cap,
-**EconoContext cost 9.6% more than a flat ReAct agent and took 5.8s longer.**
+| Path | What |
+|---|---|
+| `econocontext/` | The core: `types.py` (the only shared language), `engine.py`, and the components above |
+| `adapters/deepagents/` | Middleware, callbacks, message translation, and host executors (pointer files, `git status` write barrier) |
+| `adapters/providers/` | Usage mapping: Gemini now, with Anthropic and OpenAI as stubs |
+| `hosts/swebench_deepagents/` | A stock Deep Agents coding agent in the official SWE-bench image, plus the task loader and the official evaluation |
+| `config/` | `econocontext.yaml` (every decision constant, with its source) and `billing_rates.yaml` (verified price cards) |
+| `scripts/` | `run_baseline.sh`, `run_econo.sh`, `report.py` |
+| `tests/unit/`, `tests/live/` | Plain-data unit tests; the live tests (marked `live`, paid) |
 
-That is the expected result on a task that fits comfortably in the window:
-delegation buys an extra child call plus an integration exchange, and there is
-nothing for it to save. The value of bounding a context is headroom, and headroom
-only has a price near the ceiling. At a 32,000-token budget the same task was out
-of reach for the flat agent entirely.
+Placeholders are marked in the code: `grep -rn "# PLACEHOLDER:"` lists them.
 
-Cost only means anything at matched quality. An arm that is cheaper because it
-failed is not cheaper.
+**Open for the next person**
 
-## Further reading
+- **`econocontext/pricing/ledger.py`: actual cost per call and per run.**
+  - It saves token counts today; the cost columns are empty.
+  - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
+  - Until it is built, only the step limit caps a paid run.
+- **`econocontext/planner/jev_planner.py`: Jev as the predictor of whether a tool result will be needed again.**
+  - It is used only with `--jev`; without it the planner uses the fixed guess.
+  - See `tests/test_planner_jev.py` for both tracks.
 
-- **[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)** — running experiments and
-  reading what they print
-- **[docs/MEASUREMENT.md](docs/MEASUREMENT.md)** — how cost is counted, which
-  providers disagree about what, and where the unknowns are
-- **[docs/DECISIONS.md](docs/DECISIONS.md)** — consequential decisions and their
-  reasons
+## Running
+
+Full step-by-step guide, with what each step proves, what it costs and the last results: [`docs/TESTING.md`](docs/TESTING.md).
+
+```sh
+.venv/bin/pip install -e ".[host,dev]"
+.venv/bin/python -m pytest -q                       # unit tests, no network
+./scripts/run_baseline.sh --label dev1 --set dev    # paid: Gemini + Docker
+./scripts/run_econo.sh    --label dev1 --set dev --mode observe
+./scripts/run_econo.sh    --label dev1 --set dev --mode observe --jev   # planner asks Jev
+.venv/bin/python scripts/report.py --label dev1
+```
+
+The scripts load credentials from `.env` (`AGENT_PLATFORM_API_KEY`); they are
+never printed or committed. Every run is capped by the budgets in
+`config/econocontext.yaml`. `data/` holds the Agent DB and full prompts, and is
+gitignored. Runs so far are pipeline checks, not an effectiveness comparison.

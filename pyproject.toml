@@ -4,36 +4,36 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "econocontext"
-version = "0.1.0"
-description = "Deterministic operation planning and measured execution for local agents"
+version = "0.3.0.dev0"
+description = "A harness-agnostic, cost-based optimizer for LLM agent systems (interception layer)"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pydantic>=2.9,<3", "httpx>=0.27,<1", "aiosqlite>=0.20,<1"]
+# The core (econocontext/) needs only PyYAML. Everything else belongs to adapters and hosts.
+dependencies = ["pyyaml==6.0.3"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1", "build>=1,<2"]
-
-[project.scripts]
-econocontext = "econocontext.interfaces.cli:main"
+# The Deep Agents adapter and the SWE-bench host. Pinned: the adapter is verified
+# against exactly these versions (PLAN.md section 5).
+host = [
+  "deepagents==0.7.19",
+  "langchain==1.4.2",
+  "langchain-core==1.6.5",
+  "langgraph==1.2.12",
+  "langchain-google-genai==4.4.0",
+  "swebench==5.0.2",
+]
+dev = ["pytest==9.1.1"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["econocontext*", "adapters*", "hosts*"]
 
-# The schema and the agent fixtures are not Python. Without this they survive an
-# editable install and vanish from a real one.
 [tool.setuptools.package-data]
-econocontext = ["**/*.sql"]
-agents = ["**/fixtures/**/*"]
+econocontext = ["store/schema.sql"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-# Fixtures are task material, not source. A formatter that "fixes" one can
-# change the defect an agent is supposed to find, or the hidden check that
-# proves it did.
-exclude = ["src/agents/*/fixtures/*"]
-
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I"]
+pythonpath = ["."]
+markers = [
+  "live: real Gemini calls and real SWE-bench containers (costs money; needs credentials and Docker)",
+  "docker: needs Docker and a pulled SWE-bench image, but no model calls",
+]
+addopts = "-m 'not live'"

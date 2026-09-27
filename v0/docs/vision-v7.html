@@ -1,0 +1,840 @@
+<meta charset="utf-8">
+<title>EconoContext</title>
+<meta name="description" content="Declarative cost-context management: planning where work runs and which state it sees as one priced decision.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600;7..72,700&family=Source+Sans+3:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --bg:#EFF1F4; --surface:#FFFFFF; --sunk:#E5E9EF; --border:#D3D9E2;
+    --ink:#10151D; --dim:#59636F; --faint:#8894A3;
+    --accent:#145C6B; --accent-soft:#DDEBEE;
+    --spend:#A8500F; --spend-soft:#F6E7D8;
+    --save:#2D7A57;  --save-soft:#DCEEE4;
+    --rule:#C7CFDA;
+    --code-bg:#0E141C; --code-ink:#DDE4EE; --code-dim:#7C899B;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0C0F14; --surface:#141922; --sunk:#10151D; --border:#252E3B;
+      --ink:#E6EAF1; --dim:#98A3B2; --faint:#6B7688;
+      --accent:#5FB6C6; --accent-soft:#12303A;
+      --spend:#E09553; --spend-soft:#33220F;
+      --save:#69C79A;  --save-soft:#11301F;
+      --rule:#252E3B;
+      --code-bg:#080B10; --code-ink:#DDE4EE; --code-dim:#6B7688;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C0F14; --surface:#141922; --sunk:#10151D; --border:#252E3B;
+    --ink:#E6EAF1; --dim:#98A3B2; --faint:#6B7688;
+    --accent:#5FB6C6; --accent-soft:#12303A;
+    --spend:#E09553; --spend-soft:#33220F;
+    --save:#69C79A;  --save-soft:#11301F;
+    --rule:#252E3B;
+    --code-bg:#080B10; --code-ink:#DDE4EE; --code-dim:#6B7688;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Source Sans 3', system-ui, sans-serif;
+    font-size:16.5px; line-height:1.62; padding-inline:20px;
+    -webkit-font-smoothing:antialiased;
+  }
+  main{max-width:880px; margin:0 auto; padding-block:64px 96px;}
+  h1,h2,h3{font-family:Literata, Georgia, serif; text-wrap:balance; margin:0; font-weight:700;}
+  p{margin:0 0 1em; max-width:68ch;}
+  code,.mono{font-family:'JetBrains Mono', ui-monospace, monospace;}
+
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--accent); margin-bottom:18px;
+  }
+  h1{font-size:clamp(2.4rem,6vw,3.6rem); letter-spacing:-.02em; line-height:1.04;}
+  .dek{font-size:1.18rem; color:var(--dim); margin-top:18px; max-width:58ch;}
+
+  .part{
+    margin-top:82px; padding-bottom:7px; border-bottom:1px solid var(--accent);
+    display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline; justify-content:space-between;
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--accent);
+  }
+  .part i{font-style:normal; color:var(--faint); letter-spacing:.03em; text-transform:none;
+          font-family:'Source Sans 3',sans-serif; font-size:13px;}
+  .part + section{margin-top:36px;}
+
+  section{margin-top:68px;}
+  h2{font-size:1.8rem; letter-spacing:-.015em; margin-bottom:6px;}
+  h2 + .sub{color:var(--dim); font-size:1.04rem; margin-bottom:24px; max-width:60ch;}
+  h3{font-size:1.06rem; margin:26px 0 8px;}
+
+  figure{margin:28px 0 6px;}
+  .frame{background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:22px 20px 14px;}
+  figure svg{width:100%; height:auto; display:block; color:var(--dim);}
+  figure svg text{fill:currentColor; font-family:'Source Sans 3',sans-serif;}
+  figcaption{font-size:.88rem; color:var(--faint); margin-top:12px; max-width:66ch; line-height:1.55;}
+
+  .lede{font-size:1.1rem; border-left:2px solid var(--accent); padding-left:20px; color:var(--ink);}
+
+  table{width:100%; border-collapse:collapse; font-size:.92rem; margin:18px 0;}
+  th{text-align:left; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.07em;
+     text-transform:uppercase; color:var(--faint); font-weight:500;
+     padding:8px 12px 8px 0; border-bottom:1px solid var(--rule);}
+  th.num{text-align:right;}
+  td{padding:9px 12px 9px 0; border-bottom:1px solid var(--rule); vertical-align:top; color:var(--dim);}
+  td:first-child{color:var(--ink);}
+  td.num{font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; text-align:right;}
+  td.tot{color:var(--ink); font-weight:700;}
+  .calc{font-family:'JetBrains Mono',monospace; font-size:.72rem; color:var(--faint);
+        font-weight:400; letter-spacing:-.01em; white-space:nowrap;}
+  td.pick{color:var(--save); font-weight:600;}
+  td.out{color:var(--spend);}
+  tr.win td{background:var(--save-soft);}
+  tr.dead td:first-child{text-decoration:line-through; text-decoration-color:var(--spend);}
+  .wrap{overflow-x:auto;}
+  .wrap table{min-width:520px;}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:1px;
+        background:var(--rule); border:1px solid var(--rule); margin:22px 0;}
+  .cell{background:var(--surface); padding:17px 18px 15px;}
+  .cell h4{margin:0 0 5px; font-family:'JetBrains Mono',monospace; font-size:.78rem;
+           letter-spacing:.05em; color:var(--accent);}
+  .cell p{font-size:.89rem; color:var(--dim); margin:0;}
+
+  pre{background:var(--code-bg); color:var(--code-ink); border-radius:4px; padding:16px 18px;
+      overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:.8rem; line-height:1.7; margin:16px 0;}
+  pre .c{color:var(--code-dim);}
+  pre .k{color:#7FD4B0;}
+  pre.plain{background:var(--sunk); color:var(--ink); border:1px solid var(--border); font-size:.84rem;}
+  pre.plain .c{color:var(--dim);}
+  pre.plain b{color:var(--accent); font-weight:500;}
+
+  .note{background:var(--sunk); border:1px solid var(--border); border-radius:4px;
+        padding:16px 18px; font-size:.93rem; color:var(--dim); margin:22px 0;}
+  .note b{color:var(--ink);}
+  .cite{border-left:2px solid var(--rule); padding-left:18px; font-size:.93rem; color:var(--dim); margin:22px 0;}
+  .cite b{color:var(--accent); font-weight:600;}
+
+  footer{margin-top:80px; padding-top:22px; border-top:1px solid var(--rule);
+         font-size:.85rem; color:var(--faint);}
+  footer a{color:var(--faint);}
+</style>
+
+<main>
+
+<header>
+  <div class="eyebrow">Declarative cost-context management</div>
+  <h1>EconoContext</h1>
+  <p class="dek">Context is not housekeeping and cost is not an invoice. They are one decision — where work runs, which versioned state it sees, and whether to reuse, repair, recompute or start fresh.</p>
+</header>
+
+<!-- ─────────────────────────  PART I  ───────────────────────── -->
+<div class="part"><span>Part I — What this is</span> <i>a picture and ten lines of Python</i></div>
+
+<section>
+  <h2>What it is, and how you call it</h2>
+  <p class="sub">A library you hand a task, some data and a budget. It decides how the work gets done.</p>
+
+  <p>You bring an agent: its tools, and a way of checking whether the work came out right. EconoContext sits underneath and answers a question your agent never has to ask — <b>for this next piece of work, which worker should do it, what state should it see, and should it continue, repair, reuse or start over.</b></p>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 336" role="img" aria-label="End to end architecture. Your agent supplies tools, a verifier, a prompt, data and limits to the harness. Inside the harness a planner proposes candidate plans, a cost model prices them, an optimizer selects one under constraints, and an assembler renders the exact request sent to the model backend. Versioned state and telemetry sit underneath all four, and measured cost from the backend flows back into the cost model.">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+          <marker id="a2" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--save)"/>
+          </marker>
+        </defs>
+
+        <!-- your agent -->
+        <rect x="14" y="62" width="132" height="104" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="80" y="86" text-anchor="middle" font-size="12.5" font-weight="700">your agent</text>
+        <text x="80" y="107" text-anchor="middle" font-size="10.5" fill-opacity=".72">tools</text>
+        <text x="80" y="123" text-anchor="middle" font-size="10.5" fill-opacity=".72">verifier</text>
+        <text x="80" y="139" text-anchor="middle" font-size="10.5" fill-opacity=".72">prompt + data</text>
+        <text x="80" y="155" text-anchor="middle" font-size="10.5" fill-opacity=".72">limits</text>
+
+        <line x1="146" y1="114" x2="184" y2="114" stroke="currentColor" marker-end="url(#a1)"/>
+        <text x="165" y="105" text-anchor="middle" font-size="9.5" fill-opacity=".6">submit</text>
+
+        <!-- harness -->
+        <rect x="186" y="26" width="486" height="176" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="200" y="45" font-size="10.5" font-family="JetBrains Mono, monospace" fill="var(--accent)">HARNESS</text>
+
+        <rect x="200" y="58" width="104" height="52" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="252" y="80" text-anchor="middle" font-size="12" font-weight="700">planner</text>
+        <text x="252" y="96" text-anchor="middle" font-size="9.5">proposes plans</text>
+
+        <line x1="304" y1="84" x2="330" y2="84" stroke="currentColor" marker-end="url(#a1)"/>
+
+        <rect x="332" y="58" width="104" height="52" rx="3" fill="none" stroke="currentColor"/>
+        <text x="384" y="80" text-anchor="middle" font-size="12" font-weight="700">cost model</text>
+        <text x="384" y="96" text-anchor="middle" font-size="9.5">prices each one</text>
+
+        <line x1="436" y1="84" x2="462" y2="84" stroke="currentColor" marker-end="url(#a1)"/>
+
+        <rect x="464" y="58" width="104" height="52" rx="3" fill="none" stroke="currentColor"/>
+        <text x="516" y="80" text-anchor="middle" font-size="12" font-weight="700">optimizer</text>
+        <text x="516" y="96" text-anchor="middle" font-size="9.5">picks one</text>
+
+        <path d="M568,84 L600,84 L600,130 L436,130" fill="none" stroke="currentColor" marker-end="url(#a1)"/>
+
+        <rect x="200" y="132" width="236" height="52" rx="3" fill="none" stroke="currentColor"/>
+        <text x="318" y="154" text-anchor="middle" font-size="12" font-weight="700">assembler</text>
+        <text x="318" y="170" text-anchor="middle" font-size="9.5">renders the exact request</text>
+
+        <line x1="672" y1="158" x2="712" y2="158" stroke="currentColor" marker-end="url(#a1)"/>
+        <text x="692" y="149" text-anchor="middle" font-size="9.5" fill-opacity=".6">call</text>
+
+        <!-- backend -->
+        <rect x="714" y="126" width="132" height="64" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="780" y="152" text-anchor="middle" font-size="12.5" font-weight="700">model</text>
+        <text x="780" y="170" text-anchor="middle" font-size="10.5" fill-opacity=".72">backend</text>
+
+        <!-- correction -->
+        <path d="M780,126 L780,18 L384,18 L384,56" fill="none" stroke="var(--save)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#a2)"/>
+        <text x="582" y="13" text-anchor="middle" font-size="10.5" fill="var(--save)">measured tokens, cache share, latency — corrects the next estimate</text>
+
+        <!-- base band -->
+        <rect x="14" y="238" width="414" height="58" rx="3" fill="var(--sunk)" stroke="var(--border)"/>
+        <text x="221" y="261" text-anchor="middle" font-size="12" font-weight="700">versioned state</text>
+        <text x="221" y="280" text-anchor="middle" font-size="10" fill-opacity=".72">evidence · plans · worker results, each with a recovery cost</text>
+
+        <rect x="440" y="238" width="406" height="58" rx="3" fill="var(--sunk)" stroke="var(--border)"/>
+        <text x="643" y="261" text-anchor="middle" font-size="12" font-weight="700">telemetry</text>
+        <text x="643" y="280" text-anchor="middle" font-size="10" fill-opacity=".72">every call logged: predicted cost beside actual cost</text>
+
+        <line x1="221" y1="238" x2="221" y2="204" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="3 3"/>
+        <line x1="643" y1="238" x2="643" y2="204" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="3 3"/>
+        <text x="432" y="322" text-anchor="middle" font-size="10" fill-opacity=".55">shared by every worker in the run</text>
+      </svg>
+    </div>
+    <figcaption>Four components in a line, over shared versioned state. The planner proposes, the cost model prices, the optimizer chooses, the assembler renders — and what the backend actually charged flows back, so the next estimate is better than the last. Every later diagram on this page zooms into one of these boxes.</figcaption>
+  </figure>
+
+  <h3>Calling it</h3>
+
+<pre><span class="c"># intended shape — see the note below for what runs today</span>
+<span class="k">import</span> econocontext
+
+<span class="k">async with</span> econocontext.open(tools=my_tools, verify=my_verifier) <span class="k">as</span> eco:
+    result = <span class="k">await</span> eco.run(
+        prompt=<span class="k">"Find and fix the failing test"</span>,
+        data=<span class="k">"./repo"</span>,
+        limits=econocontext.Limits(max_cost=1.00, context_tokens=32_000),
+        quality=econocontext.Quality(needs_exact_bytes=<span class="k">True</span>),
+    )
+
+<span class="c"># every plan it chose, what it predicted, what it actually cost,</span>
+<span class="c"># and what it rejected to get there</span>
+<span class="k">for</span> d <span class="k">in</span> result.decisions:
+    print(d.mode, d.view, d.predicted_cost, d.actual_cost, d.why_not)</pre>
+
+  <ul>
+    <li><b>You declare the work and the constraints</b> — never a context strategy, a chunk size or a sub-agent.</li>
+    <li><b><code>quality</code> is a floor, not a target.</b> <code>needs_exact_bytes</code> says a paraphrase of a file will not substitute for the file, which rules out cheaper plans the planner would otherwise take.</li>
+    <li><b>Decisions come back inspectable</b> — the price it expected, next to the price it paid.</li>
+  </ul>
+
+  <div class="note"><b>What runs today.</b>
+  <ul>
+    <li><b>Built</b> — planner, cost model, optimizer, assembler and versioned state store, against a live model.</li>
+    <li><b>Designed, not built</b> — the representation layer, the REPAIR mode, cross-agent asking, and the learned policies described later.</li>
+    <li>Evaluation is in progress. <b>No measured figures are claimed on this page.</b></li>
+  </ul></div>
+</section>
+
+<!-- ─────────────────────────  PART II  ───────────────────────── -->
+<div class="part"><span>Part II — The problem</span> <i>why a token budget gets this wrong</i></div>
+
+<section>
+  <h2>What you are actually paying for</h2>
+  <p class="sub">Everything in a context was computed once. A stateless API makes you pay for it again, every turn.</p>
+
+  <ul>
+    <li>An agent reads a file, reasons about it, runs a test. All of that becomes tokens sitting in a context window.</li>
+    <li>Each token was paid for when it arrived — <b>and again on the next call, and the next</b>, because the model holds no memory between requests.</li>
+    <li>A context is not storage. It is <b>a subscription to everything you have already bought</b>.</li>
+  </ul>
+
+  <p class="lede">So the question is never "is this context too big?" It is: <b>is keeping this cheaper than getting it back?</b></p>
+
+  <ul>
+    <li>That reframing does the work. <b>Compaction, eviction, summarisation, sub-agents, cache reuse</b> — every one is the same recovery-cost question, asked somewhere different.</li>
+    <li>And it cannot be answered about memory alone, because <b><em>where the work runs</em> decides what has to be kept at all</b>.</li>
+  </ul>
+
+  <h3>And the obvious proxy is not merely imprecise — it is inverted</h3>
+
+  <ul>
+    <li>Providers bill <b>disjoint categories at different rates</b>: uncached input, cache reads, cache writes, output.</li>
+    <li>Once cached input is an order of magnitude cheaper, <b>a <em>larger</em> retained context can cost less than a <em>smaller</em> fresh one</b>.</li>
+  </ul>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 190" role="img" aria-label="At a ten to one cache discount, twenty thousand cached tokens cost less than eight thousand fresh tokens. A token-counting heuristic prefers the smaller context and picks the more expensive plan.">
+        <text x="20" y="22" font-size="11.5" font-family="JetBrains Mono, monospace" fill-opacity=".6">SAME PROVIDER, 10:1 CACHE DISCOUNT</text>
+
+        <text x="20" y="62" font-size="13" font-weight="600">20,000 tokens</text>
+        <text x="20" y="79" font-size="10.5" fill-opacity=".6">retained, cache-eligible</text>
+        <rect x="250" y="46" width="118" height="26" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="309" y="64" text-anchor="middle" font-size="11.5" fill="var(--save)">cache reads</text>
+        <text x="392" y="64" font-size="13" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--save)">cheaper</text>
+
+        <text x="20" y="128" font-size="13" font-weight="600">8,000 tokens</text>
+        <text x="20" y="145" font-size="10.5" fill-opacity=".6">fresh, nothing to reuse</text>
+        <rect x="250" y="112" width="472" height="26" fill="var(--spend-soft)" stroke="var(--spend)"/>
+        <text x="486" y="130" text-anchor="middle" font-size="11.5" fill="var(--spend)">uncached input</text>
+        <text x="746" y="130" font-size="13" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--spend)">4&times; more</text>
+
+        <text x="20" y="178" font-size="11.5" fill-opacity=".7">A heuristic that counts tokens picks the smaller context — and the larger bill.</text>
+      </svg>
+    </div>
+    <figcaption>Bars are to scale at an illustrative 10:1 discount. The inversion is not exotic; it is the normal case whenever a worker has been running long enough to accumulate a reusable prefix. Cost has to be modelled in billing categories, not approximated by length.</figcaption>
+  </figure>
+
+</section>
+
+<section>
+  <h2>What a price is made of</h2>
+  <p class="sub">If it is not a token count, it has to be something — and something that survives changing provider.</p>
+
+  <ul>
+    <li>The same 8,000 tokens cost <b>an order of magnitude more</b> processed fresh than served from the provider's cache. Nothing about the tokens changed.</li>
+    <li>So the unit of pricing is not tokens. It is <b>billing categories</b> — uncached input, cache reads, cache writes, output, reasoning.</li>
+  </ul>
+
+  <p>That sounds like a solved problem until you try it across two providers.</p>
+
+  <h3>Three places the meter disagrees with itself</h3>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th style="width:22%">Problem</th><th>What actually happens</th><th style="width:36%">What the harness does</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Reasoning tokens</b></td>
+          <td>OpenAI counts them inside <code>completion_tokens</code>. Google's OpenAI-compatible endpoints report them separately and leave them out.</td>
+          <td>Disambiguate with the provider's own <code>total_tokens</code>: reasoning joins billed output only when <code>prompt + completion + reasoning</code> equals the reported total. Never charged twice, never missed.</td>
+        </tr>
+        <tr>
+          <td><b>Missing cache detail</b></td>
+          <td>Google omits <code>prompt_tokens_details</code> <em>entirely</em> on calls where nothing was cached — so "no cache field" and "no cache" are indistinguishable.</td>
+          <td>Charge the whole prompt at the uncached rate and flag <code>cache_reported: false</code>. An upper bound, not a refusal — dropping those calls instead <b>understated a measured run by about 2.5&times;</b>.</td>
+        </tr>
+        <tr>
+          <td><b>Cache writes</b></td>
+          <td>Some providers charge a premium to <em>create</em> a cache entry, so a cache can cost more than it saves on a prefix used once.</td>
+          <td>Recorded as needing provider-specific normalization before it counts as a known charge. The model tracks what it does not yet know rather than assuming zero.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="lede">None of this is exotic. It is what happens the first time you point a cost model at a second vendor, and it is why the categories have to be normalized before anything is priced.</p>
+
+  <h3>The shape that survives changing vendor</h3>
+
+<pre class="plain">cost  =  <b>Σ</b>  rate<sub>i</sub>  &times;  resource<sub>i</sub></pre>
+
+  <ul>
+    <li><b>The planner reasons in resources</b> — tokens processed fresh, tokens served from cache, tokens generated, seconds of local work.</li>
+    <li><b>The rate vector is deployment configuration.</b> Change provider and you change the vector; the same plan is re-priced and not one line of planning logic moves.</li>
+  </ul>
+
+  <p>It is also what makes an open or self-hosted model tractable, where there is no price per token at all. What costs money there is <b>time on a machine you are renting</b> — and it decomposes the same way:</p>
+
+  <div class="grid">
+    <div class="cell"><h4>PREFILL</h4><p>Work proportional to fresh input. A cache hit does not discount it — it removes it. This is the same resource as "uncached input", priced in FLOPs instead of dollars.</p></div>
+    <div class="cell"><h4>DECODE</h4><p>Time proportional to output, bounded by memory bandwidth rather than arithmetic. The analogue of the output rate.</p></div>
+    <div class="cell"><h4>KV OCCUPANCY</h4><p>Retained context holds memory, memory caps batch size, and batch size sets cost per request. A hosted API prices this for you; self-hosted, it is yours.</p></div>
+  </div>
+
+  <ul>
+    <li>Same sum, different vector, different units — seconds rather than dollars, then seconds times what the instance costs.</li>
+    <li><b>This part is designed, not built.</b> The prototype prices hosted endpoints. The resource decomposition is what would make self-hosting a configuration change rather than a rewrite.</li>
+  </ul>
+
+  <h3>What we actually compute</h3>
+
+  <p>Four things added together — the same four every time:</p>
+
+<pre class="plain">What a plan costs =
+
+      <b>getting ready</b>           retrieving, compressing, re-sending what isn't cached
+    + <b>doing the work</b>          the model calls and tool calls this plan needs
+    + <b>taking it back</b>          the parent receiving the result and checking it
+    + <b>what it leaves behind</b>   a heavier context, or work you'll have to redo later</pre>
+
+  <ul>
+    <li><b>The fourth line is the one normally missing</b>, and it decides most arguments. The plan that looks cheapest today is usually the one quietly loading the main context with material every later turn must pay to re-send.</li>
+    <li><b>Latency is estimated alongside and never folded into money.</b> A cheaper plan that takes three times as long is a different trade, and the caller should see both.</li>
+  </ul>
+
+  <h3>"Doing the work", in detail</h3>
+
+  <p>That one term is where the cache argument lives, so it is worth unpacking. It answers two questions in order.</p>
+
+<pre class="plain"><b>1 · How many INPUT tokens will this plan send, in total?</b>
+
+      context size  &times;  number of calls       the whole context is re-sent on every call
+    + output that piles up along the way     what the model writes becomes input later
+
+<b>2 · What do those tokens cost?</b>
+
+      input tokens   &times;  blended input rate   part fresh, part served from cache
+    + output tokens  &times;  output rate</pre>
+
+  <ul>
+    <li><b>That first number is a token count, not money.</b> It is "how much input will this plan push through the API across its whole life". The rate turns it into money, which is why it is <em>multiplied</em> and not added.</li>
+    <li><b>Context size × calls is the subscription, made arithmetic.</b> A plan needing three calls pays for its context three times, not once. This is the single biggest term in almost every estimate.</li>
+    <li><b>The output term is an average.</b> Across three calls the first carries none of what the model has written, the last carries nearly all of it — so on average about half of it is being re-sent. That is all the <code>&divide; 2</code> means.</li>
+    <li><b>The blended rate is where tokens stop being the unit.</b> Same token count, different money, depending only on how much of it the provider serves from cache.</li>
+  </ul>
+
+  <h3>That cache fraction: predicted, not measured</h3>
+
+  <p class="lede">Nothing can know before a call whether the provider will serve the prefix from cache. So it is a <b>forecast</b> — and the estimator is deliberately pessimistic about it.</p>
+
+  <ul>
+    <li><b>Estimated from history</b> — what past calls carrying a matching prefix actually came back with.</li>
+    <li><b>Fewer than three matching samples and it credits nothing.</b> No observations, no discount.</li>
+    <li><b>Capped twice</b>: never more than 10% of input, and never more than the shared prefix is actually long.</li>
+    <li><b>Corrected afterwards.</b> What the call really cost feeds the next estimate — which is the entire reason the planner runs as a loop.</li>
+    <li><b>It is a claim about billing</b>, never about what is physically resident in GPU memory.</li>
+  </ul>
+
+  <p>So it would rather <b>understate a saving than invent one</b> — which biases our own approach to look worse than it is. That is the correct direction for a tool whose job is to stop you over-trusting a retained context.</p>
+
+  <div class="note"><b>Every number carries its unit.</b>
+  <ul>
+    <li>An estimate records its <code>basis</code> — <code>USD</code> when real rates are configured, <code>fixed-fallback</code> when they are not.</li>
+    <li>Numbers with different bases are never compared, and a run without prices reports itself as <em>not cost-optimized</em> rather than inventing a dollar figure.</li>
+    <li><b>A cost model that quietly mixes units is worse than no cost model</b>, because it still produces a ranking.</li>
+  </ul></div>
+</section>
+
+<!-- ─────────────────────────  PART III  ───────────────────────── -->
+<div class="part"><span>Part III — The idea</span> <i>one move, stated once</i></div>
+
+<section>
+  <h2>One decision, three axes</h2>
+  <p class="sub">Choose them apart and they get each other wrong.</p>
+
+  <div class="grid">
+    <div class="cell"><h4>WHERE IT RUNS</h4><p>Which worker performs this operation — the main agent, one that already has relevant context, or a new scoped one.</p></div>
+    <div class="cell"><h4>WHAT IT SEES</h4><p>Which versioned state is materialized for it, and in which representation: full bytes, compressed, structured, or a pointer.</p></div>
+    <div class="cell"><h4>HOW IT PROCEEDS</h4><p>Reuse an existing result, continue a live worker, repair one whose state went stale, or start fresh.</p></div>
+  </div>
+
+  <p>They are not independent, and each pair proves it:</p>
+
+  <ul>
+    <li>Put the work in a worker that <b>already holds the file</b> and the file never has to be materialized — <em>where</em> changed <em>what it sees</em>.</li>
+    <li>Hand a worker <b>a pointer instead of the bytes</b> and continuing it becomes impossible for anything needing the bytes — <em>what it sees</em> changed <em>how it proceeds</em>.</li>
+    <li><b>Start fresh</b> and every piece of evidence must be paid for again — <em>how</em> changed <em>what</em>.</li>
+  </ul>
+
+  <p class="lede">So: the agent declares the work it needs done, not how to obtain it. A planner enumerates the combinations, prices each one whole, and picks the cheapest that clears a quality floor.</p>
+
+  <p>The next three sections take one axis each — in this order, because the third collapses into the first two.</p>
+</section>
+
+<!-- ─────────────────────────  PART IV  ───────────────────────── -->
+<div class="part"><span>Part IV — The three axes</span> <i>each ends in a price</i></div>
+
+<section>
+  <h2>What it sees — state that knows what it costs to get back</h2>
+  <p class="sub">Not all tokens have equal future value.</p>
+
+  <p>Memory is versioned objects rather than one long conversation — evidence, plans, results — and each one records <b>how it can be recovered, at what cost, and how likely it is to be wanted again.</b></p>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 250" role="img" aria-label="Two state objects compared. A file has four representations from eight thousand tokens down to thirty, and can be recovered by retrieval for a hundredth of a cent or by rerunning a search. A worker's finding has fewer representations and can only be recovered by rerunning the worker at far higher cost and latency, so it is worth preserving even though it is used less often.">
+        <rect x="20" y="16" width="400" height="216" rx="3" fill="none" stroke="currentColor"/>
+        <text x="40" y="42" font-size="12.5" font-family="JetBrains Mono, monospace" font-weight="700">A FILE</text>
+        <text x="112" y="42" font-size="11" fill-opacity=".6">EVIDENCE</text>
+        <line x1="40" y1="54" x2="400" y2="54" stroke="currentColor" stroke-opacity=".25"/>
+
+        <text x="40" y="76" font-size="11" fill-opacity=".6">representations</text>
+        <text x="40" y="96" font-size="11.5" font-family="JetBrains Mono, monospace">FULL 8,000</text>
+        <text x="180" y="96" font-size="11.5" font-family="JetBrains Mono, monospace">COMPRESSED 2,000</text>
+        <text x="40" y="114" font-size="11.5" font-family="JetBrains Mono, monospace">STRUCTURED 500</text>
+        <text x="180" y="114" font-size="11.5" font-family="JetBrains Mono, monospace">POINTER 30</text>
+
+        <text x="40" y="146" font-size="11" fill-opacity=".6">recovery</text>
+        <text x="40" y="166" font-size="11.5" font-family="JetBrains Mono, monospace" fill="var(--save)">retrieve from store   $0.0001</text>
+        <text x="40" y="184" font-size="11.5" font-family="JetBrains Mono, monospace" fill="var(--save)">re-read the file      $0.0120</text>
+        <text x="40" y="214" font-size="11.5" fill-opacity=".75">expected future use 0.75 &mdash; cheap to get back</text>
+
+        <rect x="440" y="16" width="400" height="216" rx="3" fill="none" stroke="var(--spend)"/>
+        <text x="460" y="42" font-size="12.5" font-family="JetBrains Mono, monospace" font-weight="700">A FINDING</text>
+        <text x="530" y="42" font-size="11" fill-opacity=".6">WORKER RESULT</text>
+        <line x1="460" y1="54" x2="820" y2="54" stroke="currentColor" stroke-opacity=".25"/>
+
+        <text x="460" y="76" font-size="11" fill-opacity=".6">representations</text>
+        <text x="460" y="96" font-size="11.5" font-family="JetBrains Mono, monospace">FULL</text>
+        <text x="560" y="96" font-size="11.5" font-family="JetBrains Mono, monospace">SUMMARY</text>
+        <text x="680" y="96" font-size="11.5" font-family="JetBrains Mono, monospace">POINTER</text>
+        <text x="460" y="114" font-size="11" fill-opacity=".55">produced by a worker</text>
+
+        <text x="460" y="146" font-size="11" fill-opacity=".6">recovery</text>
+        <text x="460" y="166" font-size="11.5" font-family="JetBrains Mono, monospace" fill="var(--spend)">rerun the worker      $0.1200</text>
+        <text x="460" y="184" font-size="11.5" font-family="JetBrains Mono, monospace" fill="var(--spend)">expected latency      18s</text>
+        <text x="460" y="214" font-size="11.5" fill-opacity=".75">expected future use 0.60 &mdash; expensive to get back</text>
+      </svg>
+    </div>
+    <figcaption>Wanted less often, yet far more worth preserving. A stale grep is cheap to recompute; a diagnosis is not; a user constraint cannot be safely lost at all. <code>P(reuse) &times; C_recover</code> is a good way to <em>rank</em> what deserves attention — but it is not the optimizer, because the optimizer compares whole actions rather than a single product.</figcaption>
+  </figure>
+
+  <h3>Four options for any one piece of evidence</h3>
+
+  <ul>
+    <li><b>Keep it in full</b>, <b>keep a compression</b>, <b>keep a pointer</b> and fetch on demand, or <b>drop it</b> and re-read later.</li>
+    <li><b>Keeping</b> costs a small certain amount — re-sending it every remaining turn at the cached rate. <b>Dropping</b> costs an uncertain larger one — the chance you need it again, times what recovery costs.</li>
+    <li>On price the pointer usually wins: 30 tokens against 8,000. Then it loses — an <em>apply a patch</em> operation needs exact bytes, and a pointer or a summary is an <em>interpretation</em> of the file, not the file.</li>
+  </ul>
+
+  <p><b>Price is the objective, not the decision.</b> Options that cannot meet the required fidelity are removed before anything is compared, so the run gets more expensive on purpose. Which is why representations belong to the optimizer, not to a storage policy.</p>
+
+  <div class="cite"><p>The typed pages and the four-rung ladder are <b>ClawVM</b>'s. Our addition: the ladder is <b>priced against a specific operation</b>, not scored by a standing weight.</p></div>
+</section>
+
+<section>
+  <h2>How it proceeds — four actions, each with a price</h2>
+  <p class="sub">The same keeping-versus-getting-back question, asked about work instead of memory.</p>
+
+  <div class="grid">
+    <div class="cell"><h4>REUSE</h4><p>A valid, sufficient existing result is returned directly. No worker model call at all — frequently the cheapest action available.</p></div>
+    <div class="cell"><h4>CONTINUE</h4><p>Preserve an existing worker and its context. Attractive when its state is still valid and a substantial prefix can be reused.</p></div>
+    <div class="cell"><h4>REPAIR</h4><p>Keep the useful prior computation, refresh only what changed — a worker that knows a subsystem where one file moved v8&nbsp;&rarr;&nbsp;v9.</p></div>
+    <div class="cell"><h4>FRESH</h4><p>Give up the reuse advantage and scope a new worker. The fallback when prior state is irrelevant, too stale, too costly or unsafe to carry.</p></div>
+  </div>
+
+  <ul>
+    <li>A worker's accumulated reasoning is a stored asset like any other. These four are four answers to what it is worth.</li>
+    <li><b>Two of them are frequently not options at all.</b> Reusing a superseded result, or continuing a worker whose state describes a version that has since changed, are invalid rather than cheap.</li>
+    <li><b>REPAIR is why none of this can be a rule.</b> Refreshing one changed file under a worker that knows the subsystem wins easily; if the change touches most of what it knows, starting fresh is cheaper. Nothing changed but how much moved.</li>
+  </ul>
+
+  <p class="lede"><b>Version validity is a gate, not a discount.</b> A system that weighs staleness against price will eventually trade it away, because stale is always cheaper.</p>
+</section>
+
+<section>
+  <h2>Where it runs — when the cheapest copy is in another agent's context</h2>
+  <p class="sub">The axis that turns out to be the other two.</p>
+
+  <ul>
+    <li>One worker already holds a file, warm, in a context the provider serves at the cached rate.</li>
+    <li>A second worker needs something that file answers. The ordinary answer is that it reads the file.</li>
+    <li>But the harness mediates every tool call, so it sees what neither agent can: <b>this file is already in someone's head.</b></li>
+  </ul>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 280" role="img" aria-label="Two ways to answer the same question, differing by one hop. On the left, the worker that needs it reads the file from the store and eight thousand tokens enter its context permanently. On the right, the harness intercepts the read, sends a short question to the worker that already holds the file warm, and only a short answer enters it.">
+        <defs>
+          <marker id="b1" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+          <marker id="b2" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--save)"/>
+          </marker>
+        </defs>
+
+        <!-- LEFT: read -->
+        <text x="20" y="22" font-size="11" font-family="JetBrains Mono, monospace" fill="var(--spend)">READ IT</text>
+        <line x1="20" y1="32" x2="400" y2="32" stroke="var(--spend)" stroke-opacity=".4"/>
+
+        <rect x="20" y="52" width="110" height="46" rx="3" fill="none" stroke="currentColor"/>
+        <text x="75" y="72" text-anchor="middle" font-size="11.5" font-weight="600">store</text>
+        <text x="75" y="88" text-anchor="middle" font-size="9.5" fill-opacity=".65">the file</text>
+
+        <line x1="130" y1="75" x2="228" y2="75" stroke="var(--spend)" stroke-width="1.6" marker-end="url(#b1)"/>
+        <text x="179" y="66" text-anchor="middle" font-size="10.5" fill="var(--spend)" font-weight="600">8,000 tok</text>
+
+        <rect x="230" y="44" width="170" height="130" rx="3" fill="var(--spend-soft)" stroke="var(--spend)" stroke-width="1.4"/>
+        <text x="315" y="66" text-anchor="middle" font-size="12" font-weight="700">NEEDS IT</text>
+        <text x="315" y="86" text-anchor="middle" font-size="9.5">its own context, now</text>
+        <text x="315" y="100" text-anchor="middle" font-size="9.5">8,000 tokens heavier</text>
+        <rect x="246" y="112" width="138" height="16" fill="var(--spend)" fill-opacity=".35"/>
+        <text x="315" y="146" text-anchor="middle" font-size="9.5">re-sent every turn</text>
+        <text x="315" y="160" text-anchor="middle" font-size="9.5">from here on</text>
+
+        <text x="210" y="208" text-anchor="middle" font-size="12" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--spend)">$0.0156</text>
+
+        <line x1="424" y1="32" x2="424" y2="230" stroke="currentColor" stroke-opacity=".25"/>
+
+        <!-- RIGHT: ask -->
+        <text x="450" y="22" font-size="11" font-family="JetBrains Mono, monospace" fill="var(--save)">ASK WHOEVER HAS IT</text>
+        <line x1="450" y1="32" x2="840" y2="32" stroke="var(--save)" stroke-opacity=".4"/>
+
+        <rect x="450" y="52" width="110" height="46" rx="3" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="505" y="72" text-anchor="middle" font-size="11.5" font-weight="600">HOLDS IT</text>
+        <text x="505" y="88" text-anchor="middle" font-size="9.5" fill-opacity=".8">holds it, warm</text>
+
+        <path d="M616,64 L562,64" fill="none" stroke="currentColor" marker-end="url(#b1)"/>
+        <text x="589" y="55" text-anchor="middle" font-size="9.5" fill-opacity=".7">ask, 60 tok</text>
+
+        <path d="M562,90 L616,90" fill="none" stroke="var(--save)" stroke-width="1.6" marker-end="url(#b2)"/>
+        <text x="589" y="106" text-anchor="middle" font-size="10" fill="var(--save)" font-weight="600">180 tok</text>
+
+        <rect x="618" y="44" width="170" height="130" rx="3" fill="none" stroke="var(--save)" stroke-width="1.4"/>
+        <text x="703" y="66" text-anchor="middle" font-size="12" font-weight="700">NEEDS IT</text>
+        <text x="703" y="86" text-anchor="middle" font-size="9.5">receives the finding,</text>
+        <text x="703" y="100" text-anchor="middle" font-size="9.5">not the file</text>
+        <rect x="694" y="112" width="18" height="16" fill="var(--save)" fill-opacity=".45"/>
+        <text x="703" y="146" text-anchor="middle" font-size="9.5">context barely moves</text>
+
+        <text x="640" y="208" text-anchor="middle" font-size="12" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--save)">$0.0039</text>
+
+        <text x="430" y="252" text-anchor="middle" font-size="11.5" fill-opacity=".72">Same question, same answer, one hop different — and the file never enters a second context.</text>
+      </svg>
+    </div>
+    <figcaption>The shaded blocks inside each receiving worker are the same scale: what the read leaves behind, against what the answer leaves behind. The holder pays for its own turn, but almost all of its input is a cached prefix it has already been charged for once.</figcaption>
+  </figure>
+
+  <ul>
+    <li>Every read registers a versioned evidence object recording <b>which workers hold it, at which version, in which representation</b>.</li>
+    <li>So a read stops being an instruction and becomes a request for information, with candidates: <b>materialize the bytes</b>, <b>ask a holder</b>, or <b>reuse an earlier answer</b> to the same question.</li>
+    <li>Asking is usually several times cheaper — the holder's input is almost all cached prefix, and only a short answer crosses over.</li>
+    <li><b>Three gates keep it honest:</b> <em>fidelity</em> — an answer is an interpretation, not the bytes; <em>version</em> — a holder of the old file must fail loudly, not answer confidently; <em>latency</em> — asking serializes on the holder, so token cost falls but wall-clock may not.</li>
+  </ul>
+
+  <p class="lede"><b>No single context ever holds the whole codebase.</b> Knowledge is chunked across workers and addressed by question rather than by bytes — which is why "where the work runs" and "what it sees" are one decision, not two.</p>
+
+  <div class="cite"><p>Scoped readers queried repeatedly is <b>PARSER</b>'s shape. Our addition: asking is <b>a priced candidate rather than the fixed policy</b> — sometimes reading really is cheaper. <b>ClawVM</b> supplies why this belongs in the harness: it already mediates every tool call.</p></div>
+</section>
+
+<!-- ─────────────────────────  PART V  ───────────────────────── -->
+<div class="part"><span>Part V — Priced together, and made real</span> <i>from candidates to a rendered request</i></div>
+
+<section>
+  <h2>One plan, priced whole, corrected by measurement</h2>
+  <p class="sub">Chosen together, because chosen apart they get each other wrong.</p>
+
+  <ul>
+    <li>A plan names all three at once: <b>which worker</b>, <b>which view of the state</b>, <b>which mode</b>. Each choice is locally defensible; only the combination has a price.</li>
+  </ul>
+
+  <p class="lede">Rank plans on the first three terms and the one that loads the main context wins. Add the fourth and <b>it becomes the most expensive on the table</b> — the tokens it parks there are not free on any later turn. It is also the plan that walks a fixed budget into the wall.</p>
+
+  <h3>Cheapest feasible, not cheapest</h3>
+
+  <ul>
+    <li>Minimizing cost alone has a degenerate answer — do nothing, spend nothing, achieve nothing. So the objective is <b>minimize expected cost subject to a quality floor</b>.</li>
+    <li><b>Feasibility is checked before economics</b>: required evidence present, minimum fidelity satisfied, version validity, context window, permissions. A plan that violates one is <em>removed</em>, not discounted.</li>
+    <li>Among what survives, the lowest expected whole-task cost wins, and <b>every rejection is recorded with its reason</b>.</li>
+    <li><b>Relevance outranks cheapness.</b> Evidence ranking decides what is plausibly useful; the optimizer decides which plan uses it economically. In that order, a warm cache cannot make irrelevant evidence win.</li>
+  </ul>
+
+  <h3>The estimates correct themselves</h3>
+
+  <ul>
+    <li>None of these numbers are known in advance — they are predictions, so the planner runs as a closed loop.</li>
+    <li><b>None of that loop spends a model call.</b> Choosing is arithmetic over recorded profiles, which is what makes planning cheap enough to be worth doing.</li>
+  </ul>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 300" role="img" aria-label="A closed planning loop. New agent work leads to observing workers, memory versions, reusable context and cache signals; generating candidate actions reuse, continue, repair and fresh; predicting total cost, latency and feasibility; choosing a plan; executing it; and feeding observed actual behaviour back into the observation step.">
+        <defs>
+          <marker id="lp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect x="300" y="14" width="200" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <text x="400" y="36" text-anchor="middle" font-size="13" font-weight="600">new agent work</text>
+        <line x1="400" y1="48" x2="400" y2="70" stroke="currentColor" marker-end="url(#lp)"/>
+
+        <rect x="252" y="72" width="296" height="62" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+        <text x="400" y="94" text-anchor="middle" font-size="13.5" font-weight="700">observe</text>
+        <text x="400" y="111" text-anchor="middle" font-size="11">workers &middot; memory versions &middot; reusable context</text>
+        <text x="400" y="126" text-anchor="middle" font-size="11">observed cache behaviour</text>
+        <line x1="400" y1="134" x2="400" y2="156" stroke="currentColor" marker-end="url(#lp)"/>
+
+        <rect x="252" y="158" width="296" height="52" rx="3" fill="none" stroke="currentColor"/>
+        <text x="400" y="180" text-anchor="middle" font-size="13.5" font-weight="700">generate candidates</text>
+        <text x="400" y="199" text-anchor="middle" font-size="11.5" font-family="JetBrains Mono, monospace">REUSE · CONTINUE · REPAIR · FRESH</text>
+        <line x1="400" y1="210" x2="400" y2="232" stroke="currentColor" marker-end="url(#lp)"/>
+
+        <rect x="252" y="234" width="296" height="52" rx="3" fill="none" stroke="currentColor"/>
+        <text x="400" y="256" text-anchor="middle" font-size="13.5" font-weight="700">predict &amp; choose</text>
+        <text x="400" y="275" text-anchor="middle" font-size="11.5">total cost &middot; latency &middot; feasibility</text>
+
+        <path d="M548,260 L640,260 L640,103 L548,103" fill="none" stroke="var(--save)" stroke-width="1.4" marker-end="url(#lp)"/>
+        <text x="656" y="176" font-size="12" font-weight="700" fill="var(--save)">execute</text>
+        <text x="656" y="193" font-size="11" fill="var(--save)">then feed actual</text>
+        <text x="656" y="208" font-size="11" fill="var(--save)">behaviour back</text>
+
+        <text x="20" y="96" font-size="11" fill-opacity=".62">A worker predicted to</text>
+        <text x="20" y="112" font-size="11" fill-opacity=".62">offer 30K reusable tokens</text>
+        <text x="20" y="128" font-size="11" fill-opacity=".62">that returns cached=0</text>
+        <text x="20" y="144" font-size="11" fill-opacity=".62">becomes less attractive</text>
+        <text x="20" y="160" font-size="11" fill-opacity=".62">next time.</text>
+      </svg>
+    </div>
+    <figcaption>The loop closes. Predictions are corrected by measured execution, so the planner's model of its own workers improves with use rather than staying a fixed assumption. Decide from observed state, then correct from what the decision actually cost.</figcaption>
+  </figure>
+
+  <ul>
+    <li>A worker keeps what it has seen, what it produced, and its observed cache behaviour. <b>That last part keeps the estimates honest</b> — a worker that keeps promising reusable tokens and returning <code>cached=0</code> stops being attractive.</li>
+    <li><b>The resource being managed is not the KV cache</b> — it is previously computed agent state. Where a self-hosted engine exposes real residency that is a stronger signal worth using, but it is deliberately not a requirement.</li>
+  </ul>
+
+  <p class="lede">Which is the whole relationship in one line: the agent names the result it needs, and the planner chooses the access path — <b>the same relationship a query optimizer has to SQL</b>, where the application never names an index scan.</p>
+</section>
+
+<section>
+  <h2>Assembly, ordering, and what a rebuild costs</h2>
+  <p class="sub">Every price above assumed the prefix would still be there. This is the layer that keeps that true.</p>
+
+  <ul>
+    <li><b>The planner chooses content; the assembler renders it and never chooses.</b> Every request is content-addressed with a manifest and reconstructible byte-for-byte, so any decision here can be replayed.</li>
+    <li><b>On an ordinary turn nothing moves.</b> New content is appended at the end, every byte before it is identical to last turn, and the provider serves that prefix from cache.</li>
+    <li>The assembler runs on <b>every</b> turn — on almost all of them its job is to add, not to rearrange.</li>
+  </ul>
+
+  <h3>Four zones, ordered by how fast they change</h3>
+
+  <div class="grid">
+    <div class="cell"><h4>FROZEN</h4><p>Instructions and tool schemas. Identical for the life of the worker.</p></div>
+    <div class="cell"><h4>SLOW</h4><p>Task statement, constraints, standing policy. Changes at most a few times per run.</p></div>
+    <div class="cell"><h4>WARM</h4><p>Reusable evidence, appended when a plan pays for it. Grows; does not shuffle.</p></div>
+    <div class="cell"><h4>VOLATILE</h4><p>The current request and its observations. Different every turn, and last on purpose.</p></div>
+  </div>
+
+  <p class="lede">The ordering is not tidiness. <b>Inserting into zone <em>k</em> invalidates only the zones after <em>k</em></b> — and everything after WARM was changing this turn anyway, so adding evidence there costs nothing extra. That is the whole reason zones are sorted by rate of change.</p>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 260" role="img" aria-label="Three renderings of the same context. Appending at the end leaves the whole prefix cache eligible. Inserting evidence into the warm zone invalidates only the volatile zone, which was changing this turn anyway, so nothing extra is paid. A rebuild diverges inside the slow zone and every token after that point is re-charged at the uncached rate.">
+        <defs>
+          <marker id="z1" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--spend)"/>
+          </marker>
+        </defs>
+        <text x="20" y="20" font-size="10.5" font-family="JetBrains Mono, monospace" fill-opacity=".55">FROZEN</text>
+        <text x="210" y="20" font-size="10.5" font-family="JetBrains Mono, monospace" fill-opacity=".55">SLOW</text>
+        <text x="400" y="20" font-size="10.5" font-family="JetBrains Mono, monospace" fill-opacity=".55">WARM</text>
+        <text x="670" y="20" font-size="10.5" font-family="JetBrains Mono, monospace" fill-opacity=".55">VOLATILE</text>
+
+        <text x="20" y="56" font-size="12" font-weight="700">append</text>
+        <text x="20" y="72" font-size="9.5" fill-opacity=".6">the ordinary turn</text>
+        <rect x="190" y="38" width="470" height="26" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="425" y="56" text-anchor="middle" font-size="10.5" fill="var(--save)">prefix unchanged — served from cache</text>
+        <rect x="660" y="38" width="180" height="26" fill="none" stroke="currentColor" stroke-dasharray="3 2"/>
+        <text x="750" y="56" text-anchor="middle" font-size="10.5">new this turn</text>
+
+        <text x="20" y="122" font-size="12" font-weight="700">insert</text>
+        <text x="20" y="138" font-size="9.5" fill-opacity=".6">evidence enters WARM</text>
+        <rect x="190" y="104" width="210" height="26" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="295" y="122" text-anchor="middle" font-size="10.5" fill="var(--save)">still cached</text>
+        <rect x="400" y="104" width="120" height="26" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="460" y="122" text-anchor="middle" font-size="10.5" fill="var(--accent)">inserted</text>
+        <rect x="520" y="104" width="320" height="26" fill="none" stroke="currentColor" stroke-dasharray="3 2"/>
+        <text x="680" y="122" text-anchor="middle" font-size="10.5">shifted — but was changing anyway</text>
+
+        <text x="20" y="188" font-size="12" font-weight="700">rebuild</text>
+        <text x="20" y="204" font-size="9.5" fill-opacity=".6">compaction · version bump</text>
+        <rect x="190" y="170" width="90" height="26" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="235" y="188" text-anchor="middle" font-size="10" fill="var(--save)">cached</text>
+        <rect x="280" y="170" width="560" height="26" fill="var(--spend-soft)" stroke="var(--spend)"/>
+        <text x="560" y="188" text-anchor="middle" font-size="10.5" fill="var(--spend)">everything after the break is charged again, uncached</text>
+        <line x1="280" y1="144" x2="280" y2="164" stroke="var(--spend)" marker-end="url(#z1)"/>
+        <text x="280" y="216" text-anchor="middle" font-size="10" fill="var(--spend)" font-weight="600">divergence at k</text>
+
+        <text x="20" y="246" font-size="11" fill-opacity=".72">Only the third row costs anything extra — and only for the tokens after the break.</text>
+      </svg>
+    </div>
+    <figcaption>The first two rows are the same price. That is the point of sorting zones by rate of change: an insertion is free wherever everything downstream of it was already volatile. Only a change <em>inside</em> settled content forces the third row.</figcaption>
+  </figure>
+
+  <h3>So which turns rebuild?</h3>
+
+  <p>Four things, and nothing else:</p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th style="width:34%">Cause</th><th>Why it breaks the prefix</th></tr></thead>
+      <tbody>
+        <tr><td><b>A representation changes</b></td><td>Evidence already placed as FULL is swapped for COMPRESSED. The bytes at that position are different, so everything after them is different too.</td></tr>
+        <tr><td><b>A version advances</b></td><td>A file the worker already read is edited, and the new bytes replace the old ones in place. This is the common one in a coding run: every patch the agent applies to a file it has already read.</td></tr>
+        <tr><td><b>Compaction</b></td><td>Something in the middle is dropped or summarised to reclaim room. By construction it is not at the end.</td></tr>
+        <tr><td><b>A deliberate reorder</b></td><td>Moving evidence for relevance, or regrouping to shorten the prompt. The only one of the four that is chosen rather than forced.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul>
+    <li>The first three are consequences of work the agent is already doing. <b>Only the fourth is a decision</b> — and it is the one the optimizer has to justify.</li>
+  </ul>
+
+  <h3>The cost of moving something</h3>
+
+  <ul>
+    <li>A reorder is not forbidden — it is a candidate with a price, because a prefix that diverges at position <em>k</em> means every token after <em>k</em> is charged again at the uncached rate.</li>
+  </ul>
+
+  <figure>
+    <div class="frame">
+      <svg viewBox="0 0 860 240" role="img" aria-label="Two renderings of a twenty four thousand token context. Appending keeps the whole prefix cache eligible and costs thirty six hundredths of a cent. Reordering to remove nine hundred tokens diverges six thousand tokens in, forcing seventeen thousand one hundred tokens to be re-charged at the uncached rate, for seven times the price despite sending fewer tokens.">
+        <defs>
+          <marker id="c1" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--spend)"/>
+          </marker>
+        </defs>
+
+        <text x="20" y="24" font-size="11" font-family="JetBrains Mono, monospace" fill-opacity=".6">NEXT TURN, 24,000-TOKEN CONTEXT</text>
+
+        <!-- append -->
+        <text x="20" y="62" font-size="12.5" font-weight="600">append</text>
+        <text x="20" y="79" font-size="10" fill-opacity=".6">keep the order</text>
+        <rect x="150" y="46" width="600" height="30" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="450" y="66" text-anchor="middle" font-size="11.5" fill="var(--save)">24,000 tokens — prefix intact, all cache-eligible</text>
+        <text x="768" y="66" font-size="12" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--save)">$0.0036</text>
+
+        <!-- reorder -->
+        <text x="20" y="142" font-size="12.5" font-weight="600">reorder</text>
+        <text x="20" y="159" font-size="10" fill-opacity=".6">drop 900 tokens</text>
+        <rect x="150" y="126" width="150" height="30" fill="var(--save-soft)" stroke="var(--save)"/>
+        <text x="225" y="146" text-anchor="middle" font-size="10.5" fill="var(--save)">6,000 cached</text>
+        <rect x="300" y="126" width="428" height="30" fill="var(--spend-soft)" stroke="var(--spend)"/>
+        <text x="514" y="146" text-anchor="middle" font-size="11" fill="var(--spend)">17,100 tokens re-charged at the uncached rate</text>
+        <text x="746" y="146" font-size="12" font-weight="700" font-family="JetBrains Mono, monospace" fill="var(--spend)">$0.0266</text>
+
+        <line x1="300" y1="118" x2="300" y2="90" stroke="var(--spend)" marker-end="url(#c1)"/>
+        <text x="300" y="104" text-anchor="middle" font-size="10.5" fill="var(--spend)" font-weight="600">divergence at k = 6,000</text>
+
+        <line x1="150" y1="182" x2="750" y2="182" stroke="currentColor" stroke-opacity=".25"/>
+        <text x="450" y="206" text-anchor="middle" font-size="12" fill-opacity=".8">900 fewer tokens sent. 7.4&times; the price.</text>
+        <text x="450" y="226" text-anchor="middle" font-size="10.5" fill-opacity=".55">A token budget scores this as an improvement.</text>
+      </svg>
+    </div>
+    <figcaption>The reorder wins on every metric a token budget can see and loses badly on the only one that gets billed. It becomes correct in exactly one circumstance: when the context is about to be rebuilt anyway, so the prefix is lost regardless and the 900 tokens are a pure saving over every remaining turn.</figcaption>
+  </figure>
+
+  <div class="cite"><p><b>ClawVM</b> re-orders freely, because ordering is free when the budget is tokens. Our addition is the figure above: under per-token billing, <b>layout is an expense</b>.</p></div>
+
+  <h3>What this layer is ultimately for</h3>
+
+  <ul>
+    <li>Today the placement rule is fixed: append within your zone. That is deliberately dumb, and the right place to start — <b>a fixed rule you can price beats a clever one you cannot.</b></li>
+    <li><b>The goal is that placement becomes a priced decision</b> like every other one here: a policy choosing not only what enters the context but where it may go, with rebuild cost as a term it has to justify.</li>
+    <li><b>Deterministic code always performs the final render.</b> A policy proposes a layout; it never emits the bytes and never violates an invariant.</li>
+  </ul>
+</section>
+
+<footer>
+  EconoContext &middot; declarative cost-context management over shared, versioned agent state.<br>
+  Evaluation in progress.
+</footer>
+
+</main>

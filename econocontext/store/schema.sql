@@ -1,0 +1,176 @@
+-- The Agent DB. Everything EconoContext knows is written here, so the planner can
+-- retrieve instead of recompute and future predictors can learn from history.
+-- Plain SQLite, no ORM. Times are UTC ISO-8601 text. Token counts are integers.
+
+PRAGMA foreign_keys = ON;
+
+-- One row per task run. Separates baseline from EconoContext runs and fingerprints
+-- the config, so results are never compared across different settings unnoticed.
+CREATE TABLE IF NOT EXISTS runs (
+  run_id              TEXT PRIMARY KEY,
+  host                TEXT NOT NULL,            -- e.g. 'swebench_deepagents'
+  instance_id         TEXT,                     -- SWE-bench instance, when applicable
+  arm                 TEXT NOT NULL,            -- 'baseline' | 'econo'
+  mode                TEXT NOT NULL,            -- 'observe' | 'autopilot' | 'measure' (baseline)
+  model               TEXT NOT NULL,            -- provider model id
+  temperature         REAL NOT NULL,            -- fixed and identical in both arms
+  config_fingerprint  TEXT NOT NULL,            -- sha256 of both resolved config files
+  started_at          TEXT NOT NULL,
+  ended_at            TEXT,
+  status              TEXT,                     -- completed | failed | budget_stopped | step_limit
+  resolved            INTEGER,                  -- official SWE-bench result: 1 | 0 | NULL (not evaluated)
+  jev                 INTEGER NOT NULL DEFAULT 0 -- 1 if run with --jev (planner asked Jev for p_need_again)
+);
+
+-- The agent tree: the main agent and every subagent instance.
+CREATE TABLE IF NOT EXISTS agents (
+  agent_id            TEXT PRIMARY KEY,         -- root '<run>:root'; subagent '<run>:task:<tool_call_id>'
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  parent_id           TEXT REFERENCES agents(agent_id),
+  subagent_type       TEXT,                     -- NULL for the root
+  status              TEXT NOT NULL,            -- busy | idle | retired
+  window_max_tokens   INTEGER,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+
+-- Every piece of context any agent saw. Identity is (agent_id, native_id,
+-- content_hash); a row is written once and never rewritten, so evicted or
+-- pointered content is always here and can come back without an LLM call.
+CREATE TABLE IF NOT EXISTS segments (
+  segment_id          TEXT PRIMARY KEY,         -- sha256(agent_id | native_id | content_hash)
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL REFERENCES agents(agent_id),
+  native_id           TEXT NOT NULL,            -- host message id / tool-call id / positional id
+  kind                TEXT NOT NULL,            -- system|tools|task|message|tool_call|tool_result|subagent_result
+  text                TEXT NOT NULL,            -- full text, always
+  tokens              INTEGER NOT NULL,         -- econocontext.tokens.count_tokens estimate
+  content_hash        TEXT NOT NULL,            -- sha256(text)
+  source              TEXT,                     -- file path or 'tool:<name>'
+  version             TEXT,                     -- version of source at capture
+  pinned              INTEGER NOT NULL DEFAULT 0,
+  needs_exact_bytes   INTEGER NOT NULL DEFAULT 0,
+  pair_id             TEXT,                     -- tool-call id(s) linking a call and its result
+  role                TEXT NOT NULL,            -- system | user | assistant | tool (message validity)
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS segments_source ON segments(run_id, source);
+
+-- The mutable part: where each segment sits in an agent's window right now.
+-- An agent's window = its rows with in_window = 1, ordered by position.
+CREATE TABLE IF NOT EXISTS window_entries (
+  agent_id            TEXT NOT NULL REFERENCES agents(agent_id),
+  segment_id          TEXT NOT NULL REFERENCES segments(segment_id),
+  position            INTEGER NOT NULL,
+  in_window           INTEGER NOT NULL,         -- 1 = present in the latest request
+  representation      TEXT NOT NULL,            -- FULL | POINTER (COMPRESSED | STRUCTURED reserved)
+  zone                TEXT NOT NULL,            -- FROZEN | SLOW | WARM | VOLATILE
+  updated_at          TEXT NOT NULL,
+  PRIMARY KEY (agent_id, segment_id)
+);
+CREATE INDEX IF NOT EXISTS window_order ON window_entries(agent_id, in_window, position);
+
+-- Keyword index over segment text (external-content FTS5). The triggers keep it in
+-- step with `segments` (segments are write-once, but the triggers make that a
+-- property of the schema rather than a promise of the code).
+-- FTS BEGIN (skipped when this SQLite lacks FTS5; retrieval then falls back to LIKE)
+CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
+  text, content='segments', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS segments_ai AFTER INSERT ON segments BEGIN
+  INSERT INTO segments_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS segments_ad AFTER DELETE ON segments BEGIN
+  INSERT INTO segments_fts(segments_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS segments_au AFTER UPDATE ON segments BEGIN
+  INSERT INTO segments_fts(segments_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+  INSERT INTO segments_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+-- FTS END
+
+-- Source versions. The write barrier bumps these; reuse checks compare against them.
+-- A file path is bumped when that file changes; '*' is the workspace epoch, bumped on
+-- every change (search results depend on it) and as the fallback when changed paths
+-- cannot be determined.
+CREATE TABLE IF NOT EXISTS source_versions (
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  source              TEXT NOT NULL,
+  version             TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  PRIMARY KEY (run_id, source)
+);
+
+-- Tool calls and the versions of everything they read. An identical call can be
+-- answered from here, byte for byte, when nothing it read has changed.
+CREATE TABLE IF NOT EXISTS tool_results (
+  tool_result_id      TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL,
+  tool_name           TEXT NOT NULL,
+  args_key            TEXT NOT NULL,            -- sha256 of normalized arguments
+  result_segment_id   TEXT NOT NULL REFERENCES segments(segment_id),
+  read_set            TEXT NOT NULL,            -- JSON {source: version}
+  side_effect         INTEGER NOT NULL,         -- 1 for write/edit/execute: never reused
+  valid               INTEGER NOT NULL DEFAULT 1,
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tool_results_key ON tool_results(run_id, tool_name, args_key, valid);
+
+-- Results of delegated work, for REUSE_RESULT.
+CREATE TABLE IF NOT EXISTS stored_results (
+  result_id           TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  task_key            TEXT NOT NULL,            -- sha256(subagent_type + normalized description)
+  agent_id            TEXT NOT NULL,            -- the subagent that produced it
+  result_text         TEXT NOT NULL,            -- byte-identical tool output delivered to the parent
+  read_set            TEXT NOT NULL,            -- JSON {source: version} of what the subagent read
+  side_effect         INTEGER NOT NULL,         -- 1 if the subagent wrote or executed anything
+  valid               INTEGER NOT NULL DEFAULT 1,
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stored_results_key ON stored_results(run_id, task_key, valid);
+
+-- The EXPLAIN log: every decision, every candidate and its predicted cost, why each lost.
+CREATE TABLE IF NOT EXISTS decisions (
+  decision_id         TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL,
+  intercept           TEXT NOT NULL,            -- plan_prompt|before_tool_call|admit_tool_result|plan_dispatch
+  mode                TEXT NOT NULL,            -- observe | autopilot
+  candidates          TEXT NOT NULL,            -- JSON {name: CostBreakdown}
+  feasible            TEXT NOT NULL,            -- JSON [names that passed every gate]
+  chosen              TEXT NOT NULL,            -- operator name
+  applied             INTEGER NOT NULL,         -- 1 only when the host actually carried it out
+  predicted_cost      TEXT NOT NULL,            -- JSON CostBreakdown of the chosen candidate
+  why_not             TEXT NOT NULL,            -- JSON [{name, why_not}]
+  cache_predicted     INTEGER,                  -- cache belief before the call (plan_prompt only)
+  manifest_hash       TEXT,                     -- assembler manifest (plan_prompt only)
+  decision_ms         REAL NOT NULL,            -- time spent deciding
+  error               TEXT,                     -- set when the guard failed open
+  created_at          TEXT NOT NULL,
+  prediction          TEXT                      -- JSON {p_need_again, source, prior} (admit_tool_result only)
+);
+CREATE INDEX IF NOT EXISTS decisions_run ON decisions(run_id, intercept);
+
+-- What each physical model call actually cost. Joined to decisions for predicted vs actual.
+CREATE TABLE IF NOT EXISTS outcomes (
+  outcome_id          TEXT PRIMARY KEY,         -- the host's id for this call: one row per call
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL,
+  decision_id         TEXT,                     -- the plan_prompt decision for this call, if any
+  phase               TEXT NOT NULL,            -- 'agent' | 'compaction' (host summarization)
+  uncached_input      INTEGER,                  -- NULL = not reported (never read as zero)
+  cache_read          INTEGER,
+  cache_write         INTEGER,
+  output              INTEGER,                  -- includes reasoning
+  reasoning           INTEGER,                  -- subset of output, for explanation only
+  latency_ms          REAL,
+  cost_nu             REAL,
+  cost_usd            REAL,
+  cost_complete       INTEGER NOT NULL,         -- 0 when some billed counter was not reported
+  price_period        TEXT,                     -- which price period valued it
+  raw                 TEXT NOT NULL,            -- original usage fields, JSON, for audit
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS outcomes_run ON outcomes(run_id, agent_id);

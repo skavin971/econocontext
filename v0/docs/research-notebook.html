@@ -1,0 +1,270 @@
+<meta charset="utf-8">
+<title>EconoContext Research Notebook</title>
+<meta name="description" content="The reasoning behind EconoContext's live study, step by step and in plain language.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600;7..72,700&family=Source+Sans+3:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --bg:#EFF1F4; --surface:#FFFFFF; --sunk:#E5E9EF; --border:#D3D9E2;
+    --ink:#10151D; --dim:#59636F; --faint:#8894A3;
+    --accent:#145C6B; --accent-soft:#DDEBEE;
+    --spend:#A8500F; --spend-soft:#F6E7D8;
+    --save:#2D7A57;  --save-soft:#DCEEE4;
+    --cached:#B9D3D9; --rewrite:#E8B98A;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#0C0F14; --surface:#141922; --sunk:#10151D; --border:#252E3B;
+      --ink:#E6EAF1; --dim:#98A3B2; --faint:#6B7688;
+      --accent:#5FB6C6; --accent-soft:#12303A;
+      --spend:#E09553; --spend-soft:#33220F;
+      --save:#69C79A;  --save-soft:#11301F;
+      --cached:#1F4A55; --rewrite:#6B4320;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0C0F14; --surface:#141922; --sunk:#10151D; --border:#252E3B;
+    --ink:#E6EAF1; --dim:#98A3B2; --faint:#6B7688;
+    --accent:#5FB6C6; --accent-soft:#12303A;
+    --spend:#E09553; --spend-soft:#33220F;
+    --save:#69C79A;  --save-soft:#11301F;
+    --cached:#1F4A55; --rewrite:#6B4320;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--ink); font-family:'Source Sans 3',system-ui,sans-serif;
+       font-size:16.5px; line-height:1.62; padding-inline:20px; -webkit-font-smoothing:antialiased;}
+  main{max-width:880px; margin:0 auto; padding-block:56px 96px;}
+  h1,h2,h3{font-family:Literata,Georgia,serif; text-wrap:balance; margin:0; font-weight:700;}
+  p{margin:0 0 1em; max-width:68ch;}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.9em;}
+  .eyebrow{font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.1em;
+           text-transform:uppercase; color:var(--accent); margin-bottom:16px;}
+  h1{font-size:clamp(2.2rem,5.5vw,3.3rem); letter-spacing:-.02em; line-height:1.06;}
+  .dek{font-size:1.16rem; color:var(--dim); margin-top:16px; max-width:60ch;}
+  ul,ol{padding-left:1.2em; margin:0 0 1em; max-width:68ch;}
+  li{margin:.3em 0;}
+
+  nav{margin-top:36px; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:16px 20px;}
+  nav ol{margin:0; columns:2 260px; column-gap:28px;}
+  nav a{color:var(--ink); text-decoration:none;}
+  nav a:hover,nav a:focus-visible{color:var(--accent); text-decoration:underline;}
+
+  .step{margin-top:72px;}
+  .step-head{display:flex; gap:14px; align-items:baseline; border-bottom:1px solid var(--accent); padding-bottom:8px; margin-bottom:22px;}
+  .step-head .n{font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.1em; color:var(--accent); text-transform:uppercase; white-space:nowrap;}
+  h2{font-size:1.6rem; letter-spacing:-.015em;}
+  h3{font-size:1.06rem; margin:26px 0 8px;}
+  .q{font-size:1.08rem; color:var(--dim); font-style:italic; margin-bottom:18px;}
+  .takeaway{background:var(--accent-soft); border-radius:4px; padding:14px 18px; margin:20px 0; max-width:68ch;}
+  .takeaway b{display:block; font-size:.78rem; font-family:'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); margin-bottom:4px;}
+  .correction{border-left:3px solid var(--spend); padding:4px 0 4px 16px; margin:18px 0; max-width:68ch;}
+  .correction b{color:var(--spend);}
+
+  .wrap{overflow-x:auto; margin:16px 0;}
+  table{width:100%; border-collapse:collapse; font-size:.93rem; font-variant-numeric:tabular-nums;}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top;}
+  th{font-family:'JetBrains Mono',monospace; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); font-weight:500;}
+  td.num{text-align:right; white-space:nowrap;}
+
+  .result{display:grid; grid-template-columns:4.2em 1fr; gap:4px 14px; padding:14px 0; border-bottom:1px solid var(--border); max-width:72ch;}
+  .result .id{font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--accent);}
+  .result .f{grid-column:2; font-family:'JetBrains Mono',monospace; font-size:.88rem; background:var(--sunk); border-radius:3px; padding:4px 8px; justify-self:start; max-width:100%; overflow-x:auto;}
+  .result p{grid-column:2; margin:0;}
+
+  figure{margin:22px 0 6px;}
+  .frame{background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:18px 18px 12px; overflow-x:auto;}
+  figure svg{width:100%; min-width:520px; height:auto; display:block; color:var(--dim);}
+  figure svg text{fill:currentColor; font-family:'Source Sans 3',sans-serif; font-size:12.5px;}
+  figure svg .t{fill:var(--ink); font-weight:600;}
+  figure svg .c{fill:var(--cached);}
+  figure svg .w{fill:var(--rewrite);}
+  figure svg .gone{fill:none; stroke:var(--spend); stroke-dasharray:4 3;}
+  figure svg .cut{stroke:var(--spend); stroke-width:2;}
+  figcaption{font-size:.88rem; color:var(--faint); margin-top:10px; max-width:66ch; line-height:1.55;}
+  .status{display:inline-block; font-size:.78rem; font-weight:600; padding:1px 8px; border-radius:99px;}
+  .open{background:var(--sunk); color:var(--dim);}
+  .tested{background:var(--spend-soft); color:var(--spend);}
+  footer{margin-top:72px; color:var(--faint); font-size:.9rem; border-top:1px solid var(--border); padding-top:18px;}
+  footer a{color:var(--dim);}
+</style>
+
+<main>
+  <div class="eyebrow">Research notebook · September 2026</div>
+  <h1>EconoContext Research Notebook</h1>
+  <p class="dek">How we got from "make agents cheaper" to a specific, testable idea, one step at a time, including the places we were wrong and corrected ourselves.</p>
+
+  <nav aria-label="Steps">
+    <ol>
+      <li><a href="#primer">How agents are billed</a></li>
+      <li><a href="#step1">Where the money goes</a></li>
+      <li><a href="#step2">Our angle: helpers, not just trimming</a></li>
+      <li><a href="#step3">Is it new?</a></li>
+      <li><a href="#step4">The model, in plain words</a></li>
+      <li><a href="#step5">Can our old logs test it?</a></li>
+      <li><a href="#step6">The live study</a></li>
+      <li><a href="#status">Where things stand</a></li>
+    </ol>
+  </nav>
+
+  <section class="step" id="primer">
+    <div class="step-head"><span class="n">Background</span><h2>How agents are billed</h2></div>
+    <p>An agent like Claude Code works in turns. On every turn it sends the <strong>whole conversation so far</strong> to the model: the instructions, every file it read, every command output. The provider bills all of it, every turn.</p>
+    <p>Providers soften this with a <strong>cache</strong>. If the start of this turn's conversation is exactly the same as last turn's, that repeated part is billed at about a tenth of the price. But the match is strict: it stops at the first change. Change something early, and everything after it is billed at full price again. Some providers (Anthropic) even charge extra, 1.25 times the price, to write text into the cache.</p>
+    <figure>
+      <div class="frame">
+        <svg viewBox="0 0 640 170" role="img" aria-label="Removing a block early in the conversation forces everything after it to be billed again at full price.">
+          <text class="t" x="0" y="16">Keep everything</text>
+          <rect class="c" x="0" y="26" width="560" height="26" rx="2"/>
+          <rect class="w" x="560" y="26" width="60" height="26" rx="2"/>
+          <text x="280" y="44" text-anchor="middle">earlier turns: cache hit, about 1/10 price</text>
+          <text x="590" y="68" text-anchor="middle">new</text>
+
+          <text class="t" x="0" y="100">Remove one old block</text>
+          <rect class="c" x="0" y="110" width="120" height="26" rx="2"/>
+          <rect class="gone" x="120" y="110" width="80" height="26" rx="2"/>
+          <line class="cut" x1="120" y1="104" x2="120" y2="142"/>
+          <rect class="w" x="200" y="110" width="420" height="26" rx="2"/>
+          <text x="160" y="128" text-anchor="middle">removed</text>
+          <text x="410" y="128" text-anchor="middle">everything after the change: full price again</text>
+          <text x="60" y="158" text-anchor="middle">still cached</text>
+        </svg>
+      </div>
+      <figcaption>Why the <em>position</em> of a change matters. Removing a block saves its cost on every later turn, but it breaks the cache for everything that comes after it, once.</figcaption>
+    </figure>
+    <div class="takeaway"><b>The core idea</b>What an agent keeps, where it keeps it, and when it removes things all change the bill, and the provider's cache rules decide by how much. Nobody prices those choices today.</div>
+  </section>
+
+  <section class="step" id="step1">
+    <div class="step-head"><span class="n">Step 1</span><h2>Where the money goes</h2></div>
+    <p class="q">How do real agents manage their conversation today?</p>
+    <div class="wrap"><table>
+      <tr><th>Agent or framework</th><th>When it acts</th><th>What it does</th><th>Looks at cost?</th></tr>
+      <tr><td>Claude Code</td><td>conversation gets large</td><td>summarizes old messages</td><td>no</td></tr>
+      <tr><td>OpenHands</td><td>conversation gets large</td><td>summarizes old events</td><td>no</td></tr>
+      <tr><td>LangChain</td><td>past 100K tokens</td><td>clears old tool outputs, keeps the 3 newest</td><td>no</td></tr>
+      <tr><td>Helper agents (all of them)</td><td>when the model decides</td><td>does noisy reading in a separate conversation</td><td>no</td></tr>
+    </table></div>
+    <p>Every one of them acts on size alone. None looks at what the cache rules make each choice cost.</p>
+    <p>A worked example shows why that matters. Clearing 20K tokens out of a 100K conversation, at Anthropic's prices:</p>
+    <div class="wrap"><table>
+      <tr><th>Where the cleared text sat</th><th class="num">Turns before it pays off</th></tr>
+      <tr><td>Oldest, near the start (what LangChain clears)</td><td class="num">39</td></tr>
+      <tr><td>Middle</td><td class="num">22</td></tr>
+      <tr><td>Newest, near the end</td><td class="num">immediately</td></tr>
+      <tr><td>Anywhere, after the cache has expired</td><td class="num">immediately</td></tr>
+    </table></div>
+    <div class="takeaway"><b>Takeaway</b>Relevance says clear the old material; the cache says clearing old material is the most expensive choice. Nobody weighs the two. Our own earlier runs also showed tool output is most of what grows the conversation (about 1,578 tokens a turn).</div>
+  </section>
+
+  <section class="step" id="step2">
+    <div class="step-head"><span class="n">Step 2</span><h2>Our angle: helpers, not just trimming</h2></div>
+    <p class="q">Should EconoContext manage only one conversation, or also decide when to use helper agents?</p>
+    <div class="correction"><b>Correction.</b> Step 1's idea, cache-aware removal inside one conversation, is already published: TokenPilot and CAPC both do it and report 49 to 87% savings. So that alone is not our contribution.</div>
+    <p>What those papers share is that they manage <strong>one</strong> conversation. None decides where work happens. That is the open space.</p>
+    <h3>A helper agent is removal done in advance</h3>
+    <p>Say the agent needs to read 40 files to find one function.</p>
+    <ul>
+      <li><strong>Read it in the main conversation:</strong> all 40 files join the main conversation and are re-sent on every remaining turn. Removing them later is expensive, because they sit early.</li>
+      <li><strong>Hand it to a helper:</strong> the files go into a short conversation that ends after a few turns. Only a short answer comes back. The reading is thrown away for free when the helper finishes.</li>
+    </ul>
+    <p>So choosing a helper is choosing to remove the material before it ever arrives. Removal and placement are one decision, made at two different moments, and one cost model can price both.</p>
+    <div class="wrap"><table>
+      <tr><th>Turns the main agent has left</th><th class="num">Read it inline</th><th class="num">Use a helper</th><th>Cheaper</th></tr>
+      <tr><td>5</td><td class="num">14,000</td><td class="num">18,875</td><td>inline</td></tr>
+      <tr><td>10</td><td class="num">18,000</td><td class="num">19,025</td><td>inline</td></tr>
+      <tr><td>15</td><td class="num">22,000</td><td class="num">19,175</td><td>helper</td></tr>
+      <tr><td>30</td><td class="num">34,000</td><td class="num">19,625</td><td>helper</td></tr>
+    </table></div>
+    <p>Illustrative, in token-cost units: 8K of reading, a 300-token answer, a 40K main conversation, Anthropic prices, a helper taking 3 calls.</p>
+    <div class="takeaway"><b>Takeaway</b>A helper only pays off if the main agent will keep going long enough, about 12 more turns here. So the key input is a <em>forecast</em> of how long the session will last, and the agent's own plan or to-do list is a natural source for it. EconoContext does not write agents for anyone; it decides where each piece of work's text lives.</div>
+  </section>
+
+  <section class="step" id="step3">
+    <div class="step-head"><span class="n">Step 3</span><h2>Is it new?</h2></div>
+    <p class="q">Has anyone already priced where work happens against the cache bill?</p>
+    <p>We sorted about fifteen papers and systems by what they decide:</p>
+    <ul>
+      <li><strong>Price cache-aware choices:</strong> TokenPilot, CAPC. Always one conversation.</li>
+      <li><strong>Decide where work happens:</strong> Context-Folding (trained with reinforcement learning), SearchSwarm (trained by fine-tuning), and today's helper agents (the model's own judgment). None prices the cache bill.</li>
+      <li><strong>Nothing found in both groups.</strong> That overlap is where EconoContext sits. "Plausibly open" is the honest level: we read abstracts and summaries, not every full paper.</li>
+    </ul>
+    <div class="correction"><b>Correction.</b> We briefly described the whole thing as a new "memory hierarchy for agents". MemGPT (2023, now Letta) already introduced that idea, and a 2026 paper already treats memory and cost as a lifecycle problem. We credit both.</div>
+    <div class="wrap"><table>
+      <tr><th>Not ours (cite plainly)</th><th>Still looks open</th></tr>
+      <tr><td>cache-aware removal in one conversation (TokenPilot, CAPC)</td><td>choosing main agent, helper or storage by an explicit price</td></tr>
+      <tr><td>the memory hierarchy (MemGPT)</td><td>pricing the "everything after it is re-billed" effect</td></tr>
+      <tr><td>helpers and branching to shrink context (Context-Folding, SearchSwarm)</td><td>timing removals for when the cache has expired anyway</td></tr>
+      <tr><td>the position effect itself, fixed on self-hosted servers (Leyline)</td><td>keeping every conversation up to date when a file changes</td></tr>
+    </table></div>
+    <div class="takeaway"><b>The positioning</b>MemGPT gave agents a memory hierarchy. EconoContext puts a price on it.</div>
+  </section>
+
+  <section class="step" id="step4">
+    <div class="step-head"><span class="n">Step 4</span><h2>The model, in plain words</h2></div>
+    <p class="q">Can we state the idea precisely enough to make predictions?</p>
+    <p>Each turn costs <code>r·h + w·(n − h) + o·m</code>: the cached part <code>h</code> at the cheap read price <code>r</code>, the rest of the <code>n</code> tokens at the write price <code>w</code>, and <code>m</code> output tokens at price <code>o</code>. Nine results follow from that one line.</p>
+
+    <div class="result"><span class="id">R1</span><p><strong>Cost grows with the square of session length.</strong> Every turn re-sends everything before it, so twice the turns costs about four times as much. Caching makes it cheaper, but still quadratic. Only removing or relocating text changes that.</p></div>
+    <div class="result"><span class="id">R2</span><span class="f">one-time cost = (w − r)·τ − r·ℓ</span><p><strong>Removing a block costs what sits after it.</strong> Removing <code>ℓ</code> tokens re-bills the <code>τ</code> tokens after it once, and saves <code>r·ℓ</code> on every later turn.</p></div>
+    <div class="result"><span class="id">R3</span><p><strong>Remove now or never.</strong> Waiting only adds more text after the block, which makes removing it dearer, while leaving fewer turns to earn it back.</p></div>
+    <div class="result"><span class="id">R4</span><span class="f">ℓ* = ((w − r)/r)·Δ</span><p><strong>Below a size threshold, "wait and see" never removes anything.</strong> <code>Δ</code> is how much the conversation grows per turn. For blocks smaller than <code>ℓ*</code>, the price of removing keeps rising faster than the rent of keeping it. So the choice has to be made when the text arrives, from a forecast. That is placement.</p></div>
+    <div class="result"><span class="id">R5</span><p><strong>The threshold differs 19-fold between providers.</strong> About 30,000 tokens at Anthropic's 1-hour prices; about 1,600 where the cache discount is only 50%. So which lever matters most (placement or removal) depends on the provider, and one ratio predicts which.</p></div>
+    <div class="result"><span class="id">R6</span><p><strong>Remove in batches.</strong> Once you pay to break the cache at one point, removing anything after that point costs nothing extra.</p></div>
+    <div class="result"><span class="id">R7</span><span class="f">L* = (overhead − w·(S − F)) / (r·(S − F))</span><p><strong>Cheaper cache reads make helpers less attractive.</strong> A helper pays off only if the main agent has more than <code>L*</code> turns left (<code>S</code>: the reading, <code>F</code>: the answer that comes back). As read prices fall, keeping text becomes cheap and helpers need longer sessions to pay.</p></div>
+    <div class="result"><span class="id">R8</span><p><strong>When the cache has expired, removal is free.</strong> Everything is billed at full price either way, so that is the moment to clear small blocks.</p></div>
+    <div class="result"><span class="id">R9</span><p><strong>Edited files are expensive to keep early.</strong> A changed file makes every conversation holding the old version stale. The file being edited belongs late in the conversation, or in a short-lived one.</p></div>
+
+    <h3>The theory it connects to</h3>
+    <p>Below the threshold this is a known puzzle, <strong>ski rental with predictions</strong>: keep renting or buy, when you do not know how long you will need it, but you have a forecast (Purohit, Svitkina &amp; Kumar, NeurIPS 2018). Our version adds a buy price that rises over time and free purchases when the cache expires; that variant is not covered by the existing theory. The agent's own plan is the forecast.</p>
+  </section>
+
+  <section class="step" id="step5">
+    <div class="step-head"><span class="n">Step 5</span><h2>Can our old logs test it?</h2></div>
+    <p class="q">We had 124 logged calls from earlier runs. Could they check the model?</p>
+    <p>No. They were accurate about what they recorded, but:</p>
+    <ul>
+      <li>the provider reported the cached part on only 14% of calls, and that is the model's central number;</li>
+      <li>runs were 7 to 21 calls long, far too short;</li>
+      <li>nothing was ever removed, so there was nothing to test removal against;</li>
+      <li>the growth figure came from runs our own policy shaped, so testing on them would be circular.</li>
+    </ul>
+    <p>They did teach one real thing: conversations grow in bursts, not steadily (one turn jumped by 12,517 tokens). A burst is one big tool result, exactly what placement cares about.</p>
+    <div class="correction"><b>Changed on your direction.</b> The plan here was to replay public agent transcripts through a simulated bill. You asked for real API runs only, so that real cost and real success are measured together. Step 6 is that study.</div>
+  </section>
+
+  <section class="step" id="step6">
+    <div class="step-head"><span class="n">Steps 6 and 7</span><h2>The live study</h2></div>
+    <p>Real bug-fix tasks from open-source projects (SWE-rebench), real models through your Google key, prices from Google's list, each run checked by the task's hidden tests. Four policies: never remove, summarize, clear old outputs, and EconoContext.</p>
+    <ul>
+      <li><strong>Claude Sonnet 5</strong> was skipped for now: Google needs a login for it, not the API key, and the project has no access yet. The code for it is written and tested.</li>
+      <li><strong>Gemini 3.5 Flash</strong> was replaced by <strong>Gemini 3.6 Flash</strong>: Google's shared capacity refused most real requests to 3.5, while 3.6 accepted 10 out of 10.</li>
+      <li><strong>gpt-oss-120b</strong> was skipped after three runs: Google's serving returns its tool calls as raw text most of the time.</li>
+    </ul>
+    <p>The results are in the <a href="https://claude.ai/artifact/WLwH8E6NmQQ99eVvw5NqmK">pilot report</a> (in the repository: <code>docs/runs/2026-09-25-live-study/report.html</code>).</p>
+  </section>
+
+  <section class="step" id="status">
+    <div class="step-head"><span class="n">Status</span><h2>Where things stand</h2></div>
+    <p>What the pilot tested, and what it has not yet:</p>
+    <div class="wrap"><table>
+      <tr><th>Idea</th><th>Status</th><th>What we saw</th></tr>
+      <tr><td>Pricing where work happens (helpers vs inline)</td><td><span class="status tested">tested, lost</span></td><td>Helpers cost 47 to 68% of P3's runs. The planner assumed 2 calls per helper; the real average was 3 to 7, and half the helper answers were thrown away for being too long. Wrong inputs, not yet a verdict on the idea.</td></tr>
+      <tr><td>Cache-aware removal (R2 to R8)</td><td><span class="status open">not yet tested</span></td><td>Runs never grew past 61K tokens, so no removal rule fired.</td></tr>
+      <tr><td>Provider-dependent threshold (R5)</td><td><span class="status open">not yet tested</span></td><td>Needs two cached providers and longer sessions.</td></tr>
+      <tr><td>Reuse of paid results</td><td><span class="status tested">worked once</span></td><td>Fired three times in one run, the first ever.</td></tr>
+    </table></div>
+    <h3>Open questions</h3>
+    <ul>
+      <li>With measured helper costs, does placement ever pay on real tasks?</li>
+      <li>How good is an agent's own plan as a forecast of session length?</li>
+      <li>How well does the rising-price version of ski rental do in the worst case?</li>
+      <li>Is the overlap in Step 3 really empty? That needs a full-text literature search before any paper.</li>
+    </ul>
+  </section>
+
+  <footer>
+    This page is a readable version of the working notebook. The complete original, with every table and source link, is <code>docs/research-notebook-full.md</code>.
+    Main sources: TokenPilot (arXiv 2606.17016), CAPC (2607.15516), MemGPT (2310.08560), Context-Folding (2510.11967), SearchSwarm (2606.09730), Leyline (2606.01065), Purohit, Svitkina &amp; Kumar, NeurIPS 2018.
+  </footer>
+</main>
