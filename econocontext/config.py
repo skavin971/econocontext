@@ -44,8 +44,8 @@ class PriceCard:
     min_cacheable_tokens: int | None
     periods: list[dict[str, Any]]     # [{valid_from, valid_until, tiers: [PriceTier]}]
 
-    def tier(self, on: date, prompt_tokens: int | None) -> PriceTier:
-        """The tier that applies to a call on `on` with this prompt size."""
+    def period_and_tier(self, on: date, prompt_tokens: int | None) -> tuple[dict[str, Any], PriceTier]:
+        """Return the billing period and tier for a call on `on`."""
         for period in self.periods:
             start, end = period["valid_from"], period["valid_until"]
             if (start is None or on >= date.fromisoformat(start)) and (
@@ -54,9 +54,13 @@ class PriceCard:
                 for tier in period["tiers"]:
                     limit = tier.max_prompt_tokens
                     if limit is None or prompt_tokens is None or prompt_tokens <= limit:
-                        return tier
-                return period["tiers"][-1]
+                        return period, tier
+                return period, period["tiers"][-1]
         raise ConfigError(f"No price period for {self.model} on {on}")
+
+    def tier(self, on: date, prompt_tokens: int | None) -> PriceTier:
+        """The tier that applies to a call on `on` with this prompt size."""
+        return self.period_and_tier(on, prompt_tokens)[1]
 
 
 @dataclass

@@ -9,6 +9,8 @@ entries with in_window = 1, ordered by position.
 What it must never do: decide anything; it only records what is.
 """
 
+import threading
+
 from ..store.db import AgentDB
 from ..types import AgentNode, AgentStatus, Segment
 
@@ -18,6 +20,8 @@ class Registry:
         self.db, self.run_id = db, run_id
         self.agents: dict[str, AgentNode] = {}
         self.windows: dict[str, list[Segment]] = {}
+        self.active_spans: dict[str, int] = {}
+        self.lock = threading.RLock()
 
     def ensure_agent(self, agent_id: str, parent_id: str | None = None,
                      subagent_type: str | None = None,
@@ -62,3 +66,22 @@ class Registry:
 
     def turn_end(self, agent_id: str) -> None:
         self.ensure_agent(agent_id).turns += 1
+
+    def activity_start(self, agent_id: str) -> None:
+        """Mark an agent busy while one or more physical spans are open."""
+        with self.lock:
+            node = self.ensure_agent(agent_id)
+            self.active_spans[agent_id] = self.active_spans.get(agent_id, 0) + 1
+            if node.status != AgentStatus.RETIRED:
+                node.status = AgentStatus.BUSY
+            self.db.upsert_agent(self.run_id, node)
+
+    def activity_end(self, agent_id: str) -> None:
+        """Mark an agent idle only after its final concurrent span closes."""
+        with self.lock:
+            count = max(0, self.active_spans.get(agent_id, 0) - 1)
+            self.active_spans[agent_id] = count
+            node = self.ensure_agent(agent_id)
+            if count == 0 and node.status != AgentStatus.RETIRED:
+                node.status = AgentStatus.IDLE
+            self.db.upsert_agent(self.run_id, node)

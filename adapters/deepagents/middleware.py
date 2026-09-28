@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from contextvars import ContextVar
 
 from langchain.agents.middleware import AgentMiddleware
@@ -134,7 +135,31 @@ class EconoMiddleware(AgentMiddleware):
                 return ToolMessage(content=action.stored_text, tool_call_id=call["id"], name=name)
         except Exception:
             log.exception("econocontext: before_tool_call failed; running the tool")
-        result = handler(request)
+        span_id = f"{self.engine.run_id}:tool:{call['id']}"
+        span_started = False
+        started = time.perf_counter()
+        try:
+            self.engine.start_span(span_id, agent, "tool", name, native_id=call["id"],
+                                   metadata={"side_effect": side_effect})
+            span_started = True
+        except Exception:
+            log.exception("econocontext: failed to start tool timing span")
+        try:
+            result = handler(request)
+        except Exception:
+            if span_started:
+                try:
+                    self.engine.finish_span(span_id, agent,
+                                            (time.perf_counter() - started) * 1000, "failed")
+                except Exception:
+                    log.exception("econocontext: failed to finish failed tool span")
+            raise
+        if span_started:
+            try:
+                self.engine.finish_span(span_id, agent,
+                                        (time.perf_counter() - started) * 1000, "completed")
+            except Exception:
+                log.exception("econocontext: failed to finish tool timing span")
         try:
             return self._after_tool(agent, call, name, args, side_effect, result)
         except Exception:
@@ -170,11 +195,36 @@ class EconoMiddleware(AgentMiddleware):
 
         def run_native():
             box["started"] = True
+            span_id = f"{self.engine.run_id}:dispatch:{call['id']}"
+            span_started = False
+            started = time.perf_counter()
+            try:
+                self.engine.start_span(span_id, parent, "dispatch", "task",
+                                       native_id=call["id"],
+                                       metadata={"subagent_id": child,
+                                                 "subagent_type": subagent_type})
+                span_started = True
+            except Exception:
+                log.exception("econocontext: failed to start dispatch timing span")
             token = CURRENT_AGENT.set(child)
             try:
                 box["result"] = handler(request)
+            except Exception:
+                if span_started:
+                    try:
+                        self.engine.finish_span(span_id, parent,
+                                                (time.perf_counter() - started) * 1000, "failed")
+                    except Exception:
+                        log.exception("econocontext: failed to finish failed dispatch span")
+                raise
             finally:
                 CURRENT_AGENT.reset(token)
+            if span_started:
+                try:
+                    self.engine.finish_span(span_id, parent,
+                                            (time.perf_counter() - started) * 1000, "completed")
+                except Exception:
+                    log.exception("econocontext: failed to finish dispatch timing span")
             return box["result"]
 
         def run_default() -> DispatchResult:
