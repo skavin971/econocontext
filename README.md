@@ -62,7 +62,7 @@ with Gemini**. EconoContext only watches it and, when allowed, adjusts what it s
 econocontext/     the optimizer. Imports only Python's standard library and pyyaml.
   planner/          lists the options for a step (and jev_planner.py: a slot for Jev)
   optimizer/        gates (drop wrong options) and the choice
-  pricing/          the cost model, price cards, ledger (actual cost: to build)
+  pricing/          the cost model, price cards, and the ledger (actual cost per call)
   assembler/ guard/ build the chosen request; fail safe
   monitor/ store/   what exists, and the Agent DB
 omnigent_layer/   the glue, its own small package (pip install -e omnigent_layer)
@@ -84,6 +84,18 @@ installed). Only `bench/run.py` imports Omnigent. `tests/unit/test_isolation.py`
 fails if either rule is broken. The earlier Deep Agents version is in git under the tag
 `deepagents-host`; what we learned moving to Omnigent is in
 [`docs/omnigent-findings.md`](docs/omnigent-findings.md).
+
+## Omnigent: where to read about it
+
+We use Omnigent **0.15.0**, pinned, because it is alpha and its event fields change
+between releases.
+
+- [Omnigent on GitHub](https://github.com/omnigent-ai/omnigent): source, README, examples (Polly, the multi-agent coding orchestrator)
+- [Omnigent on Databricks](https://docs.databricks.com/aws/en/omnigent/): the managed version and quickstart
+- [Introducing Omnigent](https://www.databricks.com/blog/introducing-omnigent-meta-harness-combine-control-and-share-your-agents): what a meta-harness is
+- [Policies](https://github.com/omnigent-ai/omnigent/blob/main/docs/POLICIES.md): the hook `omnigent_layer/policy.py` uses
+- [Agent YAML spec](https://github.com/omnigent-ai/omnigent/blob/main/docs/AGENT_YAML_SPEC.md): the format of `bench/agent.yaml`
+- Ours: [how we use Omnigent, on one page](docs/html/omnigent.html) and [what we found wiring it up](docs/omnigent-findings.md)
 
 ## Details: where EconoContext decides
 

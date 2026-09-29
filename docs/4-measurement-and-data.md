@@ -31,16 +31,15 @@ Checked against live replies on 2026-09-28 ([findings](omnigent-findings.md), qu
 
 `None` always means "not reported", never zero.
 
-## Turning usage into money: the ledger (to build)
+## Turning usage into money: the ledger
 
-`econocontext/pricing/ledger.py` receives every `ProviderUsage`:
+`econocontext/pricing/ledger.py` (built by Tom Tvaroh, PR #4) prices every `ProviderUsage`:
 
-- **Today it is a skeleton.** It saves the token counts to the `outcomes` table and leaves the cost columns empty. The spec for building it is in the file's docstring. Its acceptance tests are in `tests/unit/test_ledger.py`; they are skipped until it exists.
-- **Once built:**
-  - cost = each billing category × its price from `config/billing_rates.yaml`, in USD and NU
-  - total run cost = a SQL sum over `outcomes`
-  - `report.py` then prints it
-- **Until then, dollar budgets can't stop a run.** `run_usd` returns 0, so only the step limit caps a paid run.
+- **Per call:** each billing category × its price from `config/billing_rates.yaml`, in USD and NU, written to the call's `outcomes` row with the price period used.
+- **Incomplete:** when a billed counter was not reported, the call is marked incomplete; the known subtotal is kept but not treated as a full bill.
+- **Per run:** a SQL sum over `outcomes` (`Ledger.run_cost`). `bench/report.py` prints it, and exports JSON or CSV.
+- **Checked:** its acceptance tests price a real v0 bill to the cent, and a layer test pins the SWE-bench run on Omnigent at $0.097717875. Details: [COST_TRACKING.md](COST_TRACKING.md).
+- **Dollar budgets** are not enforced on Omnigent yet; the gateway's caps (calls per run, input tokens per day) stop paid runs.
 
 **Price cards** (`config/billing_rates.yaml`) hold one card per model:
 
@@ -66,7 +65,7 @@ Schema and comments: `econocontext/store/schema.sql`.
 | `tool_results` | Tool call | Tool name, argument hash, read set, side effect, valid. Used for ANSWER_FROM_STORE |
 | `stored_results` | Subagent task | Task key, result text, read set, valid. Used for REUSE_RESULT |
 | `decisions` | Decision at any intercept | Every candidate's predicted cost, what passed the gates, what was chosen, whether it was applied, `why_not` for each loser, time taken, any error, and the `p_need_again` used (with its source: prior or Jev) |
-| `outcomes` | Physical model call | The reported tokens by category, latency, phase, cost (once the ledger is built), and the raw usage |
+| `outcomes` | Physical model call | The reported tokens by category, latency, phase, cost in NU and USD (from the ledger), and the raw usage |
 
 ## The closed loop: predicted next to actual
 
@@ -84,7 +83,7 @@ For each run, the report prints:
 - status and whether it resolved
 - model calls (and how many were summarization)
 - tokens by category, and the cache-read share
-- cost (once the ledger is built)
+- cost in NU and USD, and whether it is complete
 - predicted vs actual
 - decisions by operator (`*` = carried out)
 - the "would-be" counts: how often each non-default operator passed every gate

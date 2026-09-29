@@ -186,7 +186,7 @@ events reach our policy through Omnigent's policy hook.</figcaption>
 <tr><td>Sessions and transcript</td><td>Every step of every run is stored</td><td>Read in the UI; not yet read by our code</td></tr>
 <tr><td>Host daemon</td><td>Starts a runner per session on this machine</td><td>The bench uses it to launch each task</td></tr>
 <tr><td>Web UI</td><td>Session list and transcripts</td><td>For you to see what the agent did</td></tr>
-<tr><td>Cost tracking</td><td>A dollar figure per session</td><td>Not used: it overstates our runs (see below)</td></tr>
+<tr><td>Cost tracking</td><td>A dollar figure per session</td><td>Not used: it misses the cache discount and reasoning tokens for our harness (see below)</td></tr>
 </table></div>
 
 <h2 id="apis">The APIs</h2>
@@ -207,7 +207,7 @@ events reach our policy through Omnigent's policy hook.</figcaption>
 <tr><td><code>POST /v1/sessions/{id}/fork</code></td><td>Copy a session's history into a new one</td><td>A placement option: continue from a worker that already has the context</td></tr>
 <tr><td>Routing API (<code>SelectRoute</code>)</td><td>Pick a harness and model per task</td><td>Placement across harnesses and models, priced by the cost model</td></tr>
 <tr><td><code>GET /v1/sessions/{id}/stream</code></td><td>Live events</td><td>Watch a run as it happens</td></tr>
-<tr><td><code>GET /v1/usage</code></td><td>Dollar cost per session and per model</td><td>A cross-check for our ledger, once its pricing is fixed</td></tr>
+<tr><td><code>GET /v1/usage</code></td><td>Dollar cost per session and per model</td><td>A cross-check for our ledger, once Omnigent's cache field bug is fixed</td></tr>
 <tr><td>Extensions</td><td>Add a page to Omnigent's own UI</td><td>Show EconoContext's decisions inside Omnigent</td></tr>
 </table></div>
 
@@ -251,9 +251,17 @@ reasoning tokens:</p>
                                    $0.258569</code></pre>
 <p>Our gateway measured what Vertex actually reported for the same run: 90,039 fresh
 input tokens, 248,415 cached tokens (billed at a tenth of the price), and 3,082 output
-tokens including reasoning. At the same prices that is about <b>$0.098</b>, a hand
-calculation until <code>pricing/ledger.py</code> is built. So Omnigent's number is about
-2.6 times ours here, which is why EconoContext measures cost at its own gateway.</p>
+tokens including reasoning. The ledger prices that at <b>$0.0977</b>. We are not
+measuring wrong. Two things drop information on the way from Vertex to Omnigent:</p>
+<ul>
+<li><b>The cache discount is lost to a field name.</b> Omnigent reads cached tokens from
+<code>usage.prompt_tokens_details</code>, but the Agents SDK stores them as
+<code>input_tokens_details</code>. So Omnigent always sees 0 cached tokens.</li>
+<li><b>Reasoning is left out.</b> Vertex reports reasoning tokens outside
+<code>completion_tokens</code>, and the SDK copies only <code>completion_tokens</code>.</li>
+</ul>
+<p>That is why EconoContext measures cost at its own gateway, from what the provider
+itself returned. The final check is the Google Cloud billing console.</p>
 
 <h2 id="limits">What Omnigent does not give us</h2>
 <ul>

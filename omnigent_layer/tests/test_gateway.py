@@ -72,6 +72,17 @@ def test_baseline_is_forwarded_byte_for_byte_and_measured(gw):
     assert not db.rows("SELECT * FROM decisions WHERE run_id='b1'")  # baseline: no decisions
 
 
+def test_each_call_is_priced_and_timed(gw):
+    register_run("t1", "econo", "observe")
+    post(f"{gw}/run/t1/v1/chat/completions", BODY)
+    db = AgentDB(omnigent_layer.DB_PATH)
+    outcome = db.rows("SELECT outcome_id, cost_usd, cost_complete FROM outcomes WHERE run_id='t1'")[0]
+    assert outcome["cost_complete"] == 1 and outcome["cost_usd"] > 0
+    span = db.rows("SELECT kind, status, native_id FROM runtime_spans WHERE run_id='t1'")[0]
+    assert (span["kind"], span["status"], span["native_id"]) == ("model", "completed",
+                                                                 outcome["outcome_id"])
+
+
 def test_the_real_key_replaces_the_placeholder(gw):
     register_run("k1", "baseline", "observe")
     post(f"{gw}/run/k1/v1/chat/completions", BODY)

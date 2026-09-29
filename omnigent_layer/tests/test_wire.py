@@ -1,3 +1,7 @@
+from datetime import date
+
+from econocontext import config
+from econocontext.pricing.ledger import cost
 from omnigent_layer import wire
 from econocontext.types import SegmentKind
 
@@ -14,9 +18,24 @@ def test_cached_tokens_become_cache_read():
     assert (u.uncached_input, u.cache_read) == (14236 - 10212, 10212)
 
 
-def test_absent_cache_details_mean_not_reported_not_zero():
+def test_absent_cache_details_mean_nothing_cached():
     u = wire.to_usage(FIRST)
-    assert u.cache_read is None and u.uncached_input == 14236
+    assert u.cache_read == 0 and u.uncached_input == 14236
+    assert "prompt_tokens_details" not in u.raw  # the absence stays visible for audit
+
+
+def test_gemini_has_no_separate_cache_write_so_cost_is_complete():
+    assert wire.to_usage(SECOND).cache_write_applicable is False
+
+
+def test_ledger_prices_the_swebench_run_from_gateway_counts():
+    # pytest-dev__pytest-5809 on Omnigent (2026-09-28): the gateway's totals over 28 calls.
+    usage = wire.to_usage({"prompt_tokens": 90039 + 248415, "completion_tokens": 1261,
+                           "total_tokens": 90039 + 248415 + 3082,
+                           "prompt_tokens_details": {"cached_tokens": 248415},
+                           "completion_tokens_details": {"reasoning_tokens": 1821}})
+    _, usd, complete, _ = cost(usage, config.load("config").card, date(2026, 9, 28))
+    assert complete and abs(usd - 0.097717875) < 1e-12
 
 
 def test_reasoning_outside_completion_is_added_to_output():

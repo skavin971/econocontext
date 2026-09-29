@@ -14,7 +14,8 @@
 | Omnigent layer (gateway, policy, write barrier, container shell) and SWE-bench bench, official grading | **Real**, live-tested on one instance (resolved), observe mode |
 | POINTER on Omnigent | Not wired: the policy can replace a result, but there is no place yet where the agent can reopen the full text |
 | Sub-agents on our Gemini setup | Blocked: Omnigent 0.15.0 sends inline sub-agents to the Responses API, which Vertex does not serve ([findings](omnigent-findings.md)) |
-| **Ledger** (actual cost in NU and USD, total run cost) | **To build**: saves tokens, cost columns empty. See `pricing/ledger.py` |
+| **Ledger** (actual cost in NU and USD, total run cost) | **Real**, tested (PR #4). The SWE-bench run on Omnigent: $0.0977 |
+| Runtime spans (timing) | **Real** for model calls on Omnigent; tool and dispatch spans not yet recorded there |
 | **Jev planner** (`--jev`) | **To build**: empty slot with a spec. See `planner/jev_planner.py` |
 | Planner rules (which candidates to propose) | Placeholder: fixed rules |
 | Cost model | Placeholder: token lengths only, **ignores caching**, so it predicts about 2× the actual cost |
@@ -28,7 +29,7 @@
 
 ## Known gaps
 
-1. **Dollar budgets don't work** until the ledger is built. The gateway's caps (60 model calls per run, 3M input tokens per day) are what stop a paid run.
+1. **Dollar budgets are not enforced on Omnigent yet.** Costs are known per call, but the gateway's caps (60 model calls per run, 3M input tokens per day) are what stop a paid run.
 2. **The patch can include build output:** `git add -A` also picks up files the agent created, such as Sphinx `_build/`. It was graded correctly anyway, but the patch was 625 KB.
 3. **Shell fallback is weaker than it looks.** If `git status` fails after a write or shell tool, only the workspace epoch `*` is bumped, and stored `sys_os_read` results (keyed by their path) stay valid. Git worked in every run so far.
 4. **Reusable by default.** A tool that is neither a file read nor a side-effecting tool gets an empty read set, so an identical second call to it would count as answerable from the store (logged only on Omnigent). An explicit list of reusable tools would make this safe by construction.

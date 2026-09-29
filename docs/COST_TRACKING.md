@@ -17,19 +17,21 @@ after a model call finishes.
 
 ## 2. Gemini usage mapping
 
-`adapters/providers/gemini_usage.py` maps Gemini usage metadata as follows:
+Every model call passes through the gateway, and `omnigent_layer/wire.py`
+(`to_usage`) maps the usage that Vertex's OpenAI-compatible endpoint reports:
 
-| Gemini field | Ledger category |
+| Vertex field | Ledger category |
 | --- | --- |
-| `input_tokens - input_token_details.cache_read` | `uncached_input` |
-| `input_token_details.cache_read` | `cache_read` |
+| `prompt_tokens - prompt_tokens_details.cached_tokens` | `uncached_input` |
+| `prompt_tokens_details.cached_tokens` (absent when nothing was cached: recorded as 0; `raw` keeps the absence) | `cache_read` |
 | No separately billed implicit-cache write field | `cache_write = None`, `cache_write_applicable = False` |
-| `output_tokens` | `output` |
-| `output_token_details.reasoning` | `reasoning` for explanation only |
+| `completion_tokens + completion_tokens_details.reasoning_tokens` | `output` |
+| `completion_tokens_details.reasoning_tokens` | `reasoning` for explanation only |
 
-Gemini's `output_tokens` already includes reasoning tokens, so reasoning is not
-charged a second time. The adapter preserves missing counters as `None`; it only
-maps Gemini's known implicit-cache write behavior to a non-applicable write term.
+Vertex reports reasoning tokens outside `completion_tokens` (prompt + completion +
+reasoning = total), so they are added to `output`. If the three do not add up to the
+total, reasoning is taken as already included and is not charged twice. The mapping
+was checked against live replies on 2026-09-28 (see `docs/omnigent-findings.md`).
 
 ## 3. Cost formula and NU normalization
 
@@ -96,9 +98,10 @@ timestamps, duration, status, native IDs, decision IDs, and JSON metadata. Open
 rows represent work currently in progress; failed rows are retained. A process
 that terminates unexpectedly can therefore leave an open row for later audit.
 
-Model spans come from the shared callback. Optimized-arm tool and dispatch spans
-come from `EconoMiddleware`; baseline tool and dispatch spans come from the
-same callback around host lifecycle events. `ANSWER_FROM_STORE` and
+Model spans come from the gateway (`omnigent_layer/gateway.py`), in both arms: one
+span per call, opened before the call is forwarded and closed when the reply ends.
+Tool and dispatch spans were recorded by the Deep Agents adapter (tag
+`deepagents-host`) and are not yet recorded on Omnigent. `ANSWER_FROM_STORE` and
 `REUSE_RESULT` have no physical execution span.
 
 An agent is `busy` while it has one or more open spans and returns to `idle` only
@@ -161,19 +164,19 @@ GROUP BY run_id;
 Text remains the default human-readable format:
 
 ```sh
-python scripts/report.py --label check1
+.venv/bin/python bench/report.py --label check1
 ```
 
 JSON is the timeline-ready export for notebooks or later visualization:
 
 ```sh
-python scripts/report.py --label check1 --format json --output report.json
+.venv/bin/python bench/report.py --label check1 --format json --output report.json
 ```
 
 CSV is one flattened row per run for spreadsheets and statistical analysis:
 
 ```sh
-python scripts/report.py --label check1 --format csv --output report.csv
+.venv/bin/python bench/report.py --label check1 --format csv --output report.csv
 ```
 
 JSON includes run metadata, pricing provenance, price periods, configuration

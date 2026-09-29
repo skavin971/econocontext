@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cost tracking, runtime timing, and reporting · EconoContext</title>
+<style>
+:root{--bg:#fbfaf7;--panel:#ffffff;--ink:#1d1f23;--muted:#5b616b;--line:#dcd9d2;--accent:#1f6f5c;--accent-soft:#e3f1ec;--code:#f2f0ea;--todo:#9a6a14}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--panel:#1c1f23;--ink:#e7e5e0;--muted:#a2a7ae;--line:#33373d;--accent:#6fc7ad;--accent-soft:#1f3a33;--code:#23272c;--todo:#e0b25a}}
+:root[data-theme="dark"]{--bg:#15171a;--panel:#1c1f23;--ink:#e7e5e0;--muted:#a2a7ae;--line:#33373d;--accent:#6fc7ad;--accent-soft:#1f3a33;--code:#23272c;--todo:#e0b25a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1180px;margin:0 auto}
+nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:28px 18px;border-right:1px solid var(--line)}
+nav .brand{font-weight:700;font-size:18px;margin:0 0 4px}
+nav .sub{color:var(--muted);font-size:13px;margin:0 0 20px}
+nav ol{list-style:none;margin:0;padding:0}
+nav li{margin:2px 0}
+nav a{display:block;padding:5px 10px;border-radius:6px;color:var(--ink);text-decoration:none;font-size:14.5px}
+nav a:hover{background:var(--accent-soft)}
+nav a.current{background:var(--accent-soft);color:var(--accent);font-weight:600}
+nav ol ol{margin:2px 0 8px 10px;border-left:2px solid var(--line)}
+nav ol ol a{font-size:13px;color:var(--muted);padding:3px 10px}
+main{padding:36px 44px 60px;min-width:0}
+article{max-width:780px}
+h1{font-size:30px;line-height:1.25;margin:0 0 18px}
+h2{overflow-wrap:anywhere;font-size:21px;margin:40px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:17px;margin:26px 0 8px}
+p,li{max-width:72ch}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:0.88em ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:var(--code);padding:14px 16px;border-radius:8px;overflow-x:auto;line-height:1.45}
+pre code{background:none;padding:0;font-size:13.5px}
+.table{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;font-size:14.5px;min-width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--accent-soft)}
+td{background:var(--panel)}
+figure.diagram{overflow-x:auto;margin:22px 0;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:none}
+figure.diagram svg{width:100%;height:auto;color:var(--ink);display:block}
+figcaption{color:var(--muted);font-size:14px;margin-top:10px}
+svg .band{fill:var(--bg);stroke:var(--line);stroke-width:1.5}
+svg .core{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+svg .chip{fill:var(--panel);stroke:var(--line)}
+svg .step rect{fill:var(--panel);stroke:var(--accent);stroke-width:1.5}
+svg .todo{fill:var(--panel);stroke:var(--todo);stroke-width:1.5;stroke-dasharray:5 4}
+svg .flow{stroke:currentColor;stroke-width:1.4;fill:none}
+svg text{fill:currentColor}
+svg .t-title{font-size:14px;font-weight:700}
+svg .t-name{font-size:13.5px;font-weight:700}
+svg .t-note{font-size:12px;fill:var(--muted)}
+svg .t-small{font-size:11.5px}
+svg .t-label{font-size:11.5px;fill:var(--muted)}
+.pager{display:flex;justify-content:space-between;gap:16px;margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:15px}
+.theme{margin-top:18px;font-size:13px;background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer}
+@media (max-width:860px){.layout{grid-template-columns:minmax(0,1fr)}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:18px 16px}main{padding:24px 16px 48px}figure.diagram svg{min-width:720px}h1{font-size:25px}}
+</style><script>
+(function(){try{var t=localStorage.getItem('eco-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}})();
+function toggleTheme(){var d=document.documentElement,dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;d.dataset.theme=dark?'light':'dark';try{localStorage.setItem('eco-theme',d.dataset.theme);}catch(e){}}
+</script></head>
+<body><div class="layout">
+<nav><p class="brand">EconoContext</p><p class="sub">Documentation for beginners</p>
+<ol><li><a href="index.html">Start here</a></li><li><a href="1-the-idea.html">1. The idea</a></li><li><a href="2-how-it-fits.html">2. How it fits</a></li><li><a href="3-how-a-decision-is-made.html">3. How a decision is made</a></li><li><a href="4-measurement-and-data.html">4. Measurement and data</a></li><li><a href="5-omnigent-and-swebench.html">5. Omnigent and SWE-bench</a></li><li><a href="6-status-and-future.html">6. Status and future</a></li><li><a href="testing.html">Testing: how to run it</a></li><li><a href="cost-tracking.html" class="current">Cost tracking</a><ol><li><a href="#1-purpose-and-terminology">1. Purpose and terminology</a></li><li><a href="#2-gemini-usage-mapping">2. Gemini usage mapping</a></li><li><a href="#3-cost-formula-and-nu-normalization">3. Cost formula and NU normalization</a></li><li><a href="#4-price-card-periods-tiers-provenance-and-cache-semantics">4. Price-card periods, tiers, provenance, and cache semantics</a></li><li><a href="#5-model-call-lifecycle-from-callback-to-outcomes">5. Model-call lifecycle from callback to outcomes</a></li><li><a href="#6-runtime-spans-and-active-agent-tracking">6. Runtime spans and active-agent tracking</a></li><li><a href="#7-predicted-actual-running-and-incomplete-cost">7. Predicted, actual, running, and incomplete cost</a></li><li><a href="#8-sqlite-tables-and-example-queries">8. SQLite tables and example queries</a></li><li><a href="#9-text-json-and-csv-report-commands">9. Text, JSON, and CSV report commands</a></li><li><a href="#10-recommended-benchmark-metrics">10. Recommended benchmark metrics</a></li><li><a href="#11-comparing-historical-runs-with-online-pricing">11. Comparing historical runs with online pricing</a></li><li><a href="#12-explicit-limitations">12. Explicit limitations</a></li></ol></li><li><a href="omnigent-findings.html">Omnigent findings</a></li></ol>
+<button class="theme" onclick="toggleTheme()">Light / dark</button></nav>
+<main><article>
+<h1 id="cost-tracking-runtime-timing-and-reporting">Cost tracking, runtime timing, and reporting</h1>
+<h2 id="1-purpose-and-terminology">1. Purpose and terminology</h2>
+<p>EconoContext keeps provider accounting separate from planning. The planner estimates what a choice may cost; the ledger records what the provider reported after a model call finishes.</p>
+<ul><li><strong>Actual cost</strong> is reported provider usage priced with the applicable local rate card.</li><li><strong>Predicted cost</strong> is the pre-call estimate stored with a decision.</li><li><strong>Running cost</strong> is the known actual subtotal accumulated so far.</li><li><strong>Incomplete cost</strong> means at least one billed counter was unavailable. The known subtotal is retained, but the total is not treated as reliable.</li><li><strong>NU</strong> (normalized units) expresses usage relative to one uncached input token for the configured model. USD is the published-price representation.</li></ul>
+<h2 id="2-gemini-usage-mapping">2. Gemini usage mapping</h2>
+<p>Every model call passes through the gateway, and <code>omnigent_layer/wire.py</code> (<code>to_usage</code>) maps the usage that Vertex's OpenAI-compatible endpoint reports:</p>
+<div class="table"><table><thead><tr><th>Vertex field</th><th>Ledger category</th></tr></thead><tbody><tr><td><code>prompt_tokens - prompt_tokens_details.cached_tokens</code></td><td><code>uncached_input</code></td></tr><tr><td><code>prompt_tokens_details.cached_tokens</code> (absent when nothing was cached: recorded as 0; <code>raw</code> keeps the absence)</td><td><code>cache_read</code></td></tr><tr><td>No separately billed implicit-cache write field</td><td><code>cache_write = None</code>, <code>cache_write_applicable = False</code></td></tr><tr><td><code>completion_tokens + completion_tokens_details.reasoning_tokens</code></td><td><code>output</code></td></tr><tr><td><code>completion_tokens_details.reasoning_tokens</code></td><td><code>reasoning</code> for explanation only</td></tr></tbody></table></div>
+<p>Vertex reports reasoning tokens outside <code>completion_tokens</code> (prompt + completion + reasoning = total), so they are added to <code>output</code>. If the three do not add up to the total, reasoning is taken as already included and is not charged twice. The mapping was checked against live replies on 2026-09-28 (see <code>docs/omnigent-findings.md</code>).</p>
+<h2 id="3-cost-formula-and-nu-normalization">3. Cost formula and NU normalization</h2>
+<p>For one call, rates are USD per one million tokens:</p>
+<pre><code>USD = (uncached input × standard input rate)
+    + (cache write × cache-write rate)
+    + (cache read × cached-input rate)
+    + (output × output rate)</code></pre>
+<p>The sum is divided by 1,000,000. NU applies the same relative prices:</p>
+<pre><code>NU = uncached input
+   + cache write × cache-write ratio
+   + cache read × cache-read ratio
+   + output × output ratio</code></pre>
+<p>For Gemini implicit caching, the cache-write term is zero because it is not a separately applicable billed counter. Missing required counters produce <code>cost_complete = false</code> and null cost values; missing usage is never treated as free usage.</p>
+<h2 id="4-price-card-periods-tiers-provenance-and-cache-semantics">4. Price-card periods, tiers, provenance, and cache semantics</h2>
+<p><code>config/billing_rates.yaml</code> is a versioned local price-card catalog. The ledger selects the period from the call date and the tier from the reported prompt size. It stores the applied period identifier in <code>outcomes.price_period</code>.</p>
+<p>Each card records the provider, model, publisher source URL, retrieval date, effective periods, prompt tiers, and cache rates. Reports include this provenance and the configuration fingerprint. Gemini's current card represents implicit-cache reads; separately billed explicit-cache writes remain future work.</p>
+<h2 id="5-model-call-lifecycle-from-callback-to-outcomes">5. Model-call lifecycle from callback to <code>outcomes</code></h2>
+<p>The shared LangChain callback is installed in both experiment arms:</p>
+<pre><code>on_chat_model_start
+  → attribute the call to the root or nearest task subagent
+  → check the configured budget
+  → open a model runtime span
+
+on_llm_end / on_llm_error
+  → map Gemini usage into ProviderUsage
+  → calculate and store actual cost in outcomes
+  → close the model runtime span</code></pre>
+<p><code>outcomes</code> is the durable source for token totals and actual cost. It retains the normalized provider usage in <code>raw</code> for auditability and keeps failed or incomplete attempts. <code>outcomes.latency_ms</code> remains the model-call duration for backward compatibility.</p>
+<h2 id="6-runtime-spans-and-active-agent-tracking">6. Runtime spans and active-agent tracking</h2>
+<p><code>runtime_spans</code> records <code>model</code>, <code>tool</code>, and <code>dispatch</code> lifecycles with start/end timestamps, duration, status, native IDs, decision IDs, and JSON metadata. Open rows represent work currently in progress; failed rows are retained. A process that terminates unexpectedly can therefore leave an open row for later audit.</p>
+<p>Model spans come from the gateway (<code>omnigent_layer/gateway.py</code>), in both arms: one span per call, opened before the call is forwarded and closed when the reply ends. Tool and dispatch spans were recorded by the Deep Agents adapter (tag <code>deepagents-host</code>) and are not yet recorded on Omnigent. <code>ANSWER_FROM_STORE</code> and <code>REUSE_RESULT</code> have no physical execution span.</p>
+<p>An agent is <code>busy</code> while it has one or more open spans and returns to <code>idle</code> only after its final concurrent span closes. <code>retired</code> remains reserved for explicit future lifecycle support.</p>
+<h2 id="7-predicted-actual-running-and-incomplete-cost">7. Predicted, actual, running, and incomplete cost</h2>
+<p>These values must not be conflated:</p>
+<ul><li><code>predicted_cost</code>: EconoContext's pre-call plan estimate, currently expressed in NU.</li><li><code>actual_cost</code>: the complete total from provider counters and the stored rate card; it is null as a reliable total if any outcome is incomplete.</li><li><code>running_cost</code>: known actual cost accumulated so far, including the known subtotal of a partially accounted run.</li><li><code>incomplete_cost</code>: a flag indicating that the running subtotal is not a fully reliable bill.</li></ul>
+<p>Before each model call, known spend is checked against the configured budget. If any earlier outcome is incomplete, the next model call is refused with a clear budget-unknown error rather than treating that outcome as zero. The configured step limit remains the fallback safety cap.</p>
+<h2 id="8-sqlite-tables-and-example-queries">8. SQLite tables and example queries</h2>
+<p>SQLite remains the canonical store. The database is normally <code>data/econocontext.sqlite3</code>.</p>
+<p>Running cost by agent:</p>
+<pre><code>SELECT run_id, agent_id, SUM(cost_usd) AS known_usd,
+       SUM(cost_nu) AS known_nu, SUM(uncached_input) AS uncached_input,
+       SUM(cache_read) AS cache_read, SUM(output) AS output
+FROM outcomes
+GROUP BY run_id, agent_id;</code></pre>
+<p>Currently active work:</p>
+<pre><code>SELECT run_id, agent_id, kind, name, started_at
+FROM runtime_spans
+WHERE status = &#x27;open&#x27;
+ORDER BY started_at;</code></pre>
+<p>Known versus incomplete cost:</p>
+<pre><code>SELECT run_id, SUM(cost_usd) AS known_usd,
+       SUM(CASE WHEN cost_complete = 0 THEN 1 ELSE 0 END) AS incomplete_calls
+FROM outcomes
+GROUP BY run_id;</code></pre>
+<h2 id="9-text-json-and-csv-report-commands">9. Text, JSON, and CSV report commands</h2>
+<p>Text remains the default human-readable format:</p>
+<pre><code>.venv/bin/python bench/report.py --label check1</code></pre>
+<p>JSON is the timeline-ready export for notebooks or later visualization:</p>
+<pre><code>.venv/bin/python bench/report.py --label check1 --format json --output report.json</code></pre>
+<p>CSV is one flattened row per run for spreadsheets and statistical analysis:</p>
+<pre><code>.venv/bin/python bench/report.py --label check1 --format csv --output report.csv</code></pre>
+<p>JSON includes run metadata, pricing provenance, price periods, configuration fingerprints, calls grouped by phase and agent, token/cost totals, timing spans, decisions, predictions, and resolution status. CSV includes explicit actual and running cost fields. Neither export includes prompts, tool outputs, or raw provider payloads; those remain in SQLite.</p>
+<h2 id="10-recommended-benchmark-metrics">10. Recommended benchmark metrics</h2>
+<p>For historical comparisons, track:</p>
+<ul><li>cost per completed task;</li><li>cost per successful task;</li><li>wall-clock duration;</li><li>model latency;</li><li>tool time and dispatch time;</li><li>cache-read share;</li><li>total model calls;</li><li>predicted-versus-actual cost error.</li></ul>
+<p>A cheaper unsuccessful run is not an improvement. Cost and duration should be reviewed alongside task resolution and quality results.</p>
+<h2 id="11-comparing-historical-runs-with-online-pricing">11. Comparing historical runs with online pricing</h2>
+<p>Use versioned local price cards for historical reports. Preserve the publisher source URL, retrieval date, effective period, and configuration fingerprint. Never fetch mutable online prices while rendering a historical report.</p>
+<p>To compare a historical token trace with another model or price period, replay the recorded billing categories against a separate price card and label the result <strong>simulated</strong> or <strong>hypothetical</strong> cost. It is not the actual billed cost of the original run.</p>
+<h2 id="12-explicit-limitations">12. Explicit limitations</h2>
+<ul><li>Gemini implicit cache writes are not separately observed or charged.</li><li>Provider counters can be incomplete; those calls are not silently priced as zero.</li><li>Estimates are not guarantees and are not learned forecasts in this phase.</li><li>Alternate-provider mappings and explicit-cache behavior are future work.</li><li>A process crash can leave runtime spans open until a later cleanup or audit.</li><li>No plotting dependency is added; JSON and CSV are the visualization boundary.</li></ul>
+<div class="pager"><a href="testing.html">← Testing: how to run it</a><a href="omnigent-findings.html">Omnigent findings →</a></div>
+</article></main></div></body></html>

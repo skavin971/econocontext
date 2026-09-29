@@ -32,7 +32,7 @@ econocontext/     the optimizer: all decisions. Imports only the stdlib and pyya
 | `pricing/cost_model.py` | Predicts a candidate's cost as four terms | Placeholder: ignores caching |
 | `pricing/predictor.py` | Fixed guesses: turns remaining, and whether content is needed again | Placeholder |
 | `pricing/rates.py` | Turns a price card into NU ratios | Real |
-| `pricing/ledger.py` | Actual cost per call and per run | Skeleton: saves tokens, cost to build |
+| `pricing/ledger.py` | Actual cost per call and per run, from the provider's reported usage | Real, tested |
 | `assembler/` | Orders the request into zones and writes a manifest (a fingerprint of what was sent) | Real |
 | `guard/` | Fail-open wrapper, and final validity checks | Real (deadline not enforced) |
 | `store/` | The Agent DB: SQLite schema, reads and writes, keyword search | Real (search is keyword-only) |

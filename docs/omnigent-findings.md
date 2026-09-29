@@ -36,6 +36,31 @@ Other things we hit:
 - Headless sessions need the host daemon to launch a runner; the bench uses the same
   (private) helpers `omnigent run` uses. Pinned to 0.15.0.
 
+## Why Omnigent's cost figure differs from ours (2026-09-29)
+
+For the SWE-bench run, Omnigent reports **$0.2586**. The ledger, pricing what Vertex
+reported at the gateway, says **$0.0977**. We are not measuring wrong. Two things on the
+way from Vertex to Omnigent drop information:
+
+1. **The cache discount is lost to a field name.** Omnigent's `openai-agents` executor
+   looks for cached tokens in `usage.prompt_tokens_details`
+   (`omnigent/inner/openai_agents_sdk_executor.py`, around line 1866). The Agents SDK
+   stores them as `input_tokens_details` (`agents/models/openai_chatcompletions.py:159`).
+   Omnigent therefore always sees 0 cached tokens and bills all input at full price.
+2. **Reasoning tokens are left out.** Vertex reports reasoning outside
+   `completion_tokens`; the SDK copies `completion_tokens` as the output. Omnigent's
+   pricing is otherwise cache-aware (`compute_llm_cost`, MLflow catalog prices, which
+   match our card at $0.75/M input).
+
+The reproduction is exact: 338,454 input × $0.75/M + 1,261 output × $3.75/M =
+$0.25856925, Omnigent's figure to the last digit. Our figure prices the same run's
+90,039 fresh + 248,415 cached input and 3,082 output (reasoning included). It is still
+our own calculation; the final check is the Google Cloud billing console.
+
+This is also why the gateway exists: Omnigent's usage is summed per turn by the
+harness, after the harness has converted it, and policies never see per-call usage.
+The gateway reads what the provider itself returned, for every call.
+
 ## What this means for the design
 
 - **Tool-result control: yes** in Direct mode (`openai-agents`). POINTER at admission

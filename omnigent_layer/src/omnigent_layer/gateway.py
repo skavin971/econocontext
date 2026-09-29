@@ -10,7 +10,8 @@ points its base URL at
 and gets a placeholder key. The gateway adds the real key upstream, so the key never
 reaches an agent.
 
-Per call:  cap check -> plan_prompt (econo arm only) -> forward -> record usage -> turn end.
+Per call:  cap check -> plan_prompt (econo arm only) -> forward (timed as a runtime span)
+           -> record usage (priced by the ledger) -> turn end.
 Baseline runs are forwarded byte-for-byte and only measured.
 What it must never do: listen beyond localhost, log the key, or fail a call because
 EconoContext failed (every engine call is fail-open; only the caps refuse calls).
@@ -60,7 +61,11 @@ LOG_BODIES = env("ECONO_GATEWAY_LOG_BODIES", "0") == "1"  # full requests, for t
 
 
 def over_cap(db: AgentDB, run_id: str) -> str | None:
-    calls = db.rows("SELECT COUNT(*) n FROM outcomes WHERE run_id=?", (run_id,))[0]["n"]
+    # Calls started (a model span is opened before forwarding), not just calls recorded:
+    # usage is recorded after the reply, so a quick next call would otherwise slip past.
+    calls = max(db.rows("SELECT COUNT(*) n FROM runtime_spans WHERE run_id=? AND kind='model'",
+                        (run_id,))[0]["n"],
+                db.rows("SELECT COUNT(*) n FROM outcomes WHERE run_id=?", (run_id,))[0]["n"])
     if calls >= MAX_CALLS_PER_RUN:
         return f"run {run_id} reached {MAX_CALLS_PER_RUN} model calls"
     today = datetime.now(timezone.utc).date().isoformat()
@@ -132,12 +137,18 @@ class Gateway(BaseHTTPRequestHandler):
             (LOG_DIR / "bodies").mkdir(parents=True, exist_ok=True)
             (LOG_DIR / "bodies" / f"{time.time_ns()}.json").write_bytes(raw)
 
-        usage, status = self.forward(raw, stream)
-        latency = (time.monotonic() - started) * 1000
+        call_id = uuid.uuid4().hex  # one id for the outcome row and its timing span
+        span = self.start_span(engine, agent, call_id, body, decision_id, arm)
+        usage, status = None, 502
+        try:
+            usage, status = self.forward(raw, stream)
+        finally:
+            latency = (time.monotonic() - started) * 1000
+            self.finish_span(engine, agent, span, latency, status == 200)
         entry.update(status=status, usage=usage, latency_ms=round(latency))
         self.write_log(entry)
         if status == 200:
-            self.measure(engine, agent, decision_id, usage, latency)
+            self.measure(engine, agent, call_id, decision_id, usage, latency)
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
         """plan_prompt on the full request. Observe mode logs; autopilot may reorder."""
@@ -151,12 +162,32 @@ class Gateway(BaseHTTPRequestHandler):
             log.exception("plan_prompt failed; forwarding the harness's request")
             return body, None
 
-    def measure(self, engine, agent, decision_id, usage, latency) -> None:
+    def measure(self, engine, agent, call_id, decision_id, usage, latency) -> None:
         try:
-            engine.record(agent, decision_id, wire.to_usage(usage, latency), uuid.uuid4().hex)
+            engine.record(agent, decision_id, wire.to_usage(usage, latency), call_id)
             engine.on_turn_end(agent)
         except Exception:
             log.exception("record failed")
+
+    def start_span(self, engine, agent, call_id, body, decision_id, arm) -> str | None:
+        """Timing for this model call (runtime_spans). Never blocks the call."""
+        span_id = f"{engine.run_id}:model:{call_id}"
+        try:
+            engine.start_span(span_id, agent, "model", str(body.get("model") or "model"),
+                              native_id=call_id, decision_id=decision_id,
+                              metadata={"arm": arm, "stream": bool(body.get("stream"))})
+            return span_id
+        except Exception:
+            log.exception("could not start the model span")
+            return None
+
+    def finish_span(self, engine, agent, span_id, latency, ok) -> None:
+        if span_id is None:
+            return
+        try:
+            engine.finish_span(span_id, agent, latency, "completed" if ok else "failed")
+        except Exception:
+            log.exception("could not finish the model span")
 
     def forward(self, raw: bytes, stream: bool) -> tuple[dict | None, int]:
         """Send upstream with the real key; relay the reply (streamed line by line)."""

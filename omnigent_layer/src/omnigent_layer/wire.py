@@ -9,8 +9,12 @@ What it must never do: decide anything, or change a message the plan did not cha
 Usage mapping (checked against Vertex on 2026-09-28, question 0b):
   usage.prompt_tokens                          -> whole prompt, cached included
   usage.prompt_tokens_details.cached_tokens    -> cache_read. The details are ABSENT when
-                                                  nothing was cached: recorded as "not
-                                                  reported" (None), whole prompt uncached
+                                                  nothing was cached, and Vertex then bills
+                                                  no cache discount: recorded as 0 (raw
+                                                  keeps the absence, for audit)
+  (no field)                                   -> cache_write: Gemini's implicit cache has
+                                                  no separately billed write, so
+                                                  cache_write_applicable=False
   usage.completion_tokens                      -> visible output
   usage.completion_tokens_details.reasoning_tokens -> reasoning. Vertex reports it OUTSIDE
       completion_tokens (prompt + completion + reasoning == total_tokens), so it is added
@@ -84,10 +88,11 @@ def from_segments(segments: list[Segment], body: dict, index: dict[str, int]) ->
 
 def to_usage(usage: dict | None, latency_ms: float | None = None) -> ProviderUsage:
     if not usage:
-        return ProviderUsage(None, None, None, None, latency_ms=latency_ms, raw={})
+        return ProviderUsage(None, None, None, None, latency_ms=latency_ms, raw={},
+                             cache_write_applicable=False)
     prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
     details = usage.get("prompt_tokens_details")
-    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    cached = details.get("cached_tokens") if isinstance(details, dict) else 0
     reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
     output = completion
     if None not in (prompt, completion, reasoning) and \
@@ -96,4 +101,4 @@ def to_usage(usage: dict | None, latency_ms: float | None = None) -> ProviderUsa
     uncached = None if prompt is None else prompt - (cached or 0)
     return ProviderUsage(uncached_input=uncached, cache_read=cached, cache_write=None,
                          output=output, reasoning=reasoning, latency_ms=latency_ms,
-                         raw=dict(usage))
+                         raw=dict(usage), cache_write_applicable=False)
