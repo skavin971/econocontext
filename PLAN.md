@@ -1,3 +1,5 @@
+> **Update 2026-09-28:** the host moved to Omnigent. `adapters/` and `hosts/` (Deep Agents) were removed (git tag `deepagents-host`); the platform layer is `omnigent_layer/` (gateway + policy) and the experiment is `bench/`. The sections below that describe the Deep Agents adapter and host are history. Current shape: README.md; what we checked: docs/omnigent-findings.md.
+
 > **Update 2026-09-27:** the ledger moved from `monitor/ledger.py` to `pricing/ledger.py` and was cleared to a skeleton for the next person to build. `--jev` and `planner/jev_planner.py` were added. See README.md and docs/TESTING.md.
 
 # PLAN.md — EconoContext, first working version (skeleton + infrastructure + one real integration)

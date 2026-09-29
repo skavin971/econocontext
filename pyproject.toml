@@ -5,26 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "econocontext"
 version = "0.3.0.dev0"
-description = "A harness-agnostic, cost-based optimizer for LLM agent systems (interception layer)"
+description = "A cost-based optimizer for LLM agent systems"
 requires-python = ">=3.11"
-# The core (econocontext/) needs only PyYAML. Everything else belongs to adapters and hosts.
+# The optimizer needs only PyYAML. The Omnigent layer (omnigent_layer/) and the SWE-bench
+# bench (bench/) have their own dependencies; see docs/TESTING.md.
 dependencies = ["pyyaml==6.0.3"]
 
 [project.optional-dependencies]
-# The Deep Agents adapter and the SWE-bench host. Pinned: the adapter is verified
-# against exactly these versions (PLAN.md section 5).
-host = [
-  "deepagents==0.7.19",
-  "langchain==1.4.2",
-  "langchain-core==1.6.5",
-  "langgraph==1.2.12",
-  "langchain-google-genai==4.4.0",
-  "swebench==5.0.2",
-]
+bench = ["swebench==5.0.2"]
 dev = ["pytest==9.1.1"]
 
 [tool.setuptools.packages.find]
-include = ["econocontext*", "adapters*", "hosts*"]
+include = ["econocontext*"]
 
 [tool.setuptools.package-data]
 econocontext = ["store/schema.sql"]
@@ -33,7 +25,7 @@ econocontext = ["store/schema.sql"]
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-  "live: real Gemini calls and real SWE-bench containers (costs money; needs credentials and Docker)",
+  "live: real paid calls (needs credentials); run with -m live",
   "docker: needs Docker and a pulled SWE-bench image, but no model calls",
 ]
 addopts = "-m 'not live'"
