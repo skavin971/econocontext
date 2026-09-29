@@ -23,7 +23,7 @@ here.
     SWE-bench Docker image)           wrap_tool_call                ├─ monitor/   registry, cache belief
                                       after_model                   ├─ planner/   candidates per intercept (+ jev_planner with --jev)
                           ◄─decision─ (applies it with the          ├─ pricing/   rates, cost model, predictor,
-                                       host's own machinery)        │             ledger (actual cost: to build)
+                                       host's own machinery)        │             ledger (actual cost + timing)
                                                                     ├─ optimizer/ gates → price → select
                                                                     ├─ assembler/ zones + manifest (renders only)
  every model call ─────────────────► callbacks.py ──usage──► record ├─ guard/     fail-open, validation
@@ -68,13 +68,12 @@ Placeholders are marked in the code: `grep -rn "# PLACEHOLDER:"` lists them.
 
 **Open for the next person**
 
-- **`econocontext/pricing/ledger.py`: actual cost per call and per run.**
-  - It saves token counts today; the cost columns are empty.
-  - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
-  - Until it is built, only the step limit caps a paid run.
 - **`econocontext/planner/jev_planner.py`: Jev as the predictor of whether a tool result will be needed again.**
   - It is used only with `--jev`; without it the planner uses the fixed guess.
   - See `tests/test_planner_jev.py` for both tracks.
+
+Cost tracking, runtime spans, and text/JSON/CSV reporting are documented in
+[`docs/COST_TRACKING.md`](docs/COST_TRACKING.md).
 
 ## Running
 

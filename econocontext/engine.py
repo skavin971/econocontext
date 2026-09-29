@@ -45,6 +45,7 @@ class EconoContext:
         self.host = host
         self.caps = host.capabilities if host else HostCapabilities()
         self.run_id = run_id
+        self.arm = arm
         self.db = AgentDB(db_path or self.cfg["storage"]["db_path"])
         self.db.start_run(run_id, host_name, instance_id, arm, mode or self.mode.value,
                           self.cfg["model"]["name"], self.cfg["model"]["temperature"],
@@ -95,6 +96,26 @@ class EconoContext:
         self.db.add_decision(self.run_id, agent_id, decision, self.mode.value, ms, error,
                              cache_predicted, manifest_hash)
         return decision.id
+
+    # -- runtime timing -------------------------------------------------------------
+
+    def start_span(self, span_id: str, agent_id: str, kind: str, name: str,
+                   native_id: str | None = None, decision_id: str | None = None,
+                   metadata: dict | None = None) -> None:
+        self.registry.activity_start(agent_id)
+        try:
+            self.db.add_runtime_span(span_id, self.run_id, agent_id, kind, name, native_id,
+                                     decision_id, metadata)
+        except Exception:
+            self.registry.activity_end(agent_id)
+            raise
+
+    def finish_span(self, span_id: str, agent_id: str, duration_ms: float,
+                    status: str = "completed") -> None:
+        try:
+            self.db.finish_runtime_span(span_id, duration_ms, status)
+        finally:
+            self.registry.activity_end(agent_id)
 
     # -- intercepts -----------------------------------------------------------------
 

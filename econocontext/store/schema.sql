@@ -174,3 +174,22 @@ CREATE TABLE IF NOT EXISTS outcomes (
   created_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS outcomes_run ON outcomes(run_id, agent_id);
+
+-- Lifecycle timing for model, tool and dispatch work. An open row represents
+-- currently running work; completed outcomes remain the cost source of truth.
+CREATE TABLE IF NOT EXISTS runtime_spans (
+  span_id             TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL,
+  kind                TEXT NOT NULL,            -- model | tool | dispatch
+  name                TEXT NOT NULL,
+  native_id           TEXT,
+  decision_id         TEXT,
+  started_at          TEXT NOT NULL,
+  ended_at            TEXT,
+  duration_ms         REAL,
+  status              TEXT NOT NULL,            -- open | completed | failed
+  metadata            TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS runtime_spans_run ON runtime_spans(run_id, started_at);
+CREATE INDEX IF NOT EXISTS runtime_spans_open ON runtime_spans(run_id, status, agent_id);

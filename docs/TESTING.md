@@ -32,11 +32,12 @@ This proves the core logic works on plain data, with no LLM, no network and no D
 Passing looks like this:
 
 ```
-34 passed, 3 skipped
+all unit tests pass
 ```
 
-The 3 skipped tests are the cost acceptance tests in `tests/unit/test_ledger.py`.
-They start running once `econocontext/pricing/ledger.py` is built.
+The cost acceptance tests cover the Gemini pilot bill, price periods, and
+incomplete usage. Runtime span tests cover model/tool/dispatch timing and
+concurrent agent activity.
 
 ## 2. Planner with and without Jev
 
@@ -60,7 +61,8 @@ contract, API, constraints) is the docstring of
   - `observe` logs decisions but changes nothing the agent sees.
   - `autopilot` applies them, but only exact operators by default, meaning byte-identical reuse.
 - **Passing looks like this:** each run ends with `resolved: [...]`. The report shows `status=completed resolved=True`, with call and token counts.
-- **Cost:** it shows "not built" until `pricing/ledger.py` is built.
+- **Cost:** the report shows known NU/USD totals and marks runs incomplete when
+  a required provider counter was unavailable.
 
 ## 4. The five-instance pipeline check: paid, about $4 and 80 minutes
 
@@ -103,5 +105,9 @@ ledger before it was cleared for rebuilding:
 - **`Docker is not running`:** start Docker Desktop. SWE-bench steps never fall back to anything else.
 - **Gemini `429 RESOURCE_EXHAUSTED`:** shared capacity is busy. Wait a few minutes and re-run; the step limit still applies.
 - **No disk space:** run `docker image prune` to remove old SWE-bench images.
-- **Cost shows "not built":** expected. See `econocontext/pricing/ledger.py`.
-- **Budgets:** until the ledger is built, the dollar budgets in the config cannot stop a run. Only the 100-model-call step limit per instance does.
+- **Cost is incomplete:** inspect the outcome rows for the missing provider
+  counters; the report preserves the known subtotal and marks the run unsafe to
+  treat as a complete bill.
+- **Budgets:** completed usage is priced before the next model call. If a prior
+  call has incomplete usage, the next call is refused because the budget cannot
+  be verified; the step limit remains the fallback safety cap.
