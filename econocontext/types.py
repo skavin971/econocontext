@@ -126,6 +126,9 @@ class ProviderUsage:
     cache_write_1h: int | None = None  # Anthropic 1-hour writes, when reported
     latency_ms: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)  # original fields, for audit
+    # False means the provider/cache mode has no separately billed write counter.
+    # It is distinct from cache_write=None, which otherwise means "not reported".
+    cache_write_applicable: bool = True
 
     @property
     def prompt_tokens(self) -> int | None:
@@ -158,6 +161,7 @@ class RenderedRequest:
     manifest: Manifest
     applied: bool                    # False: the host's own request is used unchanged
     decision_id: str | None = None
+    pointer_texts: dict[str, str] = field(default_factory=dict)  # segment id -> pointer text (COMMIT_PENDING)
 
 
 @dataclass
@@ -267,6 +271,8 @@ class Decision:
     # admit_tool_result only: {"p_need_again", "source" (prior | jev | prior (jev failed: ...)),
     # "prior"}, so runs with and without --jev can be compared decision by decision.
     prediction: dict | None = None
+    subject_id: str | None = None    # what it was about: a tool result's segment id, a call's args key
+    payloads: dict[str, dict] = field(default_factory=dict)  # each candidate's sizes, for replay
 
 
 @dataclass
@@ -304,3 +310,6 @@ class PlanContext:
     rates: RateRatios
     remaining_turns: int
     cache: CacheState | None = None
+    # NU per resident token per remaining turn. 1.0 = priced uncached (the default); in
+    # learned mode, the run's observed (1 - s) + s x cache_read_ratio, s = cache-read share.
+    resident_rate: float = 1.0

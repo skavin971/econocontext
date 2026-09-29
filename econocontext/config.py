@@ -44,8 +44,8 @@ class PriceCard:
     min_cacheable_tokens: int | None
     periods: list[dict[str, Any]]     # [{valid_from, valid_until, tiers: [PriceTier]}]
 
-    def tier(self, on: date, prompt_tokens: int | None) -> PriceTier:
-        """The tier that applies to a call on `on` with this prompt size."""
+    def period_and_tier(self, on: date, prompt_tokens: int | None) -> tuple[dict[str, Any], PriceTier]:
+        """Return the billing period and tier for a call on `on`."""
         for period in self.periods:
             start, end = period["valid_from"], period["valid_until"]
             if (start is None or on >= date.fromisoformat(start)) and (
@@ -54,9 +54,13 @@ class PriceCard:
                 for tier in period["tiers"]:
                     limit = tier.max_prompt_tokens
                     if limit is None or prompt_tokens is None or prompt_tokens <= limit:
-                        return tier
-                return period["tiers"][-1]
+                        return period, tier
+                return period, period["tiers"][-1]
         raise ConfigError(f"No price period for {self.model} on {on}")
+
+    def tier(self, on: date, prompt_tokens: int | None) -> PriceTier:
+        """The tier that applies to a call on `on` with this prompt size."""
+        return self.period_and_tier(on, prompt_tokens)[1]
 
 
 @dataclass
@@ -93,9 +97,18 @@ def _cards(billing: dict[str, Any]) -> dict[tuple[str, str], PriceCard]:
     return cards
 
 
-def load(config_dir: str | Path) -> Config:
+def merge(base: dict, overrides: dict | None) -> dict:
+    """Deep-merge `overrides` into a copy of `base` (per-run settings, e.g. an allowlist)."""
+    out = dict(base)
+    for key, value in (overrides or {}).items():
+        out[key] = merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def load(config_dir: str | Path, overrides: dict | None = None) -> Config:
+    """Load the config; per-run `overrides` are merged in before the fingerprint is taken."""
     folder = Path(config_dir)
-    raw = yaml.safe_load((folder / "econocontext.yaml").read_text())
+    raw = merge(yaml.safe_load((folder / "econocontext.yaml").read_text()), overrides)
     billing = yaml.safe_load((folder / "billing_rates.yaml").read_text())
     missing = [key for key in REQUIRED if key not in raw]
     if missing:

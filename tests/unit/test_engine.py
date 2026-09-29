@@ -2,6 +2,8 @@
 
 import hashlib
 
+import pytest
+
 from econocontext.types import (DispatchIntent, DispatchResult, HostRequest, ProviderUsage,
                                 ToolCallEvent, ToolResultEvent)
 from tests.unit.conftest import FakeHost, conversation
@@ -72,13 +74,15 @@ def test_record_writes_usage_outcomes_and_a_report(engine):
     eco = engine()
     rendered = eco.plan_prompt("run-1:root", HostRequest("run-1:root", conversation()))
     eco.record("run-1:root", rendered.decision_id,
-               ProviderUsage(1000, 9000, None, 200, reasoning=150, raw={"input_tokens": 10000}),
+               ProviderUsage(1000, 9000, None, 200, reasoning=150,
+                             raw={"input_tokens": 10000}, cache_write_applicable=False),
                outcome_id="call-1")
     report = eco.report()
     assert report["totals"]["calls"] == 1 and report["totals"]["cache_read_share"] == 0.9
     assert report["predicted_vs_actual"]["calls"] == 1
     assert report["feasible_counts"]["AS_IS"] == 1
-    assert report["totals"]["cost_usd"] is None  # until pricing/ledger.py cost() is built
+    assert report["totals"]["cost_usd"] == pytest.approx(0.002175)
+    assert report["totals"]["cost_complete"]
 
 
 def test_a_failing_component_fails_open(engine, monkeypatch):

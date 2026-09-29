@@ -47,11 +47,11 @@ CATALOG = {op.name: op for op in (
              "the host's own delegation: a new subagent instance"),
     Operator("REUSE_RESULT", Intercept.PLAN_DISPATCH, EXACT, False, True,
              "return the byte-identical stored result of the same task with an unchanged read-set"),
+    # Generated when an idle worker already holds files the task needs (Omnigent: the
+    # dispatch's title is rewritten to that worker's, and Omnigent continues it).
+    Operator("RESUME", Intercept.PLAN_DISPATCH, EXACT, False, True,
+             "send delegated work to an existing worker that already holds the relevant context"),
     # Named, not generated yet.
-    # PLACEHOLDER: RESUME needs a host capability to continue a live subagent (Deep Agents'
-    # isolated subagents keep no state; this needs a checkpointed subagent thread).
-    Operator("RESUME", Intercept.PLAN_DISPATCH, EXACT, False, False,
-             "continue an existing subagent that already holds the relevant context"),
     # PLACEHOLDER: FORK needs the host's fork mode (inherits the parent's history) and a
     # price for the inherited prefix.
     Operator("FORK", Intercept.PLAN_DISPATCH, EXACT, False, False,

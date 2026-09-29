@@ -72,7 +72,7 @@ def make(tmp_path):
 def admit(eco, text=BIG):
     result = eco.admit_tool_result("run-1:root", ToolResultEvent(
         "run-1:root", "c9", "read_file", "k9", text, "/testbed/big.py", ["/testbed/big.py"], False))
-    return eco.db.rows("SELECT prediction, candidates FROM decisions WHERE decision_id=?",
+    return eco.db.rows("SELECT prediction, candidates, payloads FROM decisions WHERE decision_id=?",
                        (result.decision_id,))[0]
 
 
@@ -82,9 +82,11 @@ def test_without_jev_the_fixed_guess_is_used(make):
     pred = json.loads(row["prediction"])
     tokens = -(-len(BIG) // 4)
     assert pred["source"] == "prior"
-    assert pred["p_need_again"] == pytest.approx(0.3 * 2000 / tokens)  # 0.3, scaled for size
+    assert pred["p_need_again"] == pytest.approx(0.3)  # the tool-result prior
     pointer = json.loads(row["candidates"])["POINTER"]
-    assert pointer["prepare"] == pytest.approx(pred["p_need_again"] * tokens)
+    window = json.loads(row["payloads"])["POINTER"]["extra_call_input_tokens"]
+    # re-read plus one expected extra call that re-sends the window, both weighted by p
+    assert pointer["prepare"] == pytest.approx(pred["p_need_again"] * (tokens + window))
 
 
 def test_with_jev_its_number_is_used_and_the_guess_is_still_logged(make, monkeypatch):
@@ -98,13 +100,14 @@ def test_with_jev_its_number_is_used_and_the_guess_is_still_logged(make, monkeyp
     monkeypatch.setattr(jev_planner, "p_need_again", fake_jev)
     row = admit(make(jev=True))
     pred = json.loads(row["prediction"])
-    assert pred["source"] == "jev" and pred["p_need_again"] == 0.9 and pred["prior"] < 0.3
+    assert pred["source"] == "jev" and pred["p_need_again"] == 0.9 and pred["prior"] == pytest.approx(0.3)
     # Jev gets what the original planner gets: the result, its tool call, and the full window.
     assert seen["segment"].text == BIG and seen["event"].tool_name == "read_file"
     assert any("Fix the bug" in s.text for s in seen["ctx"].window)
     assert seen["prior"] == pred["prior"]
     tokens = -(-len(BIG) // 4)
-    assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(0.9 * tokens)
+    window = json.loads(row["payloads"])["POINTER"]["extra_call_input_tokens"]
+    assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(0.9 * (tokens + window))
 
 
 def test_missing_jev_key_falls_back_to_the_guess(make, monkeypatch):

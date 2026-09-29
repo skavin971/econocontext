@@ -1,0 +1,58 @@
+# The one agent both arms run. bench/run.py fills the dollar-sign fields per run; the econo
+# arm also gets the EconoContext policy block. Nothing else differs between the arms.
+#
+# A main agent that may delegate to a worker, as Claude Code does with its Task tool:
+# the worker has the same tools; reusing a worker's title continues that worker.
+name: swe-fixer
+prompt: |
+  You are fixing a GitHub issue in the repository in your working directory. Hidden
+  tests will check your fix.
+  - Read and edit files with your file tools, always using paths relative to the
+    working directory.
+  - Run Python, tests and scripts ONLY with the testbed_shell tool: it runs in the
+    repository's own environment. sys_os_shell runs on a different machine without
+    the repository's Python or dependencies; use it for nothing but ls and grep.
+  - You can delegate a self-contained sub-task (for example "find where X is handled
+    and summarize it", "run the tests for Y and report failures") to the worker agent,
+    and wait for its answer. Name the files involved in the task. To give a worker a
+    follow-up, reuse its title: it keeps what it already read.
+  - Keep the change minimal. When the fix is done, reply with a one-paragraph summary.
+executor:
+  harness: openai-agents
+  model: google/gemini-3.6-flash
+  use_responses: false        # Vertex serves Chat Completions only (question 0a)
+  auth:
+    type: api_key
+    api_key: econo-placeholder  # the gateway adds the real key upstream
+    base_url: $gateway/run/$run_id/v1
+os_env:
+  type: caller_process
+  cwd: $workdir
+tools:
+  testbed_shell:
+    type: function
+    callable: omnigent_layer.tools.container_shell   # runs in the instance's container
+    description: Run a bash command in the repository's own environment (cwd is the repository root). Returns exit code, stdout and stderr.
+    parameters:
+      type: object
+      properties:
+        command: {type: string, description: The bash command to run.}
+      required: [command]
+  worker:
+    type: agent
+    description: A worker with the same file tools and testbed_shell. Give it one self-contained sub-task and the files involved; it reports back concisely.
+    prompt: |
+      You are a worker helping fix a GitHub issue in the repository in your working
+      directory. Do exactly the delegated sub-task, using paths relative to the working
+      directory and testbed_shell for running code, then report the answer concisely
+      (file paths, line numbers, findings). Do not edit files unless the task says so.
+    executor:
+      harness: openai-agents
+      model: google/gemini-3.6-flash
+      auth:
+        type: provider        # the 'econo' provider (bench/setup_provider.py): Chat
+        name: econo           # Completions through the gateway's /current route
+    os_env: inherit
+    tools:
+      testbed_shell: inherit
+    max_sessions: 2

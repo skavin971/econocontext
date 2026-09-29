@@ -20,6 +20,7 @@ class HostCapabilities:
     answer_from_store: bool = False   # can return a stored tool output instead of running the tool
     reuse_result: bool = False        # can return a stored delegated result instead of delegating
     edit_request: bool = False        # can replace the messages of a model request
+    resume: bool = False              # can send delegated work to an existing worker
 
 
 class PointerStore(Protocol):

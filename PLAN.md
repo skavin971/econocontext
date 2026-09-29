@@ -1,4 +1,9 @@
-> **Update 2026-09-27:** the ledger moved from `monitor/ledger.py` to `pricing/ledger.py` and was cleared to a skeleton for the next person to build. `--jev` and `planner/jev_planner.py` were added. See README.md and docs/TESTING.md.
+> **Update 2026-09-28 (platform):** the host moved to Omnigent. `adapters/` and `hosts/` (Deep Agents) were removed (git tag `deepagents-host`); the platform layer is `omnigent_layer/` (gateway + policy) and the experiment is `bench/`. The sections below that describe the Deep Agents adapter and host are history. Current shape: README.md; what we checked: docs/omnigent-findings.md.
+
+> **Update 2026-09-28 (cost):** the ledger now prices Gemini usage, runtime spans record
+> model/tool/dispatch timing, and `bench/report.py` exports text, JSON, and CSV reports.
+> `--jev` and `planner/jev_planner.py` remain future work. See README.md,
+> `docs/COST_TRACKING.md`, and docs/TESTING.md.
 
 # PLAN.md — EconoContext, first working version (skeleton + infrastructure + one real integration)
 
@@ -85,7 +90,7 @@ econocontext/ ──imports──► stdlib, pyyaml only
 | `econocontext/host.py` | `Protocol`s a host implements: `PointerStore` (materialize a pointer the agent can reopen), `Executors` (run default, answer from store), `HostCapabilities`. |
 | `monitor/registry.py` | The agent tree and each agent's window, in memory, written through to `agents` and `segments`. |
 | `monitor/cache_belief.py` | PLACEHOLDER: predicts cached tokens from the last prefix; corrected from reported usage; logged, not yet priced. |
-| `monitor/ledger.py` | Exact cost from reported usage × billing rates, in NU and USD, per agent and per run. **Not a placeholder.** |
+| `pricing/ledger.py` | Exact cost from reported usage × billing rates, in NU and USD, per agent and per run. |
 | `pricing/rates.py` | Turns a price card into ratios relative to that model's uncached input price. |
 | `pricing/cost_model.py` | PLACEHOLDER: token-length pricing into the four terms (prepare, work, integrate, leaves_behind), plus latency. |
 | `pricing/predictor.py` | PLACEHOLDER: `remaining_turns`, `future_use_score`, `p_need_again`. |
@@ -97,7 +102,7 @@ econocontext/ ──imports──► stdlib, pyyaml only
 | `assembler/assembler.py` | Renders the chosen plan into ordered segments plus a content-addressed manifest. **Never chooses.** |
 | `guard/fail_open.py` | Wraps every engine call. Returns the host default on error; measures the decision deadline. |
 | `guard/validate.py` | Checks pairing, pinned segments and window size before a request is returned. |
-| `store/schema.sql`, `store/db.py` | The Agent DB (SQLite, plain SQL): writes, reads, invalidation. |
+| `store/schema.sql`, `store/db.py` | The Agent DB (SQLite, plain SQL): writes, reads, invalidation, outcomes, and runtime spans. |
 | `store/retrieval.py` | `search(...)`: keyword retrieval over stored segments (FTS5). |
 | `adapters/deepagents/middleware.py` | LangChain `AgentMiddleware` → engine calls. Translation only. |
 | `adapters/deepagents/callbacks.py` | LangChain callback handler → `engine.record` for **every** model call, including calls made inside other middleware (see §8.3). |
@@ -110,7 +115,7 @@ econocontext/ ──imports──► stdlib, pyyaml only
 | `hosts/swebench_deepagents/tasks.py` | Loads SWE-bench Verified instances (id, image, `problem_statement`, `base_commit`). |
 | `hosts/swebench_deepagents/run.py` | The composition root. Runs an instance in arm `baseline` or `econo`; the arms differ only by the adapter install. Writes predictions JSONL and enforces budgets. |
 | `hosts/swebench_deepagents/evaluate.py` | Calls the official `swebench` harness (Docker). Stops with a clear message if Docker is missing. |
-| `scripts/run_baseline.sh`, `run_econo.sh`, `report.py` | Arm runners (they export `.env` into the environment) and the side-by-side report. |
+| `scripts/run_baseline.sh`, `run_econo.sh`, `report.py` | Arm runners and the side-by-side text/JSON/CSV report. |
 
 ---
 
@@ -247,10 +252,20 @@ CREATE TABLE IF NOT EXISTS outcomes (
   reasoning           INTEGER,                  -- subset of output, for explanation only
   latency_ms          REAL,
   cost_nu             REAL, cost_usd REAL,      -- from ledger + billing_rates.yaml
+  cost_complete       INTEGER NOT NULL,         -- 0 when a billed counter is missing
+  price_period        TEXT,                     -- applied immutable card period
   raw                 TEXT NOT NULL,            -- original usage fields, JSON, for audit
   created_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS outcomes_run ON outcomes(run_id, agent_id);
+
+-- Lifecycle timing for physical model, tool, and subagent-dispatch work.
+CREATE TABLE IF NOT EXISTS runtime_spans (
+  span_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, native_id TEXT,
+  decision_id TEXT, started_at TEXT NOT NULL, ended_at TEXT, duration_ms REAL,
+  status TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}'
+);
 ```
 
 ---
@@ -274,7 +289,8 @@ CREATE INDEX IF NOT EXISTS outcomes_run ON outcomes(run_id, agent_id);
 - **`CacheState`:** `last_prefix_hashes: list[str], last_sent_at,
   ttl_seconds, observed_hit_ratio`.
 - **`ProviderUsage`:** `uncached_input, cache_read, cache_write, output,
-  reasoning, latency_ms, raw: dict`. `None` means not reported, never zero.
+  reasoning, latency_ms, raw: dict, cache_write_applicable`. `None` means not
+  reported, never zero; Gemini implicit-cache writes set the flag to false.
 - **`HostRequest`:** `agent_id, segments: list[Segment], window_max_tokens`.
   The host's request, already translated.
 - **`RenderedRequest`:** `segments, zone_bounds, cache_breakpoint_after_segment_id,
@@ -338,7 +354,11 @@ general-purpose spec). The subagent's `agent_id` reaches its middleware through 
 1. The LangChain callback `on_llm_end` fires.
 2. `gemini_usage` maps it to `ProviderUsage`, keeping the raw fields.
 3. `engine.record(agent_id, decision_id, usage)`.
-4. The ledger computes NU and USD and writes `outcomes`.
+4. The ledger computes NU and USD, writes `outcomes`, and marks incomplete usage
+   instead of pricing missing counters as zero. The next model call is refused
+   if the run's budget cannot be verified.
+5. The callback opens and closes a model `runtime_spans` row; tool and dispatch
+   lifecycles are recorded by the adapter around physical host execution.
 5. `cache_belief.correct` compares predicted with reported `cache_read` and
    updates `observed_hit_ratio`.
 
@@ -666,7 +686,7 @@ instances:
 | 0 | Delete `v1/`; scaffold the layout, `pyproject.toml`, `README.md`, and `PLAN.md` (this file) | `pytest` collects; the isolation test passes on an empty core |
 | 1 | `types.py`, `config.py`, both YAMLs (with sources) | `test_config`: loads, validates, fingerprint stable; `test_isolation`: the core imports only stdlib and yaml; `hosts/` never imports the core except `run.py` |
 | 2 | `store/` (schema, db, retrieval) | `test_store`: segments round-trip; FTS finds by path and identifier; a write invalidates dependent `tool_results`/`stored_results` |
-| 3 | `pricing/rates.py` and `monitor/ledger.py` | `test_ledger`: reproduces the dollar cost of a known Gemini usage record (a real v0 pilot record) to the cent, using the right price period |
+| 3 | `pricing/rates.py` and `pricing/ledger.py` | `test_ledger`: reproduces the dollar cost of a known Gemini usage record (a real v0 pilot record) to the cent, using the right price period |
 | 4 | `monitor/registry.py` and `cache_belief.py` | `test_registry`: the tree and windows are written through; `test_cache_belief`: the prefix prediction, and predicted versus reported logged |
 | 5 | `pricing/cost_model.py`, `predictor.py`, `planner/`, `optimizer/` | `test_gates`: POINTER rejected when exact bytes are needed, reuse rejected after a version change, side effects never reused; `test_optimizer`: `max_latency_ms`/`max_quality_risk` respected, `why_not` recorded |
 | 6 | `assembler/` and `guard/` | `test_assembler`: zones ordered, pairs never split, identical inputs give a byte-identical manifest; `test_fail_open`: a raising component returns the host default |

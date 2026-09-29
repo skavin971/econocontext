@@ -1,6 +1,7 @@
 -- The Agent DB. Everything EconoContext knows is written here, so the planner can
 -- retrieve instead of recompute and future predictors can learn from history.
 -- Plain SQLite, no ORM. Times are UTC ISO-8601 text. Token counts are integers.
+-- The data and API contract for other implementations: docs/AGENT_DB_CONTRACT.md.
 
 PRAGMA foreign_keys = ON;
 
@@ -8,7 +9,7 @@ PRAGMA foreign_keys = ON;
 -- the config, so results are never compared across different settings unnoticed.
 CREATE TABLE IF NOT EXISTS runs (
   run_id              TEXT PRIMARY KEY,
-  host                TEXT NOT NULL,            -- e.g. 'swebench_deepagents'
+  host                TEXT NOT NULL,            -- e.g. 'omnigent'
   instance_id         TEXT,                     -- SWE-bench instance, when applicable
   arm                 TEXT NOT NULL,            -- 'baseline' | 'econo'
   mode                TEXT NOT NULL,            -- 'observe' | 'autopilot' | 'measure' (baseline)
@@ -17,14 +18,16 @@ CREATE TABLE IF NOT EXISTS runs (
   config_fingerprint  TEXT NOT NULL,            -- sha256 of both resolved config files
   started_at          TEXT NOT NULL,
   ended_at            TEXT,
-  status              TEXT,                     -- completed | failed | budget_stopped | step_limit
+  status              TEXT,                     -- done | timeout | error: ... | interrupted | capped
   resolved            INTEGER,                  -- official SWE-bench result: 1 | 0 | NULL (not evaluated)
-  jev                 INTEGER NOT NULL DEFAULT 0 -- 1 if run with --jev (planner asked Jev for p_need_again)
+  jev                 INTEGER NOT NULL DEFAULT 0, -- 1 if run with --jev (planner asked Jev for p_need_again)
+  overrides           TEXT,                     -- JSON config overrides for this run (e.g. allowlist)
+  workdir             TEXT                      -- the run's workspace on the host, if it has one
 );
 
 -- The agent tree: the main agent and every subagent instance.
 CREATE TABLE IF NOT EXISTS agents (
-  agent_id            TEXT PRIMARY KEY,         -- root '<run>:root'; subagent '<run>:task:<tool_call_id>'
+  agent_id            TEXT PRIMARY KEY,         -- root '<run>:root'; worker '<run>:worker:<8 hex>'
   run_id              TEXT NOT NULL REFERENCES runs(run_id),
   parent_id           TEXT REFERENCES agents(agent_id),
   subagent_type       TEXT,                     -- NULL for the root
@@ -52,9 +55,19 @@ CREATE TABLE IF NOT EXISTS segments (
   needs_exact_bytes   INTEGER NOT NULL DEFAULT 0,
   pair_id             TEXT,                     -- tool-call id(s) linking a call and its result
   role                TEXT NOT NULL,            -- system | user | assistant | tool (message validity)
-  created_at          TEXT NOT NULL
+  created_at          TEXT NOT NULL,
+  blob_key            TEXT                      -- blobs.blob_key for large text (the same bytes, stored once)
 );
 CREATE INDEX IF NOT EXISTS segments_source ON segments(run_id, source);
+
+-- Content-addressed storage for large content (store/blobs.py). blob_key = sha256(data):
+-- identical content is stored once, whichever rows refer to it. Never changed or deleted.
+CREATE TABLE IF NOT EXISTS blobs (
+  blob_key            TEXT PRIMARY KEY,         -- sha256(data) hex
+  size                INTEGER NOT NULL,         -- bytes
+  data                BLOB NOT NULL,
+  created_at          TEXT NOT NULL
+);
 
 -- The mutable part: where each segment sits in an agent's window right now.
 -- An agent's window = its rows with in_window = 1, ordered by position.
@@ -127,7 +140,8 @@ CREATE TABLE IF NOT EXISTS stored_results (
   read_set            TEXT NOT NULL,            -- JSON {source: version} of what the subagent read
   side_effect         INTEGER NOT NULL,         -- 1 if the subagent wrote or executed anything
   valid               INTEGER NOT NULL DEFAULT 1,
-  created_at          TEXT NOT NULL
+  created_at          TEXT NOT NULL,
+  blob_key            TEXT                      -- blobs.blob_key when result_text is large
 );
 CREATE INDEX IF NOT EXISTS stored_results_key ON stored_results(run_id, task_key, valid);
 
@@ -149,7 +163,9 @@ CREATE TABLE IF NOT EXISTS decisions (
   decision_ms         REAL NOT NULL,            -- time spent deciding
   error               TEXT,                     -- set when the guard failed open
   created_at          TEXT NOT NULL,
-  prediction          TEXT                      -- JSON {p_need_again, source, prior} (admit_tool_result only)
+  prediction          TEXT,                     -- JSON {p_need_again, source, prior} (admit_tool_result only)
+  subject_id          TEXT,                     -- what the decision was about (segment id, args key, ...)
+  payloads            TEXT                      -- JSON {candidate: its sizes}, so the decision can be replayed
 );
 CREATE INDEX IF NOT EXISTS decisions_run ON decisions(run_id, intercept);
 
@@ -174,3 +190,38 @@ CREATE TABLE IF NOT EXISTS outcomes (
   created_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS outcomes_run ON outcomes(run_id, agent_id);
+
+-- Lifecycle timing for model, tool and dispatch work. An open row represents
+-- currently running work; completed outcomes remain the cost source of truth.
+CREATE TABLE IF NOT EXISTS runtime_spans (
+  span_id             TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id),
+  agent_id            TEXT NOT NULL,
+  kind                TEXT NOT NULL,            -- model | tool | dispatch
+  name                TEXT NOT NULL,
+  native_id           TEXT,
+  decision_id         TEXT,
+  started_at          TEXT NOT NULL,
+  ended_at            TEXT,
+  duration_ms         REAL,
+  status              TEXT NOT NULL,            -- open | completed | failed
+  metadata            TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS runtime_spans_run ON runtime_spans(run_id, started_at);
+CREATE INDEX IF NOT EXISTS runtime_spans_open ON runtime_spans(run_id, status, agent_id);
+
+-- What actually happened, derived after a run (econocontext/learn/labels.py). The truth
+-- that replay scores against and that the learned predictors are fitted to.
+CREATE TABLE IF NOT EXISTS labels (
+  run_id              TEXT NOT NULL,
+  kind                TEXT NOT NULL,            -- 'decision' | 'result'
+  subject_id          TEXT NOT NULL,            -- decision_id, or a tool result's segment id
+  agent_id            TEXT,
+  tool_name           TEXT,
+  h_actual            INTEGER,                  -- decision: model calls this agent made afterwards
+  arrived_call        INTEGER,                  -- result: the agent's call count when it arrived
+  needed_calls        TEXT,                     -- result: JSON call counts at which it was needed again
+  refetched           INTEGER,                  -- result: 1 if a later call re-fetched the same thing
+  referenced          INTEGER,                  -- result: 1 if later output quoted one of its lines
+  PRIMARY KEY (run_id, kind, subject_id)
+);
