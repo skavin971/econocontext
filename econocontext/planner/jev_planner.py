@@ -1,4 +1,4 @@
-"""Jev planner: predicts whether a tool result will be needed again. Not built yet.
+"""Ask Jev whether a tool result will be needed again.
 
 Called by `EconoContext._predict` (engine.py) at `admit_tool_result`, only in runs
 started with `--jev`. It replaces the fixed guess `planner.prior_p_need_again`
@@ -28,30 +28,80 @@ Inputs
     cfg      the loaded config/econocontext.yaml (add a `jev:` section for your knobs)
     prior    the fixed guess for this segment, if you want it as a feature
 
-Jev API (docs.typesafe.ai/api.md, read 2026-09-27)
+Jev API (https://docs.typesafe.ai/api.md, checked 2026-09-29)
     POST https://api.typesafe.ai/v1/systemone, Authorization: Bearer $TYPESAFE_API_KEY
     {"model": "jev-latest", "state": <str | object>,
      "questions": {"needed_again": {"type": "noul", "instructions": "..."}}}
     -> {"answers": {"needed_again": {"type": "noul", "noul": 0.82}}, "usage": {...}}
-    Errors 401/422/429/529; back off on 429/529. Context limit 32K tokens per
-    AI/ML API's page (TODO: verify). Price $0.042/MTok input, output free.
-
-Constraints
-    - Core rule: standard library only (urllib), no provider SDK; test_isolation.py
-      enforces the SDK part.
-    - Key from the environment only; never log it or put it in exceptions.
-    - Keep it fast (it runs on every tool result): short timeout, truncate `state`.
-    - Jev's own cost is not counted in run cost (out of scope for now).
+    This first version sends all five arguments as structured state, including the
+    full window, without truncation. It makes one request with the configured
+    timeout; API errors (including oversized input) use the engine's fallback.
+    The key comes only from TYPESAFE_API_KEY, never from cfg or the request state.
+    Uses stdlib urllib to preserve core isolation. Jev cost is not yet accounted for.
 
 Test
     tests/test_planner_jev.py: unit tests (Jev faked), one live call (-m live), and
     the commands to run both tracks on SWE-bench and compare them in report.py.
 """
 
+import json
+import os
+from dataclasses import asdict
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
 from ..types import PlanContext, Segment, ToolResultEvent
 
 
 def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg: dict,
                  prior: float) -> float:
-    # PLACEHOLDER: not built. See the contract above.
-    raise NotImplementedError("jev_planner.p_need_again is not built yet")
+    """Send the provided context to Jev and return its probability of future use."""
+    api_key = os.environ.get("TYPESAFE_API_KEY")
+    if not api_key:
+        raise RuntimeError("TYPESAFE_API_KEY is not set")
+
+    settings = cfg["jev"]
+    payload = {
+        "model": settings["model"],
+        "state": {
+            "segment": asdict(segment),
+            "event": asdict(event),
+            "ctx": asdict(ctx),
+            "cfg": cfg,
+            "prior": prior,
+        },
+        "questions": {
+            "needed_again": {
+                "type": "noul",
+                "instructions": (
+                    "Given the agent's task and conversation in `ctx.window`, will the "
+                    "agent need the information in the new tool result `segment.text` "
+                    "again later to complete its current task? `event` describes the "
+                    "tool result. The window is from the last model call, before the "
+                    "assistant requested this result. `prior` is a heuristic estimate."
+                ),
+            },
+        },
+    }
+    request = Request(
+        "https://api.typesafe.ai/v1/systemone",
+        data=json.dumps(payload, allow_nan=False).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=settings["timeout_seconds"]) as response:
+            answer = json.load(response)["answers"]["needed_again"]
+        answer_type, probability = answer["type"], answer["noul"]
+    except HTTPError as exc:
+        # The engine logs exceptions: don't include response bodies or credentials.
+        raise RuntimeError(f"Jev HTTP {exc.code}") from None
+    except (URLError, TimeoutError):
+        raise RuntimeError("Jev request failed or timed out") from None
+    except (ValueError, KeyError, TypeError):
+        raise ValueError("Jev returned an invalid response") from None
+
+    if (answer_type != "noul" or type(probability) not in (int, float)
+            or not 0.0 <= probability <= 1.0):
+        raise ValueError("Jev returned an invalid probability")
+    return float(probability)

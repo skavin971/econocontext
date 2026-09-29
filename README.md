@@ -72,9 +72,13 @@ Placeholders are marked in the code: `grep -rn "# PLACEHOLDER:"` lists them.
   - It saves token counts today; the cost columns are empty.
   - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
   - Until it is built, only the step limit caps a paid run.
-- **`econocontext/planner/jev_planner.py`: Jev as the predictor of whether a tool result will be needed again.**
-  - It is used only with `--jev`; without it the planner uses the fixed guess.
-  - See `tests/test_planner_jev.py` for both tracks.
+
+**Jev predictor:** `econocontext/planner/jev_planner.py` sends all its inputs,
+including the full context window, as structured state to TypeSafe's HTTP API.
+Enable it with `--jev` and set `TYPESAFE_API_KEY` in the environment (or `.env`
+when using the run scripts). Model and timeout are in `config/econocontext.yaml`.
+It makes one request without truncation or retries; failures use the fixed guess.
+See `tests/test_planner_jev.py` for mocked tests and an optional live check.
 
 ## Running
 
