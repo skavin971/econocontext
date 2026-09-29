@@ -1,5 +1,7 @@
-> **Update 2026-09-28:** the ledger now prices Gemini usage, runtime spans record
-> model/tool/dispatch timing, and `report.py` exports text, JSON, and CSV reports.
+> **Update 2026-09-28 (platform):** the host moved to Omnigent. `adapters/` and `hosts/` (Deep Agents) were removed (git tag `deepagents-host`); the platform layer is `omnigent_layer/` (gateway + policy) and the experiment is `bench/`. The sections below that describe the Deep Agents adapter and host are history. Current shape: README.md; what we checked: docs/omnigent-findings.md.
+
+> **Update 2026-09-28 (cost):** the ledger now prices Gemini usage, runtime spans record
+> model/tool/dispatch timing, and `bench/report.py` exports text, JSON, and CSV reports.
 > `--jev` and `planner/jev_planner.py` remain future work. See README.md,
 > `docs/COST_TRACKING.md`, and docs/TESTING.md.
 

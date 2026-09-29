@@ -1,0 +1,33 @@
+# The one agent both arms run. bench/run.py fills the dollar-sign fields per run; the econo
+# arm also gets the EconoContext policy block. Nothing else differs between the arms.
+name: swe-fixer
+prompt: |
+  You are fixing a GitHub issue in the repository in your working directory. Hidden
+  tests will check your fix.
+  - Read and edit files with your file tools, always using paths relative to the
+    working directory.
+  - Run Python, tests and scripts ONLY with the testbed_shell tool: it runs in the
+    repository's own environment. sys_os_shell runs on a different machine without
+    the repository's Python or dependencies; use it for nothing but ls and grep.
+  - Keep the change minimal. When the fix is done, reply with a one-paragraph summary.
+executor:
+  harness: openai-agents
+  model: google/gemini-3.6-flash
+  use_responses: false        # Vertex serves Chat Completions only (question 0a)
+  auth:
+    type: api_key
+    api_key: econo-placeholder  # the gateway adds the real key upstream
+    base_url: $gateway/run/$run_id/v1
+os_env:
+  type: caller_process
+  cwd: $workdir
+tools:
+  testbed_shell:
+    type: function
+    callable: omnigent_layer.tools.container_shell   # runs in the instance's container
+    description: Run a bash command in the repository's own environment (cwd is the repository root). Returns exit code, stdout and stderr.
+    parameters:
+      type: object
+      properties:
+        command: {type: string, description: The bash command to run.}
+      required: [command]

@@ -6,108 +6,104 @@ the steps from the repository root.
 ## 0. Setup (once)
 
 ```sh
-python3.12 -m venv .venv                     # Python 3.11+ works
-.venv/bin/pip install -e ".[host,dev]"       # exact versions are pinned in pyproject.toml
+python3.12 -m venv .venv                                  # Omnigent needs Python 3.12+
+.venv/bin/pip install -e ".[bench,dev]" -e omnigent_layer  # core, SWE-bench, Omnigent 0.15.0
 ```
 
-Put the keys in `.env` at the repository root. The file is gitignored; never print or commit it.
+Put the key in `.env` at the repository root. The file is gitignored; never print or commit it.
 
 ```
-AGENT_PLATFORM_API_KEY=...   # Gemini on Vertex AI: needed for any agent run
+AGENT_PLATFORM_API_KEY=...   # Gemini on Vertex AI: only the gateway reads it
+ECONOCONTEXT_BASE_URL=...    # Vertex's OpenAI-compatible endpoint (.../endpoints/openapi)
 TYPESAFE_API_KEY=...         # Jev: only for --jev runs (optional)
 ```
 
-Docker Desktop must be running for the SWE-bench steps. The images are linux/amd64;
-on an Apple Silicon Mac they run under emulation. That is slower, but it works. Each
-image is about 1 GB, pulled on first use.
+Docker Desktop must be running for SWE-bench. The images are linux/amd64; on an Apple
+Silicon Mac they run under emulation (slower, but it works). Each image is about 1 GB.
 
-## 1. Unit tests: free, about 3 seconds
+## 1. Unit tests: free, seconds
 
 ```sh
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q                  # the optimizer alone: 31 passed, 3 skipped
+.venv/bin/python -m pytest -q omnigent_layer   # the Omnigent layer: 14 passed
 ```
 
-This proves the core logic works on plain data, with no LLM, no network and no Docker.
-
-Passing looks like this:
-
-```
-all unit tests pass
-```
-
-The cost acceptance tests cover the Gemini pilot bill, price periods, and
-incomplete usage. Runtime span tests cover model/tool/dispatch timing and
-concurrent agent activity.
+- **The optimizer's tests** need no Omnigent, network or Docker. They include the ledger's
+  acceptance tests (a real Gemini pilot bill, price periods, incomplete usage) and the
+  runtime-span tests (model, tool and dispatch timing, concurrent agents).
+- **The layer's tests** cover:
+  - the gateway, against a fake upstream: byte-identical pass-through, measurement, arms, caps, and replacing the placeholder key
+  - the policy on recorded event shapes
+  - the write barrier on a real git repository
+  - the container shell
 
 ## 2. Planner with and without Jev
 
-See the top of [`tests/test_planner_jev.py`](../tests/test_planner_jev.py): it
-explains both tracks and gives every command. The spec for the Jev module (inputs,
-contract, API, constraints) is the docstring of
-[`econocontext/planner/jev_planner.py`](../econocontext/planner/jev_planner.py).
+See the top of [`tests/test_planner_jev.py`](../tests/test_planner_jev.py). The Jev
+module's spec is the docstring of
+[`econocontext/planner/jev_planner.py`](../econocontext/planner/jev_planner.py). On
+SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`.
 
-## 3. One SWE-bench instance: paid, about $0.10 and a few minutes
+## 3. Start the two services (paid steps need them)
 
 ```sh
-./scripts/run_baseline.sh --label mytest --set dev                   # stock Deep Agents
-./scripts/run_econo.sh    --label mytest --set dev --mode observe    # + EconoContext (logs only)
-.venv/bin/python scripts/report.py --label mytest
+.venv/bin/omnigent start --no-open --non-interactive   # Omnigent server + runner host (127.0.0.1:6767)
+.venv/bin/python -m omnigent_layer.gateway             # the gateway (127.0.0.1:8787)
 ```
 
-- **What it proves:** a real coding agent (Deep Agents with Gemini 3.6 Flash) fixes a real GitHub issue inside the official SWE-bench Docker image. Every model call is measured, and the official SWE-bench harness grades the patch.
-- **Instance:** `--set dev` is `pytest-dev__pytest-5809`.
-- **Arms:** the two arms differ only in whether EconoContext's decision middleware is installed.
+- **Gateway limits:** it listens on localhost only. It refuses a run's 61st model call,
+  and any call once today's input tokens pass 3M. Change the limits with
+  `ECONO_MAX_CALLS_PER_RUN` and `ECONO_MAX_INPUT_TOKENS_PER_DAY`.
+- **Gateway log:** every call is appended to `logs/gateway/calls.jsonl`, with the path,
+  arm, status and usage.
+- **Stopping:** `omnigent stop` stops Omnigent.
+
+## 4. One SWE-bench instance: paid, a few minutes
+
+```sh
+.venv/bin/python bench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm baseline
+.venv/bin/python bench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm econo --mode observe
+.venv/bin/python bench/report.py --label mytest
+```
+
+- **What it proves:** an agent on Omnigent (the `openai-agents` harness with Gemini
+  3.6 Flash) fixes a real GitHub issue. Tests run inside the official SWE-bench image,
+  every model call is measured at the gateway, and the official harness grades the patch.
+- **Arms:** both use `bench/agent.yaml`. The econo arm also attaches the EconoContext
+  policy, and the gateway applies `plan_prompt` only for econo runs.
 - **Modes:**
-  - `observe` logs decisions but changes nothing the agent sees.
-  - `autopilot` applies them, but only exact operators by default, meaning byte-identical reuse.
-- **Passing looks like this:** each run ends with `resolved: [...]`. The report shows `status=completed resolved=True`, with call and token counts.
-- **Cost:** the report shows known NU/USD totals and marks runs incomplete when
-  a required provider counter was unavailable.
-
-## 4. The five-instance pipeline check: paid, about $4 and 80 minutes
-
-```sh
-./scripts/run_baseline.sh --label check6 --set comparison
-./scripts/run_econo.sh    --label check6 --set comparison --mode autopilot
-.venv/bin/python scripts/report.py --label check6
-```
-
-This is a pipeline check: the whole path runs and is measured. It is not a savings
-comparison. Five instances at temperature 1.0 vary from run to run more than any
-effect EconoContext has so far.
-
-**Last result: `check5`, 2026-09-27.** Gemini 3.6 Flash, promo prices, costed by the
-ledger before it was cleared for rebuilding:
-
-| Instance | Baseline | Econo (autopilot) |
-|---|---|---|
-| psf__requests-2317 | resolved, 38 calls, $0.177 | resolved, 45 calls, $0.295 |
-| pallets__flask-5014 | resolved, 32 calls, $0.149 | resolved, 48 calls, $0.248 |
-| pylint-dev__pylint-4970 | resolved, 63 calls, $0.554 | **not resolved**, 87 calls, $0.617 |
-| pytest-dev__pytest-7432 | resolved, 28 calls, $0.152 | resolved, 39 calls, $0.193 |
-| sphinx-doc__sphinx-8721 | resolved, 94 calls, $0.847 | resolved, 63 calls, $0.509 |
-| **Total** | **5/5, 255 calls, $1.879** | **4/5, 282 calls, $1.862** |
-
-- EconoContext applied 6 decisions, all answering a repeated tool call from the store with byte-identical output. Every other decision was the host's default. It never failed open.
-- **Known issue:** the baseline sphinx patch was 625 KB, because `sandbox.patch()` (`git add -A`) also picked up Sphinx build output the agent created in `_build/`. It was still graded as resolved. The fix is to skip build and cache folders when making the patch.
+  - `observe` logs decisions and changes nothing.
+  - `autopilot` applies them, with exact operators only by default.
+- **Passing looks like this:** the last line is `{"run_id": ..., "resolved": true}`.
+  The report shows `status=done resolved=True`, call and token counts, the cache-read
+  share, and the cost in NU and USD.
+- **Cost:** priced per call by the ledger (`econocontext/pricing/ledger.py`) from the
+  gateway's usage counts. A run is marked incomplete when a required counter was
+  missing. Details: [COST_TRACKING.md](COST_TRACKING.md).
+- **Other report formats:** add `--format json` or `--format csv` and `--output FILE`.
 
 ## 5. Where results live
 
 | What | Where |
 |---|---|
-| Everything EconoContext saw and decided | `data/econocontext.sqlite3` (gitignored). The tables are described in `econocontext/store/schema.sql` |
-| Patches sent for grading | `data/runs/<label>/<arm>.jsonl` |
-| Official grading output | `data/runs/<label>/` |
-| Side-by-side summary | `scripts/report.py --label <label>` |
+| Everything EconoContext saw and decided | `data/econocontext.sqlite3` (tables: `econocontext/store/schema.sql`) |
+| Each model call's path, arm, status and usage | `logs/gateway/calls.jsonl` |
+| Work directories and per-run agent specs | `data/work/` |
+| Patches sent for grading, and grading output | `data/runs/<label>/` |
+| Summary | `bench/report.py --label <label>` |
+| The Omnigent session (transcript, tools) | the `session http://127.0.0.1:6767/c/...` link printed by `run.py` |
 
 ## Troubleshooting
 
-- **`Docker is not running`:** start Docker Desktop. SWE-bench steps never fall back to anything else.
-- **Gemini `429 RESOURCE_EXHAUSTED`:** shared capacity is busy. Wait a few minutes and re-run; the step limit still applies.
+- **The gateway log shows `unsupported path .../responses`:** the harness is using
+  OpenAI's Responses API, and Vertex only serves Chat Completions. Set
+  `executor.use_responses: false` in the spec. This works for the root agent only:
+  Omnigent 0.15.0 does not pass it to inline sub-agents (see the findings).
+- **`run ... is not registered` (400):** runs are registered by `bench/run.py` before the
+  session starts. For a hand-made session, call `omnigent_layer.register_run(...)` first.
+- **`429 ... reached 60 model calls`:** the per-run cap stopped the run, as designed.
+- **Docker is not running:** start Docker Desktop. Grading never falls back to anything else.
+- **Gemini `429 RESOURCE_EXHAUSTED`:** shared capacity is busy. Wait and re-run.
 - **No disk space:** run `docker image prune` to remove old SWE-bench images.
-- **Cost is incomplete:** inspect the outcome rows for the missing provider
-  counters; the report preserves the known subtotal and marks the run unsafe to
-  treat as a complete bill.
-- **Budgets:** completed usage is priced before the next model call. If a prior
-  call has incomplete usage, the next call is refused because the budget cannot
-  be verified; the step limit remains the fallback safety cap.
+- **Cost is incomplete:** inspect the run's `outcomes` rows for the missing provider
+  counter. The report keeps the known subtotal and marks the run as not a complete bill.
