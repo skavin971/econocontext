@@ -17,6 +17,8 @@ Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Docker.
 
 Run: .venv/bin/python bench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
+     .venv/bin/python bench/run.py --label p1 --set mid5 --arm econo --mode observe
+     .venv/bin/python bench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
 """
 
 import argparse
@@ -40,7 +42,7 @@ from omnigent_layer import HOME, engine_for, register_run
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate import evaluate  # noqa: E402
-from tasks import load  # noqa: E402
+from tasks import SETS, load  # noqa: E402
 
 BENCH = Path(__file__).parent
 ACTIVATE = "source /opt/miniconda3/bin/activate testbed"
@@ -69,7 +71,7 @@ def prepare(image: str, workdir: Path, container: str) -> None:
     # Omnigent's runner probes the workspace with an mtime-test-* directory; keep it out
     # of the patch and of the write barrier.
     with open(workdir / ".git" / "info" / "exclude", "a") as exclude:
-        exclude.write("\nmtime-test-*/\n")
+        exclude.write("\nmtime-test-*/\n.econocontext/\n")  # Omnigent's probe; our pointer files
     # Labels let omnigent_layer.tools.container_shell (testbed_shell) find this container.
     sh("docker", "run", "-d", "--platform", "linux/amd64", "--name", container,
        "--label", f"econocontext.workdir={os.path.realpath(workdir)}",
@@ -77,7 +79,7 @@ def prepare(image: str, workdir: Path, container: str) -> None:
        "-v", f"{workdir}:/testbed", "-w", "/testbed", image, "sleep", "infinity")
 
 
-async def run_session(server: str, spec: Path, workdir: Path, prompt: str) -> str:
+async def run_session(server: str, spec: Path, workdir: Path, prompt: str, seconds: float) -> str:
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -92,7 +94,7 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str) -> st
         chat = SessionsChat(namespace=client.sessions, files_uploader=files.upload,
                             files_getter=files.get, session=bound)
         try:
-            result = await asyncio.wait_for(chat.query(prompt), timeout=3 * 3600)
+            result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
         finally:
             _stop_headless_session(base_url=server, session_id=bound.id)
         return getattr(result, "text", "") or ""
@@ -101,18 +103,37 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str) -> st
 def main() -> None:
     p = argparse.ArgumentParser(description="Run one SWE-bench instance on Omnigent.")
     p.add_argument("--label", required=True)
-    p.add_argument("--instance", required=True)
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--instance", help="one SWE-bench Verified instance id")
+    which.add_argument("--set", choices=sorted(SETS), help="a fixed set from bench/tasks.py")
     p.add_argument("--arm", choices=["baseline", "econo"], required=True)
     p.add_argument("--mode", choices=["observe", "autopilot"], default="observe")
     p.add_argument("--jev", action="store_true",
                    help="econo arm: ask planner/jev_planner.py for p_need_again (default: fixed guess)")
+    p.add_argument("--max-minutes", type=float, default=20, help="wall-clock cap per task")
+    p.add_argument("--learned", action="store_true",
+                   help="learned H and p from earlier labelled runs (bench/learn.py label)")
+    p.add_argument("--pointer", action="store_true",
+                   help="autopilot may use POINTER, COMMIT_PENDING and RESUME (quality risk <= 0.2)")
     p.add_argument("--server", default="http://127.0.0.1:6767")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
     a = p.parse_args()
 
-    inst = load([a.instance])[0]
+    instances = SETS[a.set] if a.set else [a.instance]
+    overrides = {}
+    if a.learned:
+        overrides["learned"] = True
+    if a.pointer:
+        overrides.update(allowlist={"POINTER": True, "COMMIT_PENDING": True, "RESUME": True},
+                         constraints={"max_quality_risk": 0.2})
+    for instance in instances:
+        run_one(a, instance, overrides)
+
+
+def run_one(a, instance: str, overrides: dict) -> None:
+    inst = load([instance])[0]
     arm = "econo+jev" if a.jev and a.arm == "econo" else a.arm
-    run_id = f"{a.label}:{arm}:{a.instance}"
+    run_id = f"{a.label}:{arm}:{instance}"
     safe = re.sub(r"[^\w.-]", "_", run_id)
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
@@ -121,13 +142,19 @@ def main() -> None:
     spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
     spec.parent.mkdir(parents=True, exist_ok=True)
     spec.write_text(Template(text).substitute(values))
-    register_run(run_id, a.arm, a.mode, a.instance, jev=a.jev and a.arm == "econo")
+    register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo", current=True,
+                 overrides=overrides or None, workdir=str(workdir))
+    print(f"== {run_id}", flush=True)
 
     status = "done"
     try:
         prepare(inst.image, workdir, container)
-        summary = asyncio.run(run_session(a.server, spec, workdir, inst.problem_statement))
-        print("agent:", summary[:500])
+        summary = asyncio.run(run_session(a.server, spec, workdir, inst.problem_statement,
+                                          a.max_minutes * 60))
+        print("agent:", summary[:300])
+    except TimeoutError:
+        status = "timeout"
+        print(f"stopped after {a.max_minutes} minutes")
     except Exception as exc:  # the agent's failure is a result, not a crash of the bench
         status = f"error: {str(exc)[:300]}"
         print(status)
@@ -139,14 +166,14 @@ def main() -> None:
     out = HOME / "data" / "runs" / a.label
     out.mkdir(parents=True, exist_ok=True)
     predictions = out / f"{safe}.jsonl"
-    predictions.write_text(json.dumps({"instance_id": a.instance, "model_patch": patch,
+    predictions.write_text(json.dumps({"instance_id": instance, "model_patch": patch,
                                        "model_name_or_path": f"omnigent-{a.arm}"}) + "\n")
     engine, _ = engine_for(run_id)
     engine.end_run(status)
-    grade = evaluate(predictions, [a.instance], run_id=f"{safe}-eval")
-    engine.db.set_resolved(run_id, grade["per_instance"][a.instance])
+    grade = evaluate(predictions, [instance], run_id=f"{safe}-eval")
+    engine.db.set_resolved(run_id, grade["per_instance"][instance])
     print(json.dumps({"run_id": run_id, "status": status, "patch_bytes": len(patch),
-                      "resolved": grade["per_instance"][a.instance]}))
+                      "resolved": grade["per_instance"][instance]}), flush=True)
 
 
 if __name__ == "__main__":

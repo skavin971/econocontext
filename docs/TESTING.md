@@ -82,7 +82,39 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
   missing. Details: [COST_TRACKING.md](COST_TRACKING.md).
 - **Other report formats:** add `--format json` or `--format csv` and `--output FILE`.
 
-## 5. Where results live
+## 5. Learn from runs: observe, replay, autopilot
+
+Replaces the fixed guesses (turns left `H`, needed-again `p`) with what earlier runs
+actually did. Each paid phase needs its own go.
+
+**Once:** `.venv/bin/python bench/setup_provider.py`. This adds the `econo` provider that
+workers use (it edits `~/.omnigent/config.yaml` after a backup). After any change to
+`omnigent_layer/` code, restart Omnigent: its server keeps the policy module loaded.
+
+| Phase | Command | Paid? |
+|---|---|---|
+| 1. Observe, then label | `bench/run.py --label p1 --set mid5 --arm econo --mode observe` then `bench/learn.py label --label p1` | yes, 5 tasks, at most 20 min each |
+| 2. Replay | `bench/learn.py replay --label p1` | no |
+| 3. Autopilot, learned | `bench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer` then `bench/report.py --label p1 p3` | yes |
+
+(Prefix each command with `.venv/bin/python`.)
+
+**What each produces:**
+- **Labels** (`labels` table), from what happened after each decision:
+  - `h_actual`: the model calls the agent still made
+  - for each tool result, whether it was needed again: re-fetched, or quoted in later output
+- **Replay** (per task, and totals):
+  - how many decisions would change
+  - the NU saved in two ways: in the model's own uncached pricing, and **cache-adjusted** to the run's real cache mix
+  - `oracle` uses the true needed-again; `empirical` uses `p_hat` learned from the other tasks
+- **Autopilot with `--learned --pointer`:**
+  - `H` and `p` come from the labelled runs of the *other* tasks
+  - POINTER, COMMIT_PENDING (pointing out old results) and RESUME (continuing a worker) are allowed
+  - The report puts p1 and p3 side by side: resolved, calls, tools, uncached/cached tokens, $, and predicted vs actual
+
+Five tasks at temperature 1.0 is a pipeline check, not proof of savings.
+
+## 6. Where results live
 
 | What | Where |
 |---|---|
@@ -90,7 +122,8 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
 | Each model call's path, arm, status and usage | `logs/gateway/calls.jsonl` |
 | Work directories and per-run agent specs | `data/work/` |
 | Patches sent for grading, and grading output | `data/runs/<label>/` |
-| Summary | `bench/report.py --label <label>` |
+| Summary | `bench/report.py --label <label> [<label> ...]` |
+| Labels (what happened after each decision) | `labels` table; `bench/learn.py label` |
 | The Omnigent session (transcript, tools) | the `session http://127.0.0.1:6767/c/...` link printed by `run.py` |
 
 ## Troubleshooting

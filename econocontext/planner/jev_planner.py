@@ -3,7 +3,7 @@
 Called by `EconoContext._predict` (engine.py) at `admit_tool_result`, only in runs
 started with `--jev`. It replaces the fixed guess `planner.prior_p_need_again`
 (config `predictor.kind_need_again`: 0.3 for a tool result, scaled down above
-`planner.pointer_min_tokens`). It gets the same inputs the original planner has.
+a pointer shorter than the result). It gets the same inputs the original planner has.
 
 Contract
     Return p in [0, 1]: the probability the agent needs this result's content again

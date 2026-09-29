@@ -61,6 +61,39 @@ This is also why the gateway exists: Omnigent's usage is summed per turn by the
 harness, after the harness has converted it, and policies never see per-call usage.
 The gateway reads what the provider itself returned, for every call.
 
+## Workers, and continuing one (2026-09-29)
+
+| Check | Answer |
+|---|---|
+| Can a worker (sub-agent) run on Gemini? | **Yes, through a provider.** A sub-agent with `auth: {type: provider, name: econo}` and a provider set to `wire_api: chat` calls Chat Completions, at the gateway's `/current/agent/worker/v1` |
+| Are two workers told apart? | **Yes.** The gateway names each worker by its first message (its task): `<run>:worker:<hash>`. A continued worker keeps its id |
+| Does reusing a title continue a worker? | **Yes.** The second task reached the same worker id, with its earlier exchange in the request (4 messages) |
+| Can EconoContext choose to continue a worker? | **Yes.** A policy may replace a `sys_session_send` call's arguments. It must return the bare arguments dict, not `{name, arguments}`. Rewriting the title made Omnigent continue the worker the root had not named |
+
+Other things learned:
+- **A policy that fails to load or raises makes Omnigent deny the action** (it fails closed). EconoContext's policy catches every error and abstains, so it cannot block an agent.
+- **Omnigent's server keeps a policy module loaded.** After editing `omnigent_layer/`, restart Omnigent.
+
+## When EconoContext changes what the model sees, does the harness know? (2026-09-29)
+
+Two different places change content, with different answers:
+
+| Where | What changes | Does the harness know? |
+|---|---|---|
+| **Policy** (POINTER when a tool result arrives) | Omnigent stores the replaced result | **Yes.** The harness's own history holds the pointer text, so every later request, the transcript and the UI agree. This is the path that ran live (30 times in Phase 3) |
+| **Gateway** (COMMIT_PENDING, ZONED: rewriting a request on its way to the model) | Only the copy sent to the model | **No.** The harness keeps the full text in its history and re-sends it on every call |
+
+Why the gateway path is still consistent for the model:
+- The gateway stores each replacement (`gateway_pointers`, keyed by run, agent and tool-call id) and re-applies it to **every** later request from that agent.
+- So the model sees one stable history, and the cached prefix stays stable after the one-time change.
+- The full text is saved in the workspace, where the agent can reopen it.
+
+Where it can diverge, and what happens:
+- **Harness compaction or its own token counting** work on the full text. The harness may compact earlier than needed: harmless, and afterwards the replaced message is simply gone.
+- **The transcript and UI** show the full text, not what the model saw. What was actually sent is in the Agent DB (decisions, manifest, gateway_pointers).
+- **Stateful model APIs** (server-side conversation state, e.g. Responses with `previous_response_id`) would break this. Our harness uses stateless Chat Completions, where every request carries the whole history.
+- **Losing the database** would lose the replacements, and the model would see the full text again. That is correct but more expensive, and it breaks the cache once.
+
 ## What this means for the design
 
 - **Tool-result control: yes** in Direct mode (`openai-agents`). POINTER at admission

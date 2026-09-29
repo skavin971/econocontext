@@ -46,6 +46,7 @@ def gw(monkeypatch):
     monkeypatch.setattr(gateway, "UPSTREAM", f"http://127.0.0.1:{upstream.server_port}")
     monkeypatch.setattr(gateway, "KEY", "real-key")
     gateway.Gateway.db = AgentDB(omnigent_layer.DB_PATH)
+    gateway.Gateway.db.execute(gateway.POINTERS_TABLE)
     server = serve(gateway.Gateway)
     yield f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
@@ -92,10 +93,21 @@ def test_the_real_key_replaces_the_placeholder(gw):
 
 def test_econo_arm_logs_a_plan_prompt_decision_per_call(gw):
     register_run("e1", "econo", "observe")
-    post(f"{gw}/run/e1/agent/helper/v1/chat/completions", BODY)
+    post(f"{gw}/run/e1/v1/chat/completions", BODY)
     rows = AgentDB(omnigent_layer.DB_PATH).rows(
         "SELECT agent_id, intercept FROM decisions WHERE run_id='e1'")
-    assert [tuple(r) for r in rows] == [("e1:helper", "plan_prompt")]
+    assert [tuple(r) for r in rows] == [("e1:root", "plan_prompt")]
+
+
+def test_current_route_and_two_workers_stay_apart(gw):
+    register_run("w1", "econo", "observe", current=True)
+    for task in ("find where lexer is set", "run the pastebin tests"):
+        post(f"{gw}/current/agent/worker/v1/chat/completions",
+             {"model": "m", "messages": [{"role": "system", "content": "s"},
+                                         {"role": "user", "content": task}]})
+    agents = {r[0] for r in AgentDB(omnigent_layer.DB_PATH).rows(
+        "SELECT agent_id FROM outcomes WHERE run_id='w1'")}
+    assert len(agents) == 2 and all(a.startswith("w1:worker:") for a in agents)
 
 
 def test_unregistered_runs_and_other_paths_are_refused(gw):
@@ -115,3 +127,20 @@ def test_call_cap_stops_a_run(gw, monkeypatch):
     with pytest.raises(urllib.error.HTTPError) as err:
         post(f"{gw}/run/c1/v1/chat/completions", BODY)
     assert err.value.code == 429 and len(Upstream.seen) == 1
+
+
+def test_autopilot_points_out_an_old_result_and_keeps_it_pointed_out(gw, tmp_path):
+    register_run("p1", "econo", "autopilot", workdir=str(tmp_path), overrides={
+        "allowlist": {"COMMIT_PENDING": True}, "constraints": {"max_quality_risk": 0.2}})
+    big = "\n".join(f"line {i}: " + "x" * 80 for i in range(150))
+    call = {"id": "t1", "type": "function", "function": {"name": "sys_os_read", "arguments": "{}"}}
+    history = [{"role": "system", "content": "s"}, {"role": "user", "content": "fix it"},
+               {"role": "assistant", "content": None, "tool_calls": [call]},
+               {"role": "tool", "tool_call_id": "t1", "content": big},
+               {"role": "assistant", "content": "looked at it"}, {"role": "user", "content": "go on"}]
+    for turn in range(2):
+        post(f"{gw}/run/p1/v1/chat/completions", {"model": "m", "messages": history})
+        sent = json.loads(Upstream.seen[-1][2])["messages"][3]["content"]
+        assert "Full output:" in sent and big not in sent, f"turn {turn}"
+    [pointer] = list((tmp_path / ".econocontext" / "pointers").iterdir())
+    assert pointer.read_text() == big

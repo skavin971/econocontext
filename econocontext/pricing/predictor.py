@@ -23,15 +23,10 @@ def remaining_turns(agent: AgentNode, default: int) -> int:
     return max(1, default - agent.turns)
 
 
-def future_use_score(segment: Segment, kind_need_again: dict[str, float],
-                     pointer_min_tokens: int) -> float:
+def future_use_score(segment: Segment, kind_need_again: dict[str, float]) -> float:
     if segment.pinned or segment.needs_exact_bytes:
         return 1.0
-    prior = kind_need_again[segment.kind.value]
-    # Larger than the pointer threshold: slightly less likely to be needed in full.
-    if pointer_min_tokens and segment.tokens > pointer_min_tokens:
-        prior *= pointer_min_tokens / segment.tokens
-    return prior
+    return kind_need_again[segment.kind.value]
 
 
 def p_need_again(score: float) -> float:

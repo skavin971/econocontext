@@ -63,6 +63,7 @@ econocontext/     the optimizer. Imports only Python's standard library and pyya
   planner/          lists the options for a step (and jev_planner.py: a slot for Jev)
   optimizer/        gates (drop wrong options) and the choice
   pricing/          the cost model, price cards, and the ledger (actual cost per call)
+  learn/            labels (what happened), replay (what we'd have chosen), learned H and p
   assembler/ guard/ build the chosen request; fail safe
   monitor/ store/   what exists, and the Agent DB
 omnigent_layer/   the glue, its own small package (pip install -e omnigent_layer)
@@ -71,7 +72,7 @@ omnigent_layer/   the glue, its own small package (pip install -e omnigent_layer
   workspace.py      which files changed (so old results are not reused)
   tools.py          testbed_shell: a shell inside the task's Docker image
   wire.py           converts the model's message format to EconoContext's
-bench/            the experiment: run.py, agent.yaml, evaluate.py, report.py
+bench/            the experiment: run.py, agent.yaml (with a worker), learn.py, report.py
 config/           every number the optimizer uses, and the price cards
 tests/            tests for the optimizer (omnigent_layer/tests/ for the glue)
 docs/             the guide, the Omnigent findings, how to run everything

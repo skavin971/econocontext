@@ -43,6 +43,18 @@ given step, using fixed rules. The host default is always proposed.
   - `FORK`: a subagent that inherits the parent's context
   - `REPAIR`: refresh only what changed in a worker's state
 
+### New since 2026-09-29: learned predictions, pointing out old results, continuing a worker
+
+- **POINTER** is offered whenever the pointer is shorter than the result. There is no fixed size threshold; the optimizer decides.
+- **COMMIT_PENDING**: at each model call, old tool results (outside the newest turn) are proposed for pointing out.
+  - A result is included when its saving beats its expected cost: `(full − pointer) × H × rate` against `p × (full + window) + p × full × H × rate`, where `p = p_hat(tool, calls since it arrived)`.
+  - The whole set then pays a one-time **cache break**: the tokens after the first edited result are re-sent at full price once.
+  - Once applied, the gateway keeps those results pointed out in every later request.
+- **RESUME**: when the root delegates, the planner proposes the idle worker that already holds the most of the files the task names.
+  - It's priced by what each worker call sends: the resumed worker's context (at the cache-read price if warm), plus only the files it does not hold, against a new worker reading them all.
+  - On Omnigent it is carried out by rewriting the dispatch's title.
+- **Learned mode** (`--learned`): `H` and `p` come from earlier labelled runs (`econocontext/learn/`), not config. What is sent and kept is priced at the run's observed cache mix (`rate = (1 − s) + s × 0.1`). Each decision records whether its numbers were learned or the prior.
+
 ## Step 2: gates remove incorrect candidates
 
 `optimizer/gates.py` runs these checks in order. The first failure removes the

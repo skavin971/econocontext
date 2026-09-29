@@ -7,6 +7,20 @@ What it must never do: expose the gold patch or the hidden tests to the agent.
 
 from dataclasses import dataclass
 
+# Fixed before any run, by rule.
+#   dev   the development instance, kept out of every comparison
+#   mid5  SWE-bench Verified difficulty "15 min - 1 hour", light repositories (pylint,
+#         pytest, sphinx; images ~1 GB), gold patch touching 2+ files (more to explore).
+#         The first matches in instance-id order, at most two per repository.
+#   quick3 SWE-bench Verified "<15 min fix" instances already used before (check5), for
+#         runs of a few minutes each: the whole observe -> replay -> autopilot loop in ~20 min.
+SETS = {
+    "dev": ["pytest-dev__pytest-5809"],
+    "mid5": ["pylint-dev__pylint-6386", "pytest-dev__pytest-5840", "pytest-dev__pytest-8399",
+             "sphinx-doc__sphinx-10673", "sphinx-doc__sphinx-8593"],
+    "quick3": ["pytest-dev__pytest-7432", "psf__requests-2317", "pallets__flask-5014"],
+}
+
 
 @dataclass
 class Instance:

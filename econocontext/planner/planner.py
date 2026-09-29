@@ -6,14 +6,19 @@ optimizer can always decline to change anything.
 What it must never do: price or choose (the cost model and optimizer do), or
 propose an operator the catalog marks as not generated.
 
-PLACEHOLDER: fixed rules. The future planner generates candidates from learned
-predictions (which stored content is worth retrieving, which results are worth
-pointering) and expands RESUME / FORK / REPAIR once the host supports them.
+Rules, fed by predictions: H and p are learned from earlier runs when a History is
+given (learn/predictors.py), else the config guesses. POINTER is offered whenever a
+pointer is shorter than the result; COMMIT_PENDING when old results are worth pointing
+out now (stale_edits); RESUME when an idle worker already holds files a task needs.
 """
 
+from copy import copy
+
+from ..assembler.zones import assign
 from ..pricing.predictor import future_use_score, p_need_again
 from ..tokens import count_tokens
-from ..types import Candidate, DispatchIntent, PlanContext, Segment, ToolCallEvent
+from ..types import (Candidate, DispatchIntent, PlanContext, Representation, Segment, SegmentKind,
+                     ToolCallEvent, Zone)
 from .candidates import operator
 
 
@@ -26,18 +31,25 @@ def _candidate(name: str, cfg: dict, **payload) -> Candidate:
 
 # PLACEHOLDER: fixed rules per intercept; later generated from learned predictions.
 def for_prompt(ctx: PlanContext, cfg: dict, retrieved: list[Segment],
-               pending_pointer_tokens: int, prefix_cold: bool) -> list[Candidate]:
-    """Before every model call: how to send this agent's window."""
+               edits: list[dict], cache_warm: bool) -> list[Candidate]:
+    """Before every model call: how to send this agent's window.
+
+    `edits` (from stale_edits) are old tool results worth replacing with pointers now."""
     tokens = sum(s.tokens for s in ctx.window)
     common = dict(send_tokens=tokens, model_calls=1, resident_tokens=tokens)
     candidates = [_candidate("AS_IS", cfg, **common),
                   _candidate("ZONED", cfg, **common)]
-    # PLACEHOLDER: nothing queues pointer edits yet (pointers are made at arrival),
-    # so COMMIT_PENDING is dormant until retroactive edits exist.
-    if pending_pointer_tokens and prefix_cold:
-        saved = pending_pointer_tokens
-        candidates.append(_candidate("COMMIT_PENDING", cfg, send_tokens=tokens - saved,
-                                     model_calls=1, resident_tokens=tokens - saved))
+    if edits:
+        saved = sum(e["full"] - e["pointer"] for e in edits)
+        first = min(e["position"] for e in edits)
+        suffix = sum(s.tokens for s in ctx.window[first:])
+        candidates.append(_candidate(
+            "COMMIT_PENDING", cfg, send_tokens=tokens - saved, model_calls=1,
+            resident_tokens=tokens - saved,
+            reread_tokens=sum(e["p"] * e["full"] for e in edits), p_need_again=1.0,
+            extra_calls=sum(e["p"] for e in edits), extra_call_input_tokens=tokens,
+            cache_break_tokens=suffix if cache_warm else 0,
+            segment_ids=[e["segment_id"] for e in edits]))
     if retrieved:
         extra = sum(s.tokens for s in retrieved)
         # Appended to the VOLATILE tail for this call only: sent now, not left resident.
@@ -45,6 +57,35 @@ def for_prompt(ctx: PlanContext, cfg: dict, retrieved: list[Segment],
                                      model_calls=1, resident_tokens=tokens,
                                      segment_ids=[s.id for s in retrieved]))
     return candidates
+
+
+def stale_edits(ctx: PlanContext, window: list[Segment], arrival: dict[str, int],
+                calls_so_far: int, p_of, pointer_len) -> list[dict]:
+    """Old tool results whose pointer saves more than it is expected to cost.
+
+    For each full tool result outside the newest turn, idle for `age` calls:
+      gain = (full - pointer) x H x rate  -  p x (full + window)  -  p x full x H x rate
+    (residency saved, minus the expected re-read, its extra call, and its residency again),
+    with p = p_of(tool, age). Kept when gain > 0; the optimizer then weighs the whole set
+    against the one-time cache break."""
+    tokens = sum(s.tokens for s in window)
+    h, rate = ctx.remaining_turns, ctx.resident_rate
+    zoned = assign([copy(s) for s in window])
+    edits = []
+    for position, s in enumerate(zoned):
+        if (s.kind != SegmentKind.TOOL_RESULT or s.zone == Zone.VOLATILE
+                or s.representation == Representation.POINTER):
+            continue
+        pointer = pointer_len(s)
+        if pointer >= s.tokens:
+            continue
+        age = max(0, calls_so_far - arrival.get(s.id, calls_so_far))
+        p = p_of((s.source or "").removeprefix("tool:"), age)
+        gain = (s.tokens - pointer) * h * rate - p * (s.tokens + tokens) - p * s.tokens * h * rate
+        if gain > 0:
+            edits.append(dict(segment_id=s.id, position=position, full=s.tokens,
+                              pointer=pointer, p=p, age=age))
+    return edits
 
 
 def for_tool_call(ctx: PlanContext, cfg: dict, event: ToolCallEvent,
@@ -63,12 +104,12 @@ def for_tool_call(ctx: PlanContext, cfg: dict, event: ToolCallEvent,
 
 def prior_p_need_again(segment: Segment, cfg: dict) -> float:
     """The default (no --jev) prediction: the fixed guess per kind, from config."""
-    return p_need_again(future_use_score(segment, cfg["predictor"]["kind_need_again"],
-                                         cfg["planner"]["pointer_min_tokens"]))
+    return p_need_again(future_use_score(segment, cfg["predictor"]["kind_need_again"]))
 
 
 def for_tool_result(ctx: PlanContext, cfg: dict, segment: Segment,
-                    pointer_tokens: int, p_need: float) -> list[Candidate]:
+                    pointer_tokens: int, p_need: float,
+                    window_tokens: int | None = None) -> list[Candidate]:
     """Before a tool result enters a window: the full result, or a pointer.
 
     `p_need` (probability the content is needed again) comes from the engine: the
@@ -76,11 +117,40 @@ def for_tool_result(ctx: PlanContext, cfg: dict, segment: Segment,
     """
     full = segment.tokens
     candidates = [_candidate("KEEP_FULL", cfg, result_tokens=full, resident_tokens=full)]
-    if full >= cfg["planner"]["pointer_min_tokens"]:
+    if pointer_tokens < full:  # offered whenever a pointer is shorter; the optimizer decides
+        # Reopening it costs one expected extra model call that re-sends the window.
+        window = sum(s.tokens for s in ctx.window) if window_tokens is None else window_tokens
         candidates.append(_candidate(
             "POINTER", cfg, result_tokens=pointer_tokens, resident_tokens=pointer_tokens,
-            reread_tokens=full, p_need_again=p_need,
-            needs_exact_bytes=segment.needs_exact_bytes))
+            reread_tokens=full, p_need_again=p_need, extra_calls=p_need,
+            extra_call_input_tokens=window, needs_exact_bytes=segment.needs_exact_bytes))
+    return candidates
+
+
+def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
+                  calls_hat: int, file_tokens: dict[str, int]) -> list[Candidate]:
+    """Before a sub-task is delegated: a new worker (FRESH), or the idle worker that
+    already holds the most of the files the task names (RESUME).
+
+    Per worker call, a new worker sends its base context plus the files it must read;
+    a resumed worker sends its resident context (at the cache-read price if its cache is
+    warm) plus the task and only the files it does not hold yet."""
+    base = cfg["cost_model"]["fresh_expected_input_tokens_per_call"]  # PLACEHOLDER: a new worker's base context
+    task_tokens = count_tokens(task)
+    named = {p for p in file_tokens if p in task or p.rsplit("/", 1)[-1] in task}
+    need = sum(file_tokens[p] for p in named)
+    candidates = [_candidate("FRESH", cfg, extra_calls=calls_hat,
+                             extra_call_input_tokens=base + task_tokens + need)]
+    free = [w for w in workers if not w["busy"] and w["title"] and set(w["files"]) & named]
+    if free:
+        best = max(free, key=lambda w: (sum(file_tokens[p] for p in set(w["files"]) & named),
+                                        w["warm"]))
+        held = sum(file_tokens[p] for p in set(best["files"]) & named)
+        rate = ctx.rates.cache_read_ratio if best["warm"] else 1.0
+        candidates.append(_candidate(
+            "RESUME", cfg, extra_calls=calls_hat,
+            extra_call_input_tokens=best["resident_tokens"] * rate + task_tokens + need - held,
+            title=best["title"], worker_id=best["worker_id"], held_tokens=held))
     return candidates
 
 

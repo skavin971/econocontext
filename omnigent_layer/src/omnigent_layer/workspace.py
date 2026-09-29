@@ -4,11 +4,13 @@ Why it exists: stored tool results are reused only while every file they read is
 unchanged. After any tool that can write (edit, write, shell, testbed_shell), this
 compares the work directory with what it saw last, using git, so the engine can bump
 exactly the paths that changed.
-What it must never do: modify the work directory.
+What it must never do: modify the work directory, except for pointer files under .econocontext/ (OmnigentHost).
 """
 
 import subprocess
 from pathlib import Path
+
+from econocontext.host import HostCapabilities
 
 
 class Workspace:
@@ -46,3 +48,27 @@ class Workspace:
         before = self.known or {}
         self.known = state
         return sorted(p for p in set(state) | set(before) if state.get(p) != before.get(p))
+
+
+class OmnigentHost:
+    """What EconoContext can carry out on Omnigent, for a run with a workspace.
+
+    pointer      a full result is saved in the workspace; the agent reopens it with sys_os_read
+    edit_request the gateway can rewrite a model request (COMMIT_PENDING)
+    resume       the policy can send a dispatch to an existing worker (its title)
+    """
+
+    POINTERS = ".econocontext/pointers"  # git-excluded by the bench
+
+    def __init__(self, workdir: str):
+        self.root = Path(workdir)
+        self.capabilities = HostCapabilities(pointer=True, edit_request=True, resume=True)
+        self.pointer_store = self
+
+    def materialize(self, segment) -> str:
+        """Write the full text into the workspace; return the path the agent should read."""
+        relative = f"{self.POINTERS}/{segment.id[:16]}.txt"
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(segment.text)
+        return relative

@@ -17,7 +17,10 @@
 | **Ledger** (actual cost in NU and USD, total run cost) | **Real**, tested (PR #4). The SWE-bench run on Omnigent: $0.0977 |
 | Runtime spans (timing) | **Real** for model calls on Omnigent; tool and dispatch spans not yet recorded there |
 | **Jev planner** (`--jev`) | **To build**: empty slot with a spec. See `planner/jev_planner.py` |
-| Planner rules (which candidates to propose) | Placeholder: fixed rules |
+| Planner rules (which candidates to propose) | Rules, fed by learned H and p in learned mode (`econocontext/learn/`) |
+| Labels, replay, learned H_hat and p_hat | **Real**, tested offline; waiting for Phase 1 data |
+| COMMIT_PENDING (point out old results), RESUME (continue a worker) | **Real**, tested offline; on Omnigent both are carried out (gateway rewrite, dispatch title rewrite) |
+| Workers (sub-agents) on Gemini | **Real** through the `econo` provider (checked live) |
 | Cost model | Placeholder: token lengths only, **ignores caching**, so it predicts about 2× the actual cost |
 | Predictions (turns left, `p_need_again`, output size, subagent cost, latency) | Placeholder: fixed numbers from config (see chapter 3) |
 | Cache belief | Placeholder: longest shared prefix; logged, not priced |
@@ -25,7 +28,7 @@
 | Retrieval | Placeholder: keyword match only |
 | Decision deadline (50 ms) | Measured, not enforced |
 | Anthropic and OpenAI usage mappers | Written, not tested live |
-| RESUME, FORK, REPAIR | Named only: the host can't do them yet |
+| FORK, REPAIR | Named only |
 
 ## Known gaps
 

@@ -68,4 +68,5 @@ def select(candidates: list[Candidate], context: PlanContext, constraints: Const
     return Decision(id=uuid.uuid4().hex, intercept=context.intercept, chosen=chosen,
                     cost=costs[chosen.name], rejected=rejected,
                     feasible=[c.name for c in feasible], candidate_costs=costs,
-                    created_at=datetime.now(timezone.utc).isoformat())
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    payloads={c.name: c.payload for c in candidates})

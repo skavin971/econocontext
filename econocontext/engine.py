@@ -36,8 +36,11 @@ from .types import (AdmitResult, Candidate, CostBreakdown, Decision, DispatchInt
 class EconoContext:
     def __init__(self, config_dir: str, host: Host | None, run_id: str, *, host_name: str,
                  arm: str, instance_id: str | None = None, db_path: str | None = None,
-                 mode: str | None = None, jev: bool = False):
-        self.config = config_module.load(config_dir)
+                 mode: str | None = None, jev: bool = False, overrides: dict | None = None,
+                 workdir: str | None = None, history=None):
+        self.config = config_module.load(config_dir, overrides)
+        # learn/predictors.History: learned H_hat and p_hat instead of the config guesses.
+        self.history = history
         # --jev: ask planner/jev_planner.py for p_need_again instead of the fixed guess.
         self.jev = jev
         self.cfg = self.config.raw
@@ -49,7 +52,7 @@ class EconoContext:
         self.db = AgentDB(db_path or self.cfg["storage"]["db_path"])
         self.db.start_run(run_id, host_name, instance_id, arm, mode or self.mode.value,
                           self.cfg["model"]["name"], self.cfg["model"]["temperature"],
-                          self.config.fingerprint, jev=jev)
+                          self.config.fingerprint, jev=jev, overrides=overrides, workdir=workdir)
         self.registry = Registry(self.db, run_id)
         self.belief = CacheBelief(self.cfg["cache"]["ttl_seconds"],
                                   self.config.card.min_cacheable_tokens)
@@ -68,8 +71,33 @@ class EconoContext:
             current_versions=self.db.current_versions(self.run_id),
             constraints=self.config.constraints, allowlist=self._allowlist(),
             rates=ratios(self.config.card, today, sum(s.tokens for s in window) or None),
-            remaining_turns=remaining_turns(agent, self.cfg["predictor"]["remaining_turns_default"]),
-            cache=self.belief.state(agent_id))
+            remaining_turns=self._remaining(agent_id, agent),
+            cache=self.belief.state(agent_id), resident_rate=self._resident_rate())
+
+    def _remaining(self, agent_id: str, agent) -> int:
+        """H: model calls this agent will still make. Learned (H_hat) when a History is
+        given, else the config guess."""
+        if self.history is None:
+            return remaining_turns(agent, self.cfg["predictor"]["remaining_turns_default"])
+        return self.history.h_hat(agent_id, self.db.calls_so_far(agent_id))
+
+    def _resident_rate(self) -> float:
+        """Learned mode: price residency at this run's observed cache mix (earlier runs'
+        until this run has calls). Otherwise 1.0, as uncached."""
+        if self.history is None:
+            return 1.0
+        share = self.db.cache_share(self.run_id)
+        share = self.history.cache_share if share is None else share
+        read = ratios(self.config.card, datetime.now(timezone.utc).date()).cache_read_ratio
+        return (1 - share) + share * read
+
+    def _p_of(self, tool: str, age: int) -> float:
+        if self.history is None:
+            return self.cfg["predictor"]["kind_need_again"]["tool_result"]
+        return self.history.p_hat(tool, age)[0]
+
+    def _pointer_len(self, segment: Segment) -> int:
+        return count_tokens(pointer_text(segment, "<path>", self.cfg["planner"]["pointer_preview_lines"]))
 
     def _allowlist(self) -> dict[str, bool]:
         allow = dict(self.cfg["allowlist"])
@@ -77,6 +105,8 @@ class EconoContext:
         allow["POINTER"] = allow.get("POINTER", False) and self.caps.pointer
         allow["ANSWER_FROM_STORE"] = allow.get("ANSWER_FROM_STORE", False) and self.caps.answer_from_store
         allow["REUSE_RESULT"] = allow.get("REUSE_RESULT", False) and self.caps.reuse_result
+        allow["RESUME"] = allow.get("RESUME", False) and self.caps.resume
+        allow["COMMIT_PENDING"] = allow.get("COMMIT_PENDING", False) and self.caps.pointer
         for name in ("ZONED", "COMMIT_PENDING", "RETRIEVE_FROM_STORE"):
             allow[name] = allow.get(name, False) and self.caps.edit_request
         return allow
@@ -133,9 +163,17 @@ class EconoContext:
                 retrieved = retrieval.search(self.db, self.run_id, newest, agent_id,
                                              limit=self.cfg["planner"]["retrieve_limit"])
             ctx = self._context(agent_id, Intercept.PLAN_PROMPT, window)
-            candidates = planner.for_prompt(ctx, self.cfg, retrieved, 0, predicted == 0)
+            edits = []
+            if self._allowlist().get("COMMIT_PENDING"):
+                arrival = {s.id: self.db.call_count_at(agent_id, s.id) for s in window
+                           if s.kind == SegmentKind.TOOL_RESULT}
+                edits = planner.stale_edits(ctx, window, arrival, self.db.calls_so_far(agent_id),
+                                            self._p_of, self._pointer_len)
+            candidates = planner.for_prompt(ctx, self.cfg, retrieved, edits, bool(predicted))
             decision = select(candidates, ctx, self.config.constraints, self.cfg)
-            rendered = render(window, decision.chosen.name, fingerprint, retrieved)
+            pointer_ids = set(decision.payloads.get("COMMIT_PENDING", {}).get("segment_ids", []))
+            rendered = render(window, decision.chosen.name, fingerprint, retrieved,
+                              pointer_ids=pointer_ids)
             issues = problems(rendered, window, ctx.window_max_tokens)
             if issues or not self._apply(decision):
                 rendered = render(window, "AS_IS", fingerprint, applied=False)
@@ -143,6 +181,11 @@ class EconoContext:
                     box["error"] = "invalid plan: " + "; ".join(issues)
             else:
                 rendered.applied = decision.applied = True
+                if decision.chosen.name == "COMMIT_PENDING" and self.host:
+                    lines = self.cfg["planner"]["pointer_preview_lines"]
+                    rendered.pointer_texts = {
+                        s.id: pointer_text(s, self.host.pointer_store.materialize(s), lines)
+                        for s in window if s.id in pointer_ids}
             box.update(decision=decision, predicted=predicted)
             return rendered
 
@@ -170,6 +213,7 @@ class EconoContext:
             ctx = self._context(agent_id, Intercept.BEFORE_TOOL_CALL, self.registry.window(agent_id))
             decision = select(planner.for_tool_call(ctx, self.cfg, event, stored), ctx,
                               self.config.constraints, self.cfg)
+            decision.subject_id = event.args_key
             box["decision"] = decision
             if decision.chosen.name == "ANSWER_FROM_STORE" and self._apply(decision):
                 decision.applied = True
@@ -206,6 +250,7 @@ class EconoContext:
                                                       prediction["p_need_again"]),
                               ctx, self.config.constraints, self.cfg)
             decision.prediction = prediction
+            decision.subject_id = segment.id
             box["decision"] = decision
             if decision.chosen.name == "POINTER" and self._apply(decision) and self.host:
                 locator = self.host.pointer_store.materialize(segment)
@@ -226,6 +271,9 @@ class EconoContext:
         If Jev fails or is not built yet, the fixed guess is used and the reason recorded.
         """
         prior = planner.prior_p_need_again(segment, self.cfg)
+        if self.history is not None and not self.jev:
+            p, source = self.history.p_hat(event.tool_name, age=0)
+            return dict(p_need_again=p, source=source, prior=prior, h=ctx.remaining_turns)
         if not self.jev:
             return dict(p_need_again=prior, source="prior", prior=prior)
         try:
@@ -236,6 +284,29 @@ class EconoContext:
         except Exception as exc:  # fail open: the agent never stops because of Jev
             return dict(p_need_again=prior, source=f"prior (jev failed: {str(exc)[:200]})",
                         prior=prior)
+
+    def plan_placement(self, agent_id: str, task: str, worker_type: str, workers: list[dict],
+                       file_tokens: dict[str, int]) -> tuple[str, str | None]:
+        """Before a sub-task is delegated: a new worker, or an existing one (RESUME).
+        Returns (decision id, the title of the worker to continue, or None)."""
+        box: dict = {}
+
+        def decide() -> str | None:
+            ctx = self._context(agent_id, Intercept.PLAN_DISPATCH, self.registry.window(agent_id))
+            calls_hat = (self.history.h_hat(f"{self.run_id}:{worker_type}:new", 0) if self.history
+                         else self.cfg["cost_model"]["fresh_expected_calls"])
+            decision = select(planner.for_placement(ctx, self.cfg, task, workers, calls_hat,
+                                                    file_tokens),
+                              ctx, self.config.constraints, self.cfg)
+            decision.subject_id = hashlib.sha256(f"{worker_type}|{task}".encode()).hexdigest()
+            box["decision"] = decision
+            if decision.chosen.name == "RESUME" and self._apply(decision):
+                decision.applied = True
+                return decision.chosen.payload["title"]
+            return None
+
+        title, error, ms = guarded(decide, lambda: None, self.deadline)
+        return self._log(agent_id, box.get("decision"), Intercept.PLAN_DISPATCH, ms, error), title
 
     def plan_dispatch(self, intent: DispatchIntent,
                       run_default: Callable[[], DispatchResult]) -> DispatchOutcome:
@@ -249,6 +320,7 @@ class EconoContext:
                                 self.registry.window(intent.agent_id))
             decision = select(planner.for_dispatch(ctx, self.cfg, intent, stored), ctx,
                               self.config.constraints, self.cfg)
+            decision.subject_id = intent.task_key
             box["decision"] = decision
             return decision, stored
 
