@@ -3,6 +3,7 @@
 Examples::
 
     .venv/bin/python bench/report.py --label check1
+    .venv/bin/python bench/report.py --label p1 p3        # Phase 1 next to Phase 3
     .venv/bin/python bench/report.py --label check1 --format json --output report.json
     .venv/bin/python bench/report.py --label check1 --format csv --output report.csv
 
@@ -97,17 +98,23 @@ def build_report(db: AgentDB, cfg, label: str) -> dict:
         }
         for span in data["spans"]:
             span["metadata"] = json.loads(span["metadata"] or "{}")
-        data["track"] = f"{run['arm']}{'+jev' if run.get('jev') else ''}"
+        data["track"] = f"{run['arm']}{'+jev' if run.get('jev') else ''}/{run['mode']}"
+        data["tool_calls"] = db.rows("SELECT COUNT(*) n FROM tool_results WHERE run_id=?",
+                                     (run_id,))[0]["n"]
         runs.append(data)
 
     tracks = {}
     for data in runs:
         run, totals = data["run"], data["totals"]
         track = data["track"]
-        agg = tracks.setdefault(track, {"runs": 0, "resolved": 0, "calls": 0,
+        agg = tracks.setdefault(track, {"runs": 0, "resolved": 0, "calls": 0, "tool_calls": 0,
+                                        "uncached_input": 0, "cache_read": 0,
                                         "cost_nu": 0.0, "cost_usd": 0.0,
                                         "incomplete_calls": 0})
         agg["runs"] += 1
+        agg["tool_calls"] += data["tool_calls"]
+        agg["uncached_input"] += totals["uncached_input"] or 0
+        agg["cache_read"] += totals["cache_read"] or 0
         agg["resolved"] += int(run.get("resolved") or 0)
         agg["calls"] += totals["calls"] or 0
         agg["cost_nu"] += totals["cost_nu"] or 0.0
@@ -124,7 +131,7 @@ def render_text(report: dict) -> str:
     for data in report["runs"]:
         run, totals, pva = data["run"], data["totals"], data["predicted_vs_actual"]
         lines.append(
-            f"{run['instance_id'] or run['run_id']}  [{data['track']}/{run['mode']}]  "
+            f"{run['instance_id'] or run['run_id']}  [{data['track']}]  "
             f"status={run['status']}  "
             f"resolved={'-' if run.get('resolved') is None else bool(run['resolved'])}")
         lines.append(
@@ -166,9 +173,11 @@ def render_text(report: dict) -> str:
         lines.append("")
     for track, totals in report["tracks"].items():
         lines.append(
-            f"{track:9s} runs {totals['runs']}  resolved {totals['resolved']}  "
-            f"calls {totals['calls']}  {fmt(totals['cost_nu'])} NU  "
-            f"${totals['cost_usd']:.4f}  incomplete {totals['incomplete_calls']}")
+            f"{report['label']:8s} {track:18s} runs {totals['runs']}  resolved {totals['resolved']}  "
+            f"calls {totals['calls']}  tools {totals['tool_calls']}  "
+            f"uncached {fmt(totals['uncached_input'])}  cached {fmt(totals['cache_read'])}  "
+            f"{fmt(totals['cost_nu'])} NU  ${totals['cost_usd']:.4f}  "
+            f"incomplete {totals['incomplete_calls']}")
     return "\n".join(lines) + "\n"
 
 
@@ -205,16 +214,17 @@ def csv_text(report: dict) -> str:
     return stream.getvalue()
 
 
-def main(label: str, output_format: str = "text", output: str | None = None) -> None:
+def main(labels: list[str], output_format: str = "text", output: str | None = None) -> None:
     cfg = config_module.load(ROOT / "config")
     db = AgentDB(ROOT / cfg.raw["storage"]["db_path"])
-    report = build_report(db, cfg, label)
+    reports = [build_report(db, cfg, label) for label in labels]
     if output_format == "text":
-        rendered = render_text(report)
+        rendered = "\n".join(render_text(r) for r in reports)
     elif output_format == "json":
-        rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
+        rendered = json.dumps(reports if len(reports) > 1 else reports[0], indent=2,
+                              sort_keys=True) + "\n"
     else:
-        rendered = csv_text(report)
+        rendered = "".join(csv_text(r) for r in reports)
     if output:
         path = Path(output)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +235,8 @@ def main(label: str, output_format: str = "text", output: str | None = None) -> 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--label", required=True)
+    parser.add_argument("--label", nargs="+", required=True,
+                        help="one or more labels, e.g. --label p1 p3 to compare phases")
     parser.add_argument("--format", choices=("text", "json", "csv"), default="text")
     parser.add_argument("--output")
     args = parser.parse_args()

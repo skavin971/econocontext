@@ -34,11 +34,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from econocontext.store.db import AgentDB
 from econocontext.types import HostRequest
 
-from . import DB_PATH, HOME, agent_id, engine_for, wire
+from . import DB_PATH, HOME, agent_id, current_run, engine_for, wire
 
 log = logging.getLogger("econocontext.gateway")
-PATH = re.compile(r"^/run/(?P<run>[\w.:-]+)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
+# /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
+# sub-agents, whose model URL comes from a global Omnigent provider and cannot name a run).
+PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
 LOG_DIR = HOME / "logs" / "gateway"
+# Tool results the gateway replaced with pointers (COMMIT_PENDING), per agent: applied to
+# every later request so the change is made once and the prefix stays stable after it.
+POINTERS_TABLE = ("CREATE TABLE IF NOT EXISTS gateway_pointers (run_id TEXT, agent_id TEXT, "
+                  "tool_call_id TEXT, text TEXT, PRIMARY KEY (run_id, agent_id, tool_call_id))")
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -107,9 +113,13 @@ class Gateway(BaseHTTPRequestHandler):
             self.write_log(entry)
             return self.reply_error(404, f"unsupported path {self.path}: this gateway serves "
                                          f"Chat Completions only; set the harness to use them")
-        run_id, agent = match["run"], agent_id(match["run"], match["agent"])
+        run_id = match["run"] or current_run()
+        body = json.loads(raw)
+        # Named agents (workers) share one URL; each instance is told apart by its first
+        # user message, which a continued worker keeps.
+        agent = agent_id(run_id, match["agent"], wire.first_user_text(body))
         entry.update(run=run_id, agent=agent)
-        found = engine_for(run_id)
+        found = engine_for(run_id) if run_id else None
         if found is None:
             entry["refused"] = "unregistered run"
             self.write_log(entry)
@@ -121,7 +131,6 @@ class Gateway(BaseHTTPRequestHandler):
             self.write_log(entry)
             return self.reply_error(429, cap)
 
-        body = json.loads(raw)
         decision_id = None
         if arm == "econo":
             body, decision_id = self.plan(engine, run_id, agent, body)
@@ -151,16 +160,36 @@ class Gateway(BaseHTTPRequestHandler):
             self.measure(engine, agent, call_id, decision_id, usage, latency)
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
-        """plan_prompt on the full request. Observe mode logs; autopilot may reorder."""
+        """plan_prompt on the full request. Observe mode logs; autopilot may reorder, and
+        may point out old tool results (COMMIT_PENDING). A result pointed out once stays
+        pointed out in every later request of this agent, so the prefix is stable again."""
         try:
+            body = self.keep_pointers(run_id, agent, body)
             segments, index = wire.to_segments(run_id, agent, body)
             rendered = engine.plan_prompt(agent, HostRequest(agent, segments))
             if rendered.applied:
-                body = {**body, "messages": wire.from_segments(rendered.segments, body, index)}
+                body = {**body, "messages": wire.from_segments(rendered.segments, body, index,
+                                                                 rendered.pointer_texts)}
+                for s in rendered.segments:
+                    if s.id in rendered.pointer_texts:
+                        self.db.execute("INSERT OR REPLACE INTO gateway_pointers VALUES(?,?,?,?)",
+                                        (run_id, agent, s.native_id, rendered.pointer_texts[s.id]))
             return body, rendered.decision_id
         except Exception:
             log.exception("plan_prompt failed; forwarding the harness's request")
             return body, None
+
+    def keep_pointers(self, run_id, agent, body) -> dict:
+        """Replace tool results this agent already had pointed out (by tool-call id)."""
+        stored = {r["tool_call_id"]: r["text"] for r in self.db.rows(
+            "SELECT tool_call_id, text FROM gateway_pointers WHERE run_id=? AND agent_id=?",
+            (run_id, agent))}
+        if not stored:
+            return body
+        return {**body, "messages": [
+            {**m, "content": stored[m["tool_call_id"]]}
+            if m.get("role") == "tool" and m.get("tool_call_id") in stored else m
+            for m in body.get("messages", [])]}
 
     def measure(self, engine, agent, call_id, decision_id, usage, latency) -> None:
         try:
@@ -234,6 +263,7 @@ def main() -> None:
     if not UPSTREAM or not KEY:
         raise SystemExit("ECONOCONTEXT_BASE_URL and AGENT_PLATFORM_API_KEY must be set (.env)")
     Gateway.db = AgentDB(DB_PATH)
+    Gateway.db.execute(POINTERS_TABLE)
     server = ThreadingHTTPServer(("127.0.0.1", port), Gateway)  # localhost only
     print(f"econocontext gateway on http://127.0.0.1:{port} -> {UPSTREAM}", flush=True)
     server.serve_forever()

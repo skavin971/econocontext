@@ -97,9 +97,18 @@ def _cards(billing: dict[str, Any]) -> dict[tuple[str, str], PriceCard]:
     return cards
 
 
-def load(config_dir: str | Path) -> Config:
+def merge(base: dict, overrides: dict | None) -> dict:
+    """Deep-merge `overrides` into a copy of `base` (per-run settings, e.g. an allowlist)."""
+    out = dict(base)
+    for key, value in (overrides or {}).items():
+        out[key] = merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def load(config_dir: str | Path, overrides: dict | None = None) -> Config:
+    """Load the config; per-run `overrides` are merged in before the fingerprint is taken."""
     folder = Path(config_dir)
-    raw = yaml.safe_load((folder / "econocontext.yaml").read_text())
+    raw = merge(yaml.safe_load((folder / "econocontext.yaml").read_text()), overrides)
     billing = yaml.safe_load((folder / "billing_rates.yaml").read_text())
     missing = [key for key in REQUIRED if key not in raw]
     if missing:

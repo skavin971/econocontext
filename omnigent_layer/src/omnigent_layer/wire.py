@@ -41,6 +41,14 @@ def text_of(message: dict) -> str:
     return text
 
 
+def first_user_text(body: dict) -> str:
+    """The first user message: a worker's delegated task, stable while it is continued."""
+    for m in body.get("messages", []):
+        if m.get("role") == "user":
+            return text_of(m)
+    return ""
+
+
 def to_segments(run_id: str, agent_id: str, body: dict) -> tuple[list[Segment], dict[str, int]]:
     """Segments for a request, plus a map from segment id to its index in body['messages']."""
     segments: list[Segment] = []
@@ -49,6 +57,8 @@ def to_segments(run_id: str, agent_id: str, body: dict) -> tuple[list[Segment], 
         segments.append(make_segment(run_id, agent_id, "tools", SegmentKind.TOOLS,
                                      json.dumps(body["tools"], sort_keys=True), role="system"))
     seen_task = False
+    names = {c.get("id"): c.get("function", {}).get("name") for m in body.get("messages", [])
+             for c in (m.get("tool_calls") or [])}  # tool-call id -> tool name
     for i, m in enumerate(body.get("messages", [])):
         role, native = m.get("role"), f"pos{i}"
         if role == "system" or role == "developer":
@@ -56,7 +66,8 @@ def to_segments(run_id: str, agent_id: str, body: dict) -> tuple[list[Segment], 
         elif role == "tool":
             s = make_segment(run_id, agent_id, m.get("tool_call_id") or native,
                              SegmentKind.TOOL_RESULT, text_of(m), role="tool",
-                             pair_id=m.get("tool_call_id"))
+                             pair_id=m.get("tool_call_id"),
+                             source=f"tool:{names.get(m.get('tool_call_id')) or 'unknown'}")
         elif role == "assistant" and m.get("tool_calls"):
             ids = ",".join(c.get("id", "") for c in m["tool_calls"])
             s = make_segment(run_id, agent_id, native, SegmentKind.TOOL_CALL, text_of(m),
@@ -72,14 +83,18 @@ def to_segments(run_id: str, agent_id: str, body: dict) -> tuple[list[Segment], 
     return segments, index
 
 
-def from_segments(segments: list[Segment], body: dict, index: dict[str, int]) -> list[dict]:
-    """Messages in the rendered order. Originals are reused untouched; retrieved segments
-    (not in the request) are appended as plain user context."""
+def from_segments(segments: list[Segment], body: dict, index: dict[str, int],
+                  pointer_texts: dict[str, str] | None = None) -> list[dict]:
+    """Messages in the rendered order. Originals are reused untouched, except results
+    replaced by a pointer; retrieved segments (not in the request) are appended as plain
+    user context."""
     out = []
     for s in segments:
         if s.kind == SegmentKind.TOOLS:
             continue  # carried by body['tools'], never a message
-        if s.id in index:
+        if s.id in index and s.id in (pointer_texts or {}):
+            out.append({**body["messages"][index[s.id]], "content": pointer_texts[s.id]})
+        elif s.id in index:
             out.append(body["messages"][index[s.id]])
         else:
             out.append({"role": "user", "content": f"[Retrieved from earlier context]\n{s.text}"})
