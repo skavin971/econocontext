@@ -1,7 +1,6 @@
 # Agent DB contract
 
 Reference implementation: SQLite, in `econocontext/store/schema.sql`, `db.py` and `blobs.py`.
-Draft Postgres DDL: `econocontext/store/schema.postgres.sql` (it loads cleanly in Postgres 16).
 
 ## Part A: the data
 

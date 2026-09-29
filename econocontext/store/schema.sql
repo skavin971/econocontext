@@ -1,7 +1,7 @@
 -- The Agent DB. Everything EconoContext knows is written here, so the planner can
 -- retrieve instead of recompute and future predictors can learn from history.
 -- Plain SQLite, no ORM. Times are UTC ISO-8601 text. Token counts are integers.
--- The contract for other implementations (Postgres): docs/AGENT_DB_CONTRACT.md.
+-- The data and API contract for other implementations: docs/AGENT_DB_CONTRACT.md.
 
 PRAGMA foreign_keys = ON;
 

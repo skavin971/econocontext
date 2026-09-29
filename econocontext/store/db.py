@@ -232,7 +232,7 @@ class AgentDB:
                     stored_results=reading("stored_results", "result_id"), workers=workers)
 
     def snapshot(self, run_id: str) -> Snapshot:
-        """The run's state read together, under one lock (a transaction in Postgres).
+        """The run's state read together, under one lock.
         Wraps today's reads; the planner does not use it yet."""
         with self.lock:
             run = self.rows("SELECT * FROM runs WHERE run_id=?", (run_id,))

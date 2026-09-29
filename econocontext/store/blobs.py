@@ -27,7 +27,7 @@ def blob_key(data: bytes) -> str:
 
 
 class DBBlobStore:
-    """Blobs in the Agent DB's own `blobs` table (bytea in Postgres)."""
+    """Blobs in the Agent DB's own `blobs` table."""
 
     def __init__(self, db):
         self.db = db
