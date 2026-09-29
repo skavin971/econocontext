@@ -28,8 +28,9 @@ Silicon Mac they run under emulation (slower, but it works). Each image is about
 .venv/bin/python -m pytest -q omnigent_layer   # the Omnigent layer: 14 passed
 ```
 
-- **The optimizer's tests** need no Omnigent, network or Docker. The 3 skipped are the
-  ledger's acceptance tests; they run once `econocontext/pricing/ledger.py` is built.
+- **The optimizer's tests** need no Omnigent, network or Docker. They include the ledger's
+  acceptance tests (a real Gemini pilot bill, price periods, incomplete usage) and the
+  runtime-span tests (model, tool and dispatch timing, concurrent agents).
 - **The layer's tests** cover:
   - the gateway, against a fake upstream: byte-identical pass-through, measurement, arms, caps, and replacing the placeholder key
   - the policy on recorded event shapes
@@ -74,8 +75,12 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
   - `observe` logs decisions and changes nothing.
   - `autopilot` applies them, with exact operators only by default.
 - **Passing looks like this:** the last line is `{"run_id": ..., "resolved": true}`.
-  The report shows `status=done resolved=True`, call and token counts, and the
-  cache-read share. Cost shows "not built" until the ledger exists.
+  The report shows `status=done resolved=True`, call and token counts, the cache-read
+  share, and the cost in NU and USD.
+- **Cost:** priced per call by the ledger (`econocontext/pricing/ledger.py`) from the
+  gateway's usage counts. A run is marked incomplete when a required counter was
+  missing. Details: [COST_TRACKING.md](COST_TRACKING.md).
+- **Other report formats:** add `--format json` or `--format csv` and `--output FILE`.
 
 ## 5. Where results live
 
@@ -99,3 +104,6 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
 - **`429 ... reached 60 model calls`:** the per-run cap stopped the run, as designed.
 - **Docker is not running:** start Docker Desktop. Grading never falls back to anything else.
 - **Gemini `429 RESOURCE_EXHAUSTED`:** shared capacity is busy. Wait and re-run.
+- **No disk space:** run `docker image prune` to remove old SWE-bench images.
+- **Cost is incomplete:** inspect the run's `outcomes` rows for the missing provider
+  counter. The report keeps the known subtotal and marks the run as not a complete bill.

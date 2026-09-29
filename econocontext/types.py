@@ -126,6 +126,9 @@ class ProviderUsage:
     cache_write_1h: int | None = None  # Anthropic 1-hour writes, when reported
     latency_ms: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)  # original fields, for audit
+    # False means the provider/cache mode has no separately billed write counter.
+    # It is distinct from cache_write=None, which otherwise means "not reported".
+    cache_write_applicable: bool = True
 
     @property
     def prompt_tokens(self) -> int | None:

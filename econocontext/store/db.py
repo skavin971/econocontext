@@ -187,11 +187,30 @@ class AgentDB:
 
     def add_outcome(self, outcome_id, run_id, agent_id, decision_id, phase, u: ProviderUsage,
                     cost_nu, cost_usd, complete, period) -> None:
-        self.execute("INSERT OR IGNORE INTO outcomes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                     (outcome_id, run_id, agent_id, decision_id, phase, u.uncached_input,
-                      u.cache_read, u.cache_write, u.output, u.reasoning, u.latency_ms,
-                      cost_nu, cost_usd, int(complete), period, json.dumps(u.raw, default=str),
-                      now()))
+        self.execute(
+            "INSERT OR IGNORE INTO outcomes "
+            "(outcome_id, run_id, agent_id, decision_id, phase, uncached_input, cache_read, "
+            "cache_write, output, reasoning, latency_ms, cost_nu, cost_usd, cost_complete, "
+            "price_period, raw, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (outcome_id, run_id, agent_id, decision_id, phase, u.uncached_input,
+             u.cache_read, u.cache_write, u.output, u.reasoning, u.latency_ms,
+             cost_nu, cost_usd, int(complete), period, json.dumps(u.raw, default=str), now()))
+
+    # -- runtime timing -----------------------------------------------------------
+
+    def add_runtime_span(self, span_id: str, run_id: str, agent_id: str, kind: str,
+                         name: str, native_id: str | None, decision_id: str | None,
+                         metadata: dict | None = None) -> None:
+        self.execute(
+            "INSERT OR IGNORE INTO runtime_spans "
+            "(span_id, run_id, agent_id, kind, name, native_id, decision_id, started_at, "
+            "status, metadata) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (span_id, run_id, agent_id, kind, name, native_id, decision_id, now(), "open",
+             json.dumps(metadata or {}, sort_keys=True)))
+
+    def finish_runtime_span(self, span_id: str, duration_ms: float, status: str) -> None:
+        self.execute("UPDATE runtime_spans SET ended_at=?, duration_ms=?, status=? "
+                     "WHERE span_id=?", (now(), duration_ms, status, span_id))
 
 
 def row_to_segment(r: sqlite3.Row) -> Segment:
