@@ -88,6 +88,8 @@ class AgentDB:
         self._add_column("runs", "workdir", "TEXT")
         self._add_column("segments", "blob_key", "TEXT")
         self._add_column("stored_results", "blob_key", "TEXT")
+        self._add_column("labels", "reacquired_same_version", "INTEGER")
+        self._add_column("labels", "reacquired_after_mutation", "INTEGER")
         self.conn.commit()
         self.blobs = DBBlobStore(self)
         self.blob_min_bytes = blob_min_bytes

@@ -223,7 +223,7 @@ Written after a run.
 | column | type | null | meaning |
 |---|---|---|---|
 | run_id | text | | **PK** part 1 |
-| kind | text | | **PK** part 2: `decision` \| `result` |
+| kind | text | | **PK** part 2: `decision` \| `result` \| `evidence` |
 | subject_id | text | | **PK** part 3 |
 | agent_id | text | yes | |
 | tool_name | text | yes | |
@@ -232,6 +232,8 @@ Written after a run.
 | needed_calls | jsonb | yes | |
 | refetched | boolean | yes | |
 | referenced | boolean | yes | |
+| reacquired_same_version | boolean | yes | evidence: the next reacquisition was at the same version, no change between (redundant) |
+| reacquired_after_mutation | boolean | yes | evidence: its source changed before the next reacquisition |
 
 ### gateway_pointers
 Omnigent layer.

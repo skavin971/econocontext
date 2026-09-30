@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS evidence_events (
 -- that replay scores against and that the learned predictors are fitted to.
 CREATE TABLE IF NOT EXISTS labels (
   run_id              TEXT NOT NULL,
-  kind                TEXT NOT NULL,            -- 'decision' | 'result'
+  kind                TEXT NOT NULL,            -- 'decision' | 'result' | 'evidence'
   subject_id          TEXT NOT NULL,            -- decision_id, or a tool result's segment id
   agent_id            TEXT,
   tool_name           TEXT,
@@ -256,5 +256,7 @@ CREATE TABLE IF NOT EXISTS labels (
   needed_calls        TEXT,                     -- result: JSON call counts at which it was needed again
   refetched           INTEGER,                  -- result: 1 if a later call re-fetched the same thing
   referenced          INTEGER,                  -- result: 1 if later output quoted one of its lines
+  reacquired_same_version   INTEGER,            -- evidence: next reacquisition was redundant (same version)
+  reacquired_after_mutation INTEGER,            -- evidence: its source changed before the next reacquisition
   PRIMARY KEY (run_id, kind, subject_id)
 );

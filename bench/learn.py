@@ -3,7 +3,9 @@
     .venv/bin/python bench/learn.py label  --label p1
     .venv/bin/python bench/learn.py replay --label p1 [--allow POINTER]
 
-`label` writes what actually happened to the `labels` table (econocontext/learn/labels.py).
+`label` writes what actually happened to the `labels` table (econocontext/learn/labels.py;
+for runs with evidence, also learn/evidence_labels.py: which reads were repeated, and
+whether they had to be).
 `replay` asks what EconoContext would have chosen with the true H and needed-again, and
 what that would have saved (econocontext/learn/replay.py). Offline: no model calls.
 """
@@ -17,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from econocontext import config  # noqa: E402
+from econocontext.learn.evidence_labels import label_evidence  # noqa: E402
 from econocontext.learn.labels import label_run  # noqa: E402
 from econocontext.learn.predictors import History  # noqa: E402
 from econocontext.learn.replay import replay_run  # noqa: E402
@@ -43,6 +46,8 @@ def main() -> None:
     if a.command == "label":
         for run in todo:
             print(json.dumps(label_run(db, run["run_id"])))
+            # after label_run, which replaces all of a run's labels
+            print(json.dumps(label_evidence(db, run["run_id"])))
         return
     cfg = config.load(ROOT / "config", {"constraints": {"max_quality_risk": 0.2}})
     total = dict(results=0, actual=0, oracle=0, empirical=0, oracle_adj=0, empirical_adj=0, later=0)
