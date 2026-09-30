@@ -1,3 +1,30 @@
+# The harness: agents on Omnigent
+
+Harnesses: **Claude Code** (`specs/claude_code/`, the default), Gemini CLI
+(`specs/gemini/`) and our openai-agents spec (`specs/openai_agents.yaml`).
+`session.py` runs any of them; `benchmarks/<name>/run.py` supplies the tasks.
+
+## Claude Code
+
+Install once: `npm install -g @anthropic-ai/claude-code@2.1.286`. Its model calls go to
+the gateway's `/run/<id>/anthropic` route; the Anthropic key lives only in `.env`
+(`ECONOCONTEXT_ANTHROPIC_KEY`), with a total budget (`ECONO_ANTHROPIC_BUDGET_USD`, default
+$4.50) and a per-run budget (`limits.per_instance_budget_usd`) enforced at the gateway.
+
+```bash
+.venv/bin/python harness/smoke.py                      # Claude Code, one tiny task
+.venv/bin/python benchmarks/swebench/run.py --label c3 --instance pytest-dev__pytest-5809 --arm econo
+```
+
+| Capability on Claude Code | Status |
+|---|---|
+| Every model call: tokens, cache reads, 5-minute and 1-hour cache writes, cost | yes (gateway) |
+| Tool calls and results per call, versioned evidence, labels, oracle | yes (gateway) |
+| EconoContext's planner on each request | yes, observe mode: decisions logged, request unchanged |
+| Carrying decisions out (reorder, pointers) | not yet: needs the way back from segments |
+| Tool events in Omnigent policies | yes (`PreToolUse`/`PostToolUse`); a policy can deny, not replace a result |
+| Sub-agents (`Agent` tool) | calls told apart by `context_key`; routing to Omnigent sessions not tried yet |
+
 # Gemini CLI on Omnigent
 
 Stock Gemini CLI, run by Omnigent over ACP, with every model call passing the

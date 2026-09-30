@@ -207,3 +207,28 @@ through Gemini's hook, both decisions rather than facts:
    `invoke_agent` and point the model at `sys_session_create`/`sys_session_send`
    (needs `omnigent_mcp: true`). Workers become addressable and EconoContext's
    existing RESUME applies, but Gemini no longer delegates in its own way.
+
+## Claude Code (claude-native) with Claude Sonnet 5 (2026-09-30)
+
+Claude Code 2.1.286 on Omnigent's `claude-native` harness. Its model calls go to the
+gateway's `/run/<id>/anthropic` route, and from there to Anthropic's API with a key
+only the gateway holds. Vertex could not be used: its Claude endpoint refuses API keys,
+and the DBAI project has no Claude Sonnet quota (`docs/harness-baseline.md`).
+
+| Check | Answer | Evidence |
+|---|---|---|
+| Does per-run config reach Claude Code? | **Yes, through the workspace's `.claude/settings.local.json`** (env: `ANTHROPIC_BASE_URL`, model pins; `apiKeyHelper` placeholder; tool permissions). Omnigent passes its own hooks with `--settings` and loads the user, project and local sources | smoke run: every call reached the gateway |
+| Does only Sonnet 5 get called? | **Yes, once every model setting is pinned.** Claude Code makes small background calls (under 1,300 input tokens) besides the agent's; all were `claude-sonnet-5` | gateway log |
+| Do the user's own settings leak in? | **No.** The user's `model` is overridden by the local settings; none of the user's synced skills appear in the request | request bodies |
+| What does Claude Code send? | `thinking: adaptive`, `effort: medium`, `max_tokens: 64000`, `context_management: clear_thinking (keep all)`, mid-conversation `role: "system"` messages, a ~30.7k-token cached prefix (system + tools). Tools include `Agent` (its sub-agents), `Bash`, `Read`, `Edit`, `Write`, `ToolSearch`; Grep, Glob and every MCP tool are deferred behind `ToolSearch` (Omnigent sets `ENABLE_TOOL_SEARCH`) | request bodies |
+| Does a turn end when Claude Code finishes? | **No.** Omnigent completes a `claude-native` turn when the prompt is typed into the terminal. `harness/session.py` waits until the session is busy and then idle again | runner log |
+| Do Omnigent tools reach Claude Code? | **Only Omnigent's built-in ones** (29 `mcp__omnigent__*`), not our function tool `testbed_shell`. Claude Code runs the repository's tests with `docker exec` from its own Bash instead | request bodies |
+| Without the per-run settings? | Omnigent falls back to the **local Claude login** ("Claude CLI login (subscription provider 'claude')") and the gateway sees nothing. It happened once (c1: the workspace was recreated after the settings were written); runs now fail loudly (`check_settings`) or end "not measured" (`check_measured`) | c1 |
+
+Runs (one task each):
+- **Smoke** (`calc.py`): resolved in 6 calls, $0.10, 74% of input from cache.
+- **c2** (`pytest-dev__pytest-5809`, econo arm, observe mode): **resolved** in 15 calls, $0.21,
+  **91% of input tokens were cache reads** (407k read, 40k written, 1.7k fresh). The planner
+  logged a decision on every call (AS_IS each time; nothing applied in observe mode).
+  Oracle: 2 of 15 turns only read, worth about $0.015 (7% of the run). Claude Code could
+  not run the tests in this run (the docker exec instruction came after it).
