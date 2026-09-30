@@ -94,7 +94,9 @@ def prepare(image: str, workdir: Path, container: str, run_container: bool = Tru
        "-v", f"{workdir}:/testbed", "-w", "/testbed", image, "sleep", "infinity")
 
 
-async def run_session(server: str, spec: Path, workdir: Path, prompt: str, seconds: float) -> str:
+async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
+                      seconds: float) -> tuple[str, str]:
+    """One Omnigent session, one task. Returns the reply and the session id."""
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -112,7 +114,29 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str, secon
             result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
         finally:
             _stop_headless_session(base_url=server, session_id=bound.id)
-        return getattr(result, "text", "") or ""
+        return getattr(result, "text", "") or "", bound.id
+
+
+async def session_view(server: str, session_id: str) -> dict:
+    """What Omnigent recorded for a session: its item types, the tool calls as the harness
+    reported them, and the child (sub-agent) sessions it created."""
+    async with OmnigentClient(base_url=server) as client:
+        items, after = [], None
+        while True:
+            page = await client.sessions.list_items(session_id, limit=1000, after=after)
+            items += page
+            if len(page) < 1000:
+                break
+            after = page[-1].get("id")
+        children = await client.sessions.child_sessions(session_id)
+    types: dict[str, int] = {}
+    for i in items:
+        types[str(i.get("type"))] = types.get(str(i.get("type")), 0) + 1
+    return {"item_types": types,
+            "tool_calls": [{"name": i.get("name"), "arguments": str(i.get("arguments") or "")[:300]}
+                           for i in items if i.get("type") in ("function_call", "tool_call")],
+            "child_sessions": [{k: c.get(k) for k in ("id", "title", "tool", "agent_name", "busy",
+                                                       "current_task_status")} for c in children]}
 
 
 def main() -> None:
@@ -192,7 +216,7 @@ def run_one(a, instance: str, overrides: dict) -> None:
     try:
         prepare(inst.image, workdir, container, run_container=not gemini)
         task = GEMINI_TASK + inst.problem_statement if gemini else inst.problem_statement
-        summary = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60))
+        summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60))
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"
