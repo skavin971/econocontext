@@ -9,6 +9,8 @@ Harnesses (specs under harness/specs/):
   openai-controlled   Omnigent's openai-agents harness: our spec, tools and workers;
                       the EconoContext policy in the econo arm
   gemini-omnigent     stock Gemini CLI over ACP (specs/gemini/); measured at the gateway
+  claude-code         stock Claude Code, Omnigent's claude-native (specs/claude_code/); its
+                      model calls go to the gateway's /anthropic route
 What it must never do: know anything about a benchmark's tasks or grading.
 """
 
@@ -29,6 +31,7 @@ from omnigent_layer import HOME
 SPECS = Path(__file__).parent / "specs"
 GEMINI = HOME / "data" / "tools" / "node_modules" / ".bin" / "gemini"  # pinned: docs/harness-baseline.md
 GEMINI_MODEL = "gemini-3.6-flash"
+CLAUDE_MODEL = "claude-sonnet-5"  # the only Claude model we use; every setting is pinned to it
 POLICY = """
 policies:
   econocontext:
@@ -36,11 +39,28 @@ policies:
     handler: omnigent_layer.policy.econocontext
     factory_params: {run_id: "$run_id", workdir: "$workdir"}
 """
+# The benchmark container's shell, for harnesses that do not bring one of their own
+# (Claude Code reaches it through Omnigent's MCP relay). Added only when there is a container.
+TESTBED_SHELL = """
+tools:
+  testbed_shell:
+    type: function
+    callable: omnigent_layer.tools.container_shell
+    description: Run a bash command in the repository's own environment (cwd is the repository root). Returns exit code, stdout and stderr.
+    parameters:
+      type: object
+      properties:
+        command: {type: string, description: The bash command to run.}
+      required: [command]
+"""
 
 
-def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bool) -> Path:
+def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bool,
+               container: bool = False) -> Path:
     """The run's agent spec, filled in. openai-controlled: specs/openai_agents.yaml (+ the policy
-    in the econo arm). gemini-omnigent: specs/gemini/agent.yaml, never with a policy."""
+    in the econo arm). gemini-omnigent: specs/gemini/agent.yaml, never with a policy.
+    claude-code: specs/claude_code/ (+ the policy in the econo arm, + testbed_shell when
+    the benchmark runs a container)."""
     values = {"run_id": run_id, "gateway": gateway, "workdir": str(workdir)}
     safe = re.sub(r"[^\w.-]", "_", run_id)
     if harness == "gemini-omnigent":
@@ -52,6 +72,14 @@ def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bo
         text = (SPECS / "gemini" / "agent.yaml").read_text()
         values.update(gemini=str(GEMINI), model=GEMINI_MODEL, home=str(home),
                       path=f"{Path(shutil.which('node') or '/usr/bin/node').parent}:/usr/bin:/bin")
+    elif harness == "claude-code":
+        # Claude Code reads its gateway URL, placeholder key and model pins from the
+        # workspace's local settings (git-excluded by whoever made the workspace).
+        settings = Template((SPECS / "claude_code" / "settings.json").read_text()).substitute(values)
+        (workdir / ".claude").mkdir(parents=True, exist_ok=True)
+        (workdir / ".claude" / "settings.local.json").write_text(settings)
+        text = (SPECS / "claude_code" / "agent.yaml").read_text() + (POLICY if econo else "") \
+            + (TESTBED_SHELL if container else "")
     else:
         text = (SPECS / "openai_agents.yaml").read_text() + (POLICY if econo else "")
     spec = HOME / "data" / "work" / f"{safe}.agent.yaml"

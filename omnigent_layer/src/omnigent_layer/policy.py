@@ -40,9 +40,11 @@ from .workspace import Workspace
 
 log = logging.getLogger("econocontext.policy")
 
-# Omnigent 0.15.0 OS tools, plus the bench's container shell. Reads name their path.
-READS = {"sys_os_read": "path"}
-WRITES = {"sys_os_write", "sys_os_edit", "sys_os_shell", "testbed_shell"}
+# Omnigent 0.15.0 OS tools, Claude Code's own tools (claude-native reports them by their
+# Claude names), and the benchmark's container shell. Reads name their path.
+READS = {"sys_os_read": "path", "Read": "file_path"}
+WRITES = {"sys_os_write", "sys_os_edit", "sys_os_shell", "testbed_shell",
+          "Edit", "MultiEdit", "Write", "NotebookEdit", "Bash", "mcp__omnigent__testbed_shell"}
 DISPATCH = "sys_session_send"  # the root sends a sub-task to a worker: {agent, args, title}
 
 

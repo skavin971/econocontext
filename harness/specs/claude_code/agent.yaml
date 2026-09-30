@@ -1,0 +1,19 @@
+# Stock Claude Code, run by Omnigent's claude-native harness (the real CLI in a terminal).
+# harness/session.py fills the dollar-sign fields per run, and writes
+# harness/specs/claude_code/settings.json into the workspace as .claude/settings.local.json:
+# that file points Claude Code's model calls at the gateway's /run/<run_id>/anthropic
+# route with a placeholder key (the gateway adds the real one), pins every model
+# setting to claude-sonnet-5 (the only model we use), and allows its edit and shell tools
+# so a headless run is not stopped by permission prompts.
+#
+# Claude Code keeps its own planner, tools, sub-agents and system prompt: this spec adds
+# no prompt (Omnigent would append one to Claude Code's), and no Omnigent tools except
+# testbed_shell, which runs commands in the benchmark's container when there is one.
+name: claude-code
+prompt: ""
+executor:
+  harness: claude-native
+  model: claude-sonnet-5
+os_env:
+  type: caller_process
+  cwd: $workdir
