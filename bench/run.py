@@ -16,7 +16,12 @@ the run up and reads the outcome.
 Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Docker.
 
+--harness gemini-omnigent runs stock Gemini CLI instead (bench/gemini/agent.yaml): no
+container (Gemini's shell runs on the host), no policy; the gateway records its calls
+and, in the econo arm, the evidence they carried.
+
 Run: .venv/bin/python bench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
+     .venv/bin/python bench/run.py --harness gemini-omnigent --label g1 --instance pytest-dev__pytest-5809 --arm econo
      .venv/bin/python bench/run.py --label p1 --set mid5 --arm econo --mode observe
      .venv/bin/python bench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
 """
@@ -47,6 +52,11 @@ from tasks import SETS, load  # noqa: E402
 BENCH = Path(__file__).parent
 GEMINI = HOME / "data" / "tools" / "node_modules" / ".bin" / "gemini"  # pinned: docs/gemini-integration-baseline.md
 GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
+# Gemini gets the issue with the framing the openai-controlled agent has in its spec
+# prompt, and nothing about how to work: its own instructions apply.
+GEMINI_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
+               "Hidden tests will check your fix. Keep the change minimal.\n\n")
 ACTIVATE = "source /opt/miniconda3/bin/activate testbed"
 POLICY = """
 policies:
@@ -61,8 +71,9 @@ def sh(*cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
 
-def prepare(image: str, workdir: Path, container: str) -> None:
-    """Copy the repository out of the image, then run the image with the copy mounted."""
+def prepare(image: str, workdir: Path, container: str, run_container: bool = True) -> None:
+    """Copy the repository out of the image, then (unless not wanted) run the image with
+    the copy mounted."""
     if workdir.exists():
         shutil.rmtree(workdir)
     workdir.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +85,8 @@ def prepare(image: str, workdir: Path, container: str) -> None:
     # of the patch and of the write barrier.
     with open(workdir / ".git" / "info" / "exclude", "a") as exclude:
         exclude.write("\nmtime-test-*/\n.econocontext/\n")  # Omnigent's probe; our pointer files
+    if not run_container:
+        return
     # Labels let omnigent_layer.tools.container_shell (testbed_shell) find this container.
     sh("docker", "run", "-d", "--platform", "linux/amd64", "--name", container,
        "--label", f"econocontext.workdir={os.path.realpath(workdir)}",
@@ -105,6 +118,8 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str, secon
 def main() -> None:
     p = argparse.ArgumentParser(description="Run one SWE-bench instance on Omnigent.")
     p.add_argument("--label", required=True)
+    p.add_argument("--harness", choices=["openai-controlled", "gemini-omnigent"],
+                   default="openai-controlled")
     which = p.add_mutually_exclusive_group(required=True)
     which.add_argument("--instance", help="one SWE-bench Verified instance id")
     which.add_argument("--set", choices=sorted(SETS), help="a fixed set from bench/tasks.py")
@@ -121,6 +136,9 @@ def main() -> None:
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
     a = p.parse_args()
 
+    gemini = a.harness == "gemini-omnigent"
+    if gemini and (a.jev or a.learned or a.pointer or a.mode != "observe"):
+        p.error("gemini-omnigent is measured only: --mode observe, no --jev/--learned/--pointer")
     instances = SETS[a.set] if a.set else [a.instance]
     overrides = {}
     if a.learned:
@@ -161,16 +179,20 @@ def run_one(a, instance: str, overrides: dict) -> None:
     safe = re.sub(r"[^\w.-]", "_", run_id)
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
-    spec = write_spec("openai-controlled", run_id, workdir, a.gateway, a.arm == "econo")
-    register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo", current=True,
-                 overrides=overrides or None, workdir=str(workdir))
+    gemini = a.harness == "gemini-omnigent"
+    spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo")
+    if gemini:
+        overrides = {**overrides, "limits": {"max_model_calls": GEMINI_MAX_CALLS}}
+    register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo",
+                 current=not gemini, overrides=overrides or None, workdir=str(workdir),
+                 host="omnigent:gemini" if gemini else "omnigent")
     print(f"== {run_id}", flush=True)
 
     status = "done"
     try:
-        prepare(inst.image, workdir, container)
-        summary = asyncio.run(run_session(a.server, spec, workdir, inst.problem_statement,
-                                          a.max_minutes * 60))
+        prepare(inst.image, workdir, container, run_container=not gemini)
+        task = GEMINI_TASK + inst.problem_statement if gemini else inst.problem_statement
+        summary = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60))
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"
@@ -187,7 +209,8 @@ def run_one(a, instance: str, overrides: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
     predictions = out / f"{safe}.jsonl"
     predictions.write_text(json.dumps({"instance_id": instance, "model_patch": patch,
-                                       "model_name_or_path": f"omnigent-{a.arm}"}) + "\n")
+                                       "model_name_or_path": (f"omnigent-gemini-{a.arm}" if gemini
+                                                              else f"omnigent-{a.arm}")}) + "\n")
     engine, _ = engine_for(run_id)
     engine.end_run(status)
     grade = evaluate(predictions, [instance], run_id=f"{safe}-eval")

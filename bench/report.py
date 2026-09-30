@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from econocontext import config as config_module  # noqa: E402
+from econocontext.oracle.evidence_schedule import STRICT, schedule  # noqa: E402
 from econocontext.pricing.ledger import summary  # noqa: E402
 from econocontext.store.db import AgentDB  # noqa: E402
 
@@ -52,6 +53,19 @@ def pricing_metadata(cfg):
             for p in cfg.card.periods
         ],
     }
+
+
+def evidence(db: AgentDB, run_id: str) -> dict | None:
+    """Evidence totals, for runs that recorded evidence (Gemini CLI, econo arm)."""
+    acquired = db.rows("SELECT COUNT(*) n FROM evidence_events WHERE run_id=? AND "
+                       "event='acquired'", (run_id,))[0]["n"]
+    if not acquired:
+        return None
+    same = db.rows("SELECT COUNT(*) n, SUM(reacquired_same_version) k FROM labels WHERE "
+                   "run_id=? AND kind='evidence'", (run_id,))[0]
+    return {"acquisitions": acquired,
+            "same_version_reacquisitions": same["k"] if same["n"] else None,  # after labelling
+            "strict_acquisition_turns": sum(r["class"] == STRICT for r in schedule(db, run_id, 0.0))}
 
 
 def build_report(db: AgentDB, cfg, label: str) -> dict:
@@ -98,7 +112,9 @@ def build_report(db: AgentDB, cfg, label: str) -> dict:
         }
         for span in data["spans"]:
             span["metadata"] = json.loads(span["metadata"] or "{}")
-        data["track"] = f"{run['arm']}{'+jev' if run.get('jev') else ''}/{run['mode']}"
+        harness = run["host"].split(":", 1)[1] + ":" if ":" in run["host"] else ""
+        data["track"] = f"{harness}{run['arm']}{'+jev' if run.get('jev') else ''}/{run['mode']}"
+        data["evidence"] = evidence(db, run_id)
         data["tool_calls"] = db.rows("SELECT COUNT(*) n FROM tool_results WHERE run_id=?",
                                      (run_id,))[0]["n"]
         runs.append(data)
@@ -167,6 +183,11 @@ def render_text(report: dict) -> str:
             applied[key] = applied.get(key, 0) + decision["n"]
         if applied:
             lines.append(f"  decisions (chosen; * = applied): {dict(sorted(applied.items()))}")
+        if data["evidence"]:
+            e = data["evidence"]
+            lines.append(f"  evidence acquired {e['acquisitions']}  same-version reacquired "
+                         f"{fmt(e['same_version_reacquisitions'])}  strict acquisition turns "
+                         f"{e['strict_acquisition_turns']}")
         feasible = {k: v for k, v in data["feasible_counts"].items() if k in WATCH}
         if feasible:
             lines.append(f"  would-be (passed every gate): {feasible}")
