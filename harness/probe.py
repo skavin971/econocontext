@@ -33,7 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.session import (check_measured, check_settings, latest_call, run_session,  # noqa: E402
                              session_view, write_spec)
 
-from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
+from econocontext.config import merge  # noqa: E402
+from omnigent_layer import HOME, claude_workers, engine_for, register_run  # noqa: E402
 
 TASKS = {
     "gemini-omnigent": ("How does this project decide which files, classes and functions to "
@@ -84,18 +85,28 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--harness", choices=sorted(TASKS), default="claude-code")
     p.add_argument("--repo", required=True, help="a git repository to clone for the task")
+    p.add_argument("--task", help="the task text (default: the harness's probe task)")
+    p.add_argument("--followup", help="a second message, sent in the same session once the first is done")
+    p.add_argument("--label", help="run label (default: probe-<harness>)")
+    p.add_argument("--mode", choices=["observe", "autopilot"], default="observe",
+                   help="with --resume: observe logs placement, autopilot carries it out")
+    p.add_argument("--resume", action="store_true", help="allow RESUME (worker placement)")
     p.add_argument("--max-minutes", type=float, default=10)
     p.add_argument("--server", default="http://127.0.0.1:6767")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
     a = p.parse_args()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    run_id = f"probe-{a.harness}:econo:subagents-{stamp}"
+    run_id = f"{a.label or 'probe-' + a.harness}:econo:subagents-{stamp}"
     safe = re.sub(r"[^\w.-]", "_", run_id)
     workdir = HOME / "data" / "work" / safe
     subprocess.run(["git", "clone", "-q", str(Path(a.repo).resolve()), str(workdir)], check=True)
     host, overrides = PROBES[a.harness]
-    register_run(run_id, "econo", "observe", f"{a.harness}-probe", workdir=str(workdir),
+    if a.resume:
+        overrides = merge(overrides, {"allowlist": {"RESUME": True},
+                                      "constraints": {"max_quality_risk": 0.2},
+                                      "limits": {"max_model_calls": 80, "per_instance_budget_usd": 1.20}})
+    register_run(run_id, "econo", a.mode, f"{a.harness}-probe", workdir=str(workdir),
                  host=host, overrides=overrides)
     spec = write_spec(a.harness, run_id, workdir, a.gateway, True)
     check_settings(a.harness, workdir)
@@ -103,7 +114,8 @@ def main() -> None:
 
     status, reply, session_id = "done", "", None
     try:
-        reply, session_id = asyncio.run(run_session(a.server, spec, workdir, TASKS[a.harness],
+        messages = [a.task or TASKS[a.harness]] + ([a.followup] if a.followup else [])
+        reply, session_id = asyncio.run(run_session(a.server, spec, workdir, messages,
                                                     a.max_minutes * 60, approve=True,
                                                     native=a.harness == "claude-code",
                                                     activity=latest_call(engine_for(run_id)[0])))
@@ -119,6 +131,7 @@ def main() -> None:
     evidence = {"run_id": run_id, "status": status, "reply": reply[:500],
                 "omnigent": asyncio.run(session_view(a.server, session_id)) if session_id else None,
                 "gateway_loops": gateway_view(engine, run_id),
+                "workers": claude_workers.report(engine.db, run_id),
                 "harness_files": files_view(a.harness, HOME / "data" / "work" / f"{safe}.home",
                                             workdir)}
     out = HOME / "data" / "runs" / "probe" / f"{safe}.json"

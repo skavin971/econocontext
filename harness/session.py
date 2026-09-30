@@ -155,13 +155,15 @@ async def last_reply(client, session_id: str) -> str:
     return ""
 
 
-async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
+async def run_session(server: str, spec: Path, workdir: Path, prompt: str | list[str],
                       seconds: float, approve: bool = False,
                       native: bool = False, activity=None) -> tuple[str, str]:
     """One Omnigent session, one task. Returns the reply and the session id. `approve`
     accepts approval cards (Gemini and Claude Code runs); otherwise the client declines
     them. `native` waits for a terminal-driven harness (Claude Code) to finish; `activity`
-    (the time of the run's latest model call) keeps that wait going while calls still come."""
+    (the time of the run's latest model call) keeps that wait going while calls still come.
+    A list of prompts is sent one after the other in the same session (a follow-up after
+    the first is done); the reply returned is the last one."""
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -177,9 +179,11 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
                             files_getter=files.get, session=bound,
                             hooks=StreamHooks(on_elicitation_request=approve_all) if approve else None)
         try:
-            result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
+            for message in (prompt if isinstance(prompt, list) else [prompt]):
+                result = await asyncio.wait_for(chat.query(message), timeout=seconds)
+                if native:
+                    await wait_until_done(client, bound.id, seconds, activity)
             if native:
-                await wait_until_done(client, bound.id, seconds, activity)
                 return await last_reply(client, bound.id), bound.id
         finally:
             _stop_headless_session(base_url=server, session_id=bound.id)
