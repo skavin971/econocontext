@@ -8,7 +8,7 @@ and the tool calls and results, never the prompt text; and turns new tool result
 versioned evidence (evidence_events, econocontext/evidence.py).
 What it must never do: decide anything, or change a request.
 
-Usage mapping (checked against Vertex on 2026-09-30, docs/gemini-integration-baseline.md):
+Usage mapping (checked against Vertex on 2026-09-30, docs/harness-baseline.md):
   usageMetadata.promptTokenCount          -> whole prompt, cached included
   usageMetadata.toolUsePromptTokenCount   -> prompt from tool use, billed as input
   usageMetadata.cachedContentTokenCount   -> cache_read (absent when nothing was cached: 0)
