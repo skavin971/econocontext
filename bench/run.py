@@ -45,6 +45,8 @@ from evaluate import evaluate  # noqa: E402
 from tasks import SETS, load  # noqa: E402
 
 BENCH = Path(__file__).parent
+GEMINI = HOME / "data" / "tools" / "node_modules" / ".bin" / "gemini"  # pinned: docs/gemini-integration-baseline.md
+GEMINI_MODEL = "gemini-3.6-flash"
 ACTIVATE = "source /opt/miniconda3/bin/activate testbed"
 POLICY = """
 policies:
@@ -130,6 +132,23 @@ def main() -> None:
         run_one(a, instance, overrides)
 
 
+def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bool) -> Path:
+    """The run's agent spec, filled in. openai-controlled: bench/agent.yaml (+ the policy
+    in the econo arm). gemini-omnigent: bench/gemini/agent.yaml, never with a policy."""
+    values = {"run_id": run_id, "gateway": gateway, "workdir": str(workdir)}
+    if harness == "gemini-omnigent":
+        text = (BENCH / "gemini" / "agent.yaml").read_text()
+        values.update(gemini=str(GEMINI), model=GEMINI_MODEL, home=str(Path.home()),
+                      path=f"{Path(shutil.which('node') or '/usr/bin/node').parent}:/usr/bin:/bin")
+    else:
+        text = (BENCH / "agent.yaml").read_text() + (POLICY if econo else "")
+    safe = re.sub(r"[^\w.-]", "_", run_id)
+    spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text(Template(text).substitute(values))
+    return spec
+
+
 def run_one(a, instance: str, overrides: dict) -> None:
     inst = load([instance])[0]
     arm = "econo+jev" if a.jev and a.arm == "econo" else a.arm
@@ -137,11 +156,7 @@ def run_one(a, instance: str, overrides: dict) -> None:
     safe = re.sub(r"[^\w.-]", "_", run_id)
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
-    values = {"run_id": run_id, "gateway": a.gateway, "workdir": str(workdir)}
-    text = (BENCH / "agent.yaml").read_text() + (POLICY if a.arm == "econo" else "")
-    spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
-    spec.parent.mkdir(parents=True, exist_ok=True)
-    spec.write_text(Template(text).substitute(values))
+    spec = write_spec("openai-controlled", run_id, workdir, a.gateway, a.arm == "econo")
     register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo", current=True,
                  overrides=overrides or None, workdir=str(workdir))
     print(f"== {run_id}", flush=True)

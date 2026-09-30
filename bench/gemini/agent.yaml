@@ -1,0 +1,29 @@
+# Stock Gemini CLI, run by Omnigent over ACP. bench/gemini/smoke.py and bench/run.py
+# --harness gemini-omnigent fill the dollar-sign fields per run.
+#
+# Gemini keeps its own planner, native tools and built-in sub-agents: no Omnigent MCP
+# tools, no system prompt from us, no policy. EconoContext only watches its model
+# calls, which Gemini sends (in Vertex mode, with a placeholder key) to the gateway's
+# /run/<run_id>/gemini route. The gateway adds the real key upstream.
+#
+# The ACP command sets Gemini's environment itself: Omnigent filters the environment
+# it passes to an ACP agent, and a per-run base URL cannot come from the daemon's.
+name: gemini
+prompt: Stock Gemini CLI; its own instructions apply.
+executor:
+  harness: acp
+  permission_mode: bypassPermissions   # headless: no one answers approval cards
+  acp_agent:
+    name: Gemini CLI
+    command: >-
+      /usr/bin/env PATH=$path HOME=$home
+      GOOGLE_GENAI_USE_VERTEXAI=true GOOGLE_API_KEY=econo-placeholder
+      GOOGLE_VERTEX_BASE_URL=$gateway/run/$run_id/gemini
+      GEMINI_MODEL=$model GEMINI_CLI_TRUST_WORKSPACE=true
+      $gemini --acp
+    omnigent_mcp: false
+    inject_system_prompt: false
+os_env:
+  type: caller_process
+  cwd: $workdir
+  sandbox: {type: none}   # Gemini writes its session files under ~/.gemini
