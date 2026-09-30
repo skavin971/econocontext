@@ -205,6 +205,22 @@ def test_the_econo_arm_records_evidence_and_the_baseline_does_not(gw, tmp_path):
     assert [tuple(r) for r in rows] == [("e1", 0, "acquired", "a.py")]
 
 
+def test_a_retried_request_is_marked_and_its_evidence_not_counted_again(gw, tmp_path):
+    (tmp_path / "a.py").write_text("print(1)\n")
+    history = {**BODY, "contents": BODY["contents"] + [
+        {"role": "model", "parts": [{"functionCall": {"name": "read_file", "id": "1",
+                                                      "args": {"file_path": "a.py"}}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "read_file", "id": "1",
+                                                         "response": {"output": "print(1)"}}}]}]}
+    register_run("r1", "econo", "observe", host="omnigent:gemini", workdir=str(tmp_path))
+    post(f"{gw}/run/r1/gemini{MODEL}:generateContent", history)
+    post(f"{gw}/run/r1/gemini{MODEL}:generateContent", history)  # Gemini retrying the call
+    assert db().rows("SELECT COUNT(*) FROM evidence_events WHERE run_id='r1'")[0][0] == 1
+    retry = json.loads(db().rows("SELECT metadata FROM runtime_spans WHERE run_id='r1' "
+                                 "ORDER BY started_at")[1][0])
+    assert (retry["call_no"], retry["retry_of"]) == (1, 0)
+
+
 def test_a_model_without_a_price_card_is_recorded_as_incomplete(gw):
     register_run("g8", "baseline", "observe", host="omnigent:gemini")
     post(f"{gw}/run/g8/gemini/v1beta1/publishers/google/models/gemini-9-lite:generateContent",

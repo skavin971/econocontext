@@ -7,8 +7,9 @@ reads; one that reads the same bytes twice did not. The evidence events
   arrived_call               the model call whose request carried it
   needed_calls               calls at which the same source was acquired again
   refetched                  1 if it was acquired again at all
-  reacquired_same_version    the next reacquisition was at the same version and no
-                             change to the source came between: redundant
+  reacquired_same_version    the next reacquisition was the same evidence (same version
+                             and range) and no change to the source came between:
+                             redundant. Another range of the same file is not.
   reacquired_after_mutation  the source changed before the next reacquisition
                              (a write to its path, or to '*'; any write for a search)
 
@@ -34,7 +35,7 @@ def _changed(mutations: list[dict], source_kind: str, source_key: str, after: in
 def label_evidence(db: AgentDB, run_id: str) -> dict:
     """Write this run's evidence labels (replacing earlier ones). Returns counts."""
     events = [dict(r) for r in db.rows(
-        "SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, "
+        "SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, "
         "v.source_kind, v.source_version FROM evidence_events e LEFT JOIN evidence v "
         "ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq",
         (run_id,))]
@@ -46,7 +47,7 @@ def label_evidence(db: AgentDB, run_id: str) -> dict:
         same = after_change = None
         if later:
             changed = _changed(mutations, e["source_kind"], e["source_key"], e["seq"], later[0]["seq"])
-            same = int(not changed and later[0]["source_version"] == e["source_version"])
+            same = int(not changed and later[0]["evidence_id"] == e["evidence_id"])
             after_change = int(changed or later[0]["source_version"] != e["source_version"])
             same_total += same
             mutated_total += after_change

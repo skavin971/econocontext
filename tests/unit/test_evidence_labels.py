@@ -65,3 +65,12 @@ def test_future_uses_are_counted_and_other_labels_survive(tmp_path):
                                            same_version=2, after_mutation=0)
     first = evidence_summary(db, "r")[0]
     assert first["needed_calls"] == [3, 4] and first["number_future_uses"] == 2
+
+
+def test_another_range_of_the_same_file_is_not_redundant(tmp_path):
+    def part(start):
+        return EvidenceEvent("acquired", "read_file", f"r{start}", "a.py",
+                             make_ref("file", "a.py", "v1", "x", range=f'{{"start_line": {start}}}'))
+    first, second, third = labelled(tmp_path, [[part(1)], [part(50)], [part(50)]])
+    assert first["refetched"] == 1 and first["reacquired_same_version"] == 0
+    assert second["reacquired_same_version"] == 1  # the same range again is

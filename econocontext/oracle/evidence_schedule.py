@@ -16,10 +16,14 @@ conversation received (evidence_events):
   NOT_REMOVABLE                anything else: writes, shell, sub-agents, web, a final
                                answer. Never claimed.
 
+  A call that retried an earlier one (span metadata 'retry_of') is skipped: it is the
+  same decision again, not another turn.
+
   estimated_saved_usd (STRICT only) = cost of call t - evidence tokens x the price of
       one fresh input token: the turn is gone, and its evidence is paid once more as
       uncached input. Conservative for the evidence, optimistic that the next turn
-      would have gone the same way.
+      would have gone the same way. None when call t's cost is unknown (no price card
+      for its model); the turn still counts as removable.
 What it must never do: count a turn with a side effect, or read the future into a
 prediction (it is a bound, not a policy).
 """
@@ -47,7 +51,7 @@ def schedule(db: AgentDB, run_id: str, usd_per_input_token: float) -> list[dict]
                      "outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' "
                      "ORDER BY s.started_at", (run_id,)):
         meta = json.loads(r["metadata"] or "{}")
-        if "call_no" in meta:
+        if "call_no" in meta and "retry_of" not in meta:
             calls.append({**meta, "cost_usd": r["cost_usd"]})
     evidence: dict[int, list[dict]] = {}
     for r in db.rows("SELECT e.call_no, e.evidence_id, v.source_key, v.source_version, v.token_size "
@@ -67,9 +71,11 @@ def schedule(db: AgentDB, run_id: str, usd_per_input_token: float) -> list[dict]
             row["evidence"] = [{k: e[k] for k in ("evidence_id", "source_key", "source_version")}
                                for e in evidence.get(consumer["call_no"], [])]
             row["tokens_added"] = sum(e["token_size"] for e in evidence.get(consumer["call_no"], []))
-            if kind == STRICT and call["cost_usd"] is not None:
+            if kind == STRICT:
                 row["removable_calls"] = 1
-                row["estimated_saved_usd"] = call["cost_usd"] - row["tokens_added"] * usd_per_input_token
+                row["estimated_saved_usd"] = (
+                    None if call["cost_usd"] is None
+                    else call["cost_usd"] - row["tokens_added"] * usd_per_input_token)
         rows.append(row)
     return rows
 
@@ -78,10 +84,11 @@ def headroom(rows: list[dict]) -> dict:
     """A run's totals: how many calls, and how much cost, the oracle could remove."""
     cost = sum(r["cost_usd"] or 0 for r in rows)
     strict = [r for r in rows if r["class"] == STRICT]
-    saved = sum(r["estimated_saved_usd"] for r in strict)
+    saved = sum(r["estimated_saved_usd"] or 0 for r in strict)
     return {"calls": len(rows), "strict": len(strict),
             "mixed": sum(r["class"] == MIXED for r in rows),
             "removable_calls": sum(r["removable_calls"] for r in rows),
             "cost_usd": cost, "estimated_saved_usd": saved,
+            "strict_unpriced": sum(r["estimated_saved_usd"] is None for r in strict),
             "share_of_calls": len(strict) / len(rows) if rows else None,
             "share_of_cost": saved / cost if cost else None}

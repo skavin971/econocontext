@@ -77,3 +77,10 @@ def test_the_consumer_is_the_next_call_of_the_same_conversation(tmp_path):
     assert (rows[0]["consumer"], [e["source_key"] for e in rows[0]["evidence"]]) == (2, ["a.py"])
     assert (rows[1]["consumer"], [e["source_key"] for e in rows[1]["evidence"]]) == (3, ["b.py"])
     assert rows[3]["consumer"] is None
+
+
+def test_a_turn_without_a_price_still_counts_as_removable(tmp_path):
+    rows = run(tmp_path, [("root", [READ], False, None, []), ("root", [], True, 0.1, [evidence("a.py")])])
+    assert rows[0]["removable_calls"] == 1 and rows[0]["estimated_saved_usd"] is None
+    total = headroom(rows)
+    assert (total["strict"], total["strict_unpriced"], total["estimated_saved_usd"]) == (1, 1, 0)

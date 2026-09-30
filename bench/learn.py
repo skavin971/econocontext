@@ -90,13 +90,14 @@ def oracle(db: AgentDB, todo: list[dict]) -> None:
     card = config.load(ROOT / "config").card
     usd_per_token = ratios(card, datetime.now(timezone.utc).date()).usd_per_nu
     print(f"{'run':52} {'calls':>5} {'strict':>6} {'mixed':>5} {'share':>6} "
-          f"{'run $':>8} {'saved $':>8} {'share':>6}")
+          f"{'run $':>8} {'saved $':>8} {'share':>6} {'unpriced':>8}")
     total = dict(calls=0, strict=0, mixed=0, cost=0.0, saved=0.0)
     for run in todo:
         h = headroom(schedule(db, run["run_id"], usd_per_token))
         print(f"{run['run_id'][:52]:52} {h['calls']:>5} {h['strict']:>6} {h['mixed']:>5} "
               f"{h['share_of_calls'] or 0:>6.0%} {h['cost_usd']:>8.4f} "
-              f"{h['estimated_saved_usd']:>8.4f} {h['share_of_cost'] or 0:>6.0%}")
+              f"{h['estimated_saved_usd']:>8.4f} {h['share_of_cost'] or 0:>6.0%} "
+              f"{h['strict_unpriced']:>8}")
         for k, v in (("calls", "calls"), ("strict", "strict"), ("mixed", "mixed"),
                      ("cost", "cost_usd"), ("saved", "estimated_saved_usd")):
             total[k] += h[v]
@@ -105,7 +106,8 @@ def oracle(db: AgentDB, todo: list[dict]) -> None:
           f"{total['saved']:>8.4f} {total['saved'] / total['cost'] if total['cost'] else 0:>6.0%}")
     print("\nstrict = turns that only read (files, searches) and said nothing: the upper bound on\n"
           "turns evidence supplied one call earlier could remove. mixed = reads plus text, not\n"
-          "claimed. saved = strict turns' cost minus their evidence paid again as fresh input.")
+          "claimed. saved = strict turns' cost minus their evidence paid again as fresh input.\n"
+          "unpriced = strict turns whose model has no price card (counted, not in saved $).")
 
 
 if __name__ == "__main__":

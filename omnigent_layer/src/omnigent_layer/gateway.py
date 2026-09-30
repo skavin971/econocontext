@@ -181,17 +181,26 @@ class Gateway(common.Handler):
 
     def observe(self, engine, arm: str, agent: str, run_id: str, raw: bytes | None) -> dict:
         """What this Gemini request carried (gemini_wire.observe_request) and its call
-        number in the run; in the econo arm also the evidence it brought in. Never blocks
-        the call: a body it cannot read is still sent."""
+        number in the run; in the econo arm also the evidence it brought in. A request
+        identical to an earlier one is the harness retrying that call: marked `retry_of`,
+        and its evidence is not counted again. Never blocks the call: a body it cannot
+        read is still sent."""
         try:
             body = json.loads(raw or b"{}")
+            seen = gemini_wire.observe_request(body, raw or b"")
             call_no = self.db.rows("SELECT COUNT(*) n FROM runtime_spans WHERE run_id=? AND "
                                    "kind='model'", (run_id,))[0]["n"]
+            earlier = self.db.rows(
+                "SELECT json_extract(metadata, '$.call_no') n FROM runtime_spans WHERE run_id=? "
+                "AND kind='model' AND json_extract(metadata, '$.request_hash')=? LIMIT 1",
+                (run_id, seen["request_hash"]))
+            if earlier:
+                return {"call_no": call_no, "retry_of": earlier[0]["n"], **seen}
             if arm == "econo":
                 engine.observe_evidence(agent, call_no, gemini_wire.evidence_events(
                     gemini_wire.find_latest_tool_result(body), engine.workdir,
                     self.db.mutations(run_id)))
-            return {"call_no": call_no, **gemini_wire.observe_request(body, raw or b"")}
+            return {"call_no": call_no, **seen}
         except Exception:
             log.exception("could not read the Gemini request")
             return {}
