@@ -94,7 +94,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-            return status, [json.loads(data)] if status == 200 and data else []
+            try:
+                return status, [json.loads(data)] if status == 200 and data else []
+            except ValueError:  # a passed-through reply need not be JSON
+                return status, []
         self.send_header("Connection", "close")
         self.end_headers()
         payloads = []
@@ -109,10 +112,11 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         return status, payloads
 
-    def measure(self, engine, agent, call_id, decision_id, usage) -> None:
-        """Record what the provider reported (priced by the ledger); end the turn."""
+    def measure(self, engine, agent, call_id, decision_id, usage, model=None) -> None:
+        """Record what the provider reported (priced by the ledger, by the model the call
+        used); end the turn."""
         try:
-            engine.record(agent, decision_id, usage, call_id)
+            engine.record(agent, decision_id, usage, call_id, model=model)
             engine.on_turn_end(agent)
         except Exception:
             log.exception("record failed")

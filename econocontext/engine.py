@@ -56,7 +56,7 @@ class EconoContext:
         self.registry = Registry(self.db, run_id)
         self.belief = CacheBelief(self.cfg["cache"]["ttl_seconds"],
                                   self.config.card.min_cacheable_tokens)
-        self.ledger = Ledger(self.db, self.config.card)
+        self.ledger = Ledger(self.db, self.config.card, self.config.cards)
         self.predicted_cache: dict[str, int] = {}  # decision id -> predicted cached tokens
         self.deadline = self.cfg["guard"]["decision_deadline_ms"]
 
@@ -342,11 +342,13 @@ class EconoContext:
     # -- measurement and lifecycle ------------------------------------------------------
 
     def record(self, agent_id: str, decision_id: str | None, usage: ProviderUsage,
-               outcome_id: str, phase: str = "agent") -> float:
-        """After every model call: exact cost from reported usage. Returns USD."""
+               outcome_id: str, phase: str = "agent", model: str | None = None) -> float:
+        """After every model call: exact cost from reported usage, priced by the card of
+        `model` (the model the call used; default the run's). Returns USD."""
         self.registry.ensure_agent(agent_id)
         self.belief.correct(agent_id, self.predicted_cache.get(decision_id or ""), usage.cache_read)
-        return self.ledger.record(outcome_id, self.run_id, agent_id, decision_id, phase, usage)
+        return self.ledger.record(outcome_id, self.run_id, agent_id, decision_id, phase, usage,
+                                  model=model)
 
     def on_file_write(self, agent_id: str, path: str | None) -> None:
         """Write barrier: bump the path (and the workspace epoch); invalidate what depended on it."""

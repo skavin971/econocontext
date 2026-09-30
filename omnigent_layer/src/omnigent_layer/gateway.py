@@ -4,15 +4,19 @@ Why it exists: Omnigent's policies see only metadata about model calls. Every ag
 full prompt, and the provider's exact usage, pass through here instead. The harness
 points its base URL at
 
-    http://127.0.0.1:<port>/run/<run_id>/v1              the main agent
+    http://127.0.0.1:<port>/run/<run_id>/v1              the main agent (Chat Completions)
     http://127.0.0.1:<port>/run/<run_id>/agent/<name>/v1 a named sub-agent
+    http://127.0.0.1:<port>/run/<run_id>/gemini          stock Gemini CLI (generateContent;
+                                                         gemini_wire.py reads the format)
 
 and gets a placeholder key. The gateway adds the real key upstream, so the key never
 reaches an agent.
 
 Per call:  cap check -> plan_prompt (econo arm only) -> forward (timed as a runtime span)
            -> record usage (priced by the ledger) -> turn end.
-Baseline runs are forwarded byte-for-byte and only measured.
+Baseline runs are forwarded byte-for-byte and only measured. Gemini calls are always
+forwarded byte-for-byte (this milestone only measures them); a Gemini path the gateway
+does not know (countTokens, embedContent, anything else) is passed through, never refused.
 Shared plumbing (settings, caps, timing, relaying) is in gateway_common.py.
 What it must never do: listen beyond localhost, log the key, or fail a call because
 EconoContext failed (every engine call is fail-open; only the caps refuse calls).
@@ -31,7 +35,7 @@ from http.server import ThreadingHTTPServer
 from econocontext.store.db import AgentDB
 from econocontext.types import HostRequest
 
-from . import DB_PATH, agent_id, current_run, engine_for, gateway_common as common, wire
+from . import DB_PATH, agent_id, current_run, engine_for, gateway_common as common, gemini_wire, wire
 from .gateway_common import env, log
 
 # /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
@@ -42,17 +46,35 @@ PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)(?:/agent/(?P<agent>[\w.-
 POINTERS_TABLE = ("CREATE TABLE IF NOT EXISTS gateway_pointers (run_id TEXT, agent_id TEXT, "
                   "tool_call_id TEXT, text TEXT, PRIMARY KEY (run_id, agent_id, tool_call_id))")
 UPSTREAM = (env("ECONOCONTEXT_BASE_URL") or "").rstrip("/")  # Vertex .../endpoints/openapi
+# Gemini's own format: /run/<id>/gemini/<the path Gemini CLI built>[?query]
+GEMINI_PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)/gemini(?P<rest>/[^?]*)(?:\?(?P<query>.*))?$")
+GEMINI_UPSTREAM = (env("ECONOCONTEXT_GEMINI_UPSTREAM") or "https://aiplatform.googleapis.com").rstrip("/")
+# Request headers not passed upstream: the credential (replaced), our run id, and what
+# the HTTP client sets itself. Encoding is not passed so replies stay readable.
+DROP_HEADERS = {"host", "content-length", "connection", "accept-encoding", "authorization",
+                "x-goog-api-key", "x-econo-run-id"}
+
+
+def gemini_key() -> str:
+    """The real Gemini credential: its own setting, else the Vertex key. Never logged."""
+    return env("ECONOCONTEXT_GEMINI_UPSTREAM_KEY") or common.KEY or ""
 
 
 class Gateway(common.Handler):
 
     def do_GET(self):
+        gemini = GEMINI_PATH.match(self.path)
+        if gemini:
+            return self.gemini(gemini, None, time.monotonic())
         self.reply_error(404, f"only POST /run/<run_id>[/agent/<name>]/v1/chat/completions "
                               f"is served (got GET {self.path})")
 
     def do_POST(self):
         started = time.monotonic()
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        gemini = GEMINI_PATH.match(self.path)
+        if gemini:
+            return self.gemini(gemini, raw, started)
         match = PATH.match(self.path)
         entry = {"at": datetime.now(timezone.utc).isoformat(), "path": self.path}
         if not match or match["rest"] != "/chat/completions":
@@ -108,6 +130,52 @@ class Gateway(common.Handler):
         self.write_log(entry)
         if status == 200:
             self.measure(engine, agent, call_id, decision_id, wire.to_usage(usage, latency))
+
+    def gemini(self, match, raw: bytes | None, started: float) -> None:
+        """A Gemini CLI request: forwarded unchanged, with the real key; model calls are
+        capped, timed and recorded, everything else is only passed through and logged."""
+        run_id = match["run"] or self.headers.get("X-Econo-Run-ID") or current_run()
+        rest, query = match["rest"], match["query"]
+        model, method = gemini_wire.model_call(rest)
+        entry = {"at": datetime.now(timezone.utc).isoformat(), "path": rest, "run": run_id,
+                 "format": "gemini", "method": method}
+        found = engine_for(run_id) if run_id else None
+        if found is None:
+            entry["refused"] = "unregistered run"
+            self.write_log(entry)
+            return self.reply_error(400, f"run {run_id} is not registered")
+        engine, arm = found
+        params = [kv for kv in (query or "").split("&") if kv and not kv.startswith("key=")]
+        url = GEMINI_UPSTREAM + rest + ("?" + "&".join(params) if params else "")
+        headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP_HEADERS}
+        headers["x-goog-api-key"] = gemini_key()
+        if method not in gemini_wire.MODEL_METHODS:  # countTokens, embedContent, unknown
+            status, _ = self.relay(url, raw, headers, stream=False)
+            entry.update(status=status, passed_through=True)
+            return self.write_log(entry)
+        cap = common.over_cap(self.db, run_id, engine.cfg["limits"].get("max_model_calls"))
+        if cap:
+            entry["refused"] = cap
+            self.write_log(entry)
+            return self.reply_error(429, cap)
+        agent = agent_id(run_id, None)  # sub-agents are not told apart yet (phase 11 probe)
+        stream = method == "streamGenerateContent"
+        entry.update(arm=arm, model=model, stream=stream, request_bytes=len(raw or b""))
+        self.save_body(raw or b"")
+        call_id = uuid.uuid4().hex
+        span = self.start_span(engine, agent, call_id, model, None,
+                               {"arm": arm, "stream": stream, "format": "gemini"})
+        status, payloads = 502, []
+        try:
+            status, payloads = self.relay(url, raw, headers, stream)  # the body, unchanged
+        finally:
+            latency = (time.monotonic() - started) * 1000
+            self.finish_span(engine, agent, span, latency, status == 200)
+        usage = gemini_wire.extract_usage(payloads)
+        entry.update(status=status, usage=usage, latency_ms=round(latency))
+        self.write_log(entry)
+        if status == 200:
+            self.measure(engine, agent, call_id, None, gemini_wire.to_usage(usage, latency), model)
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
         """plan_prompt on the full request. Observe mode logs; autopilot may reorder, and

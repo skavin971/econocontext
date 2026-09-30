@@ -60,14 +60,27 @@ def cost(usage: ProviderUsage, card: PriceCard, day: date) -> tuple[float | None
 
 
 class Ledger:
-    def __init__(self, db: AgentDB, card: PriceCard):
-        self.db, self.card = db, card
+    def __init__(self, db: AgentDB, card: PriceCard,
+                 cards: dict[tuple[str, str], PriceCard] | None = None):
+        self.db, self.card, self.cards = db, card, cards or {}
+
+    def card_for(self, model: str | None) -> PriceCard | None:
+        """The card of the model a call actually used (a harness may call a lighter model
+        for routing). None when that model has no card: its cost is then unknown, never
+        priced as the run's model."""
+        name = (model or self.card.model).split("/")[-1]
+        if name == self.card.model:
+            return self.card
+        return self.cards.get((self.card.provider, name))
 
     def record(self, outcome_id: str, run_id: str, agent_id: str, decision_id: str | None,
-               phase: str, usage: ProviderUsage, on: date | None = None) -> float | None:
+               phase: str, usage: ProviderUsage, on: date | None = None,
+               model: str | None = None) -> float | None:
         """Save one call's usage and return its known USD cost, if complete."""
         day = on or datetime.now(timezone.utc).date()
-        cost_nu, cost_usd, complete, period = cost(usage, self.card, day)
+        card = self.card_for(model)
+        cost_nu, cost_usd, complete, period = (cost(usage, card, day) if card
+                                               else (None, None, False, None))
         self.db.add_outcome(outcome_id, run_id, agent_id, decision_id, phase, usage,
                             cost_nu=cost_nu, cost_usd=cost_usd, complete=complete,
                             period=period)
