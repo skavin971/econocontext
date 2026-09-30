@@ -15,6 +15,7 @@ body is untouched. What the gateway records per call, and where:
 | contents | span `metadata` | number of `contents` entries |
 | context_key | span `metadata` | system instruction + first user content (tells a sub-agent's loop apart) |
 | call_no | span `metadata` | model calls the run made before this one |
+| retry_of | span `metadata` | set when the request is byte-identical to an earlier call's: Gemini retrying it. Its evidence is not counted again, and the oracle skips it |
 | function_responses | span `metadata` | tool results new in this request: `{name, args_key, bytes}` |
 | response_calls | span `metadata` | tool calls the reply asked for: `{name, kind, args_key}` |
 | response_text | span `metadata` | whether the reply said anything besides tool calls (thoughts do not count) |

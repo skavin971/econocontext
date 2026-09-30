@@ -72,3 +72,21 @@ The API is rate limited: run one task at a time.
   repository's Python environment. Gemini can read, search and edit, but its test runs
   fail (on pytest-5809 it looked for pytest with `find / -name pytest`). Every Gemini arm
   has the same limit; its resolve rate is not comparable with the openai-agents path.
+
+## What is supported on Gemini (capability matrix)
+
+| Capability | Status | Where from |
+|---|---|---|
+| Run stock Gemini CLI (own planner, tools, sub-agents) | yes | Omnigent `acp` harness |
+| Every model call: tokens, cache, thinking, latency | yes | gateway (`usageMetadata`) |
+| Cost per call | yes for `gemini-3.6-flash`; incomplete for models without a verified price card (the sub-agent's `gemini-3.8-flash`) | ledger |
+| Tool calls and results, per call (names, sizes, hashes) | yes | gateway (request history) |
+| Versioned evidence, reacquisition labels, acquisition-turn oracle | yes (econo arm) | gateway → `evidence`, `labels`, `learn.py oracle` |
+| Tool events in Omnigent's transcript | yes, named by ACP title | ACP |
+| Governing Gemini's tools through `policy.py` | no: Gemini runs its own tools | — |
+| Sub-agent calls told apart | yes, by `context_key` and model | gateway |
+| Sub-agents as Omnigent sessions (list, continue, resume, redirect) | **no** (probe, Outcome B): worker placement unsupported | — |
+| Changing what Gemini sees (overlay, pointers) | not in this milestone | — |
+
+Details and evidence: `docs/omnigent-findings.md`. What is recorded per call:
+`docs/gemini-measurement-schema.md`.

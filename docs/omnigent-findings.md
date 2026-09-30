@@ -134,3 +134,42 @@ Observed from the requests (not assumed):
   `/v1beta1/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse`.
   The session model is `gemini-3.6-flash` (`GEMINI_MODEL`). Gemini's "auto" router
   (Pro and newer Flash) is not used.
+
+## Can Omnigent see and address Gemini's own sub-agents? (2026-09-30)
+
+`bench/gemini/probe.py`, one run (`probe-gemini:econo:subagents-20260930T193842`, pytest
+repository). The task asked how pytest collects tests and did not name a sub-agent.
+Gemini delegated on its own first call: `invoke_agent` with
+`agent_name: codebase_investigator`. The sub-agent then made 10 model calls (1 grep,
+6 file reads, the rest retries). The session ended when Omnigent's ACP idle deadline
+fired (below).
+
+| # | Question | Answer | Evidence |
+|---|---|---|---|
+| 1 | Does ACP expose `invoke_agent`? | **Not observed.** The failed turn left no tool-call items in Omnigent (only `resource_event`, `message`, `error`). In a completed session (smoke), ACP tool calls do reach Omnigent's transcript, but named by their ACP *title* (`calc.py`, `'**/*.py'`), not the tool name | `session_view` of both sessions |
+| 2 | Is `agent_name` visible? | **In the model traffic and in Gemini's files, not in Omnigent.** It is the `functionCall` argument that the next root request carries, and it is in Gemini's session file | Gemini main session file; gateway |
+| 3 | Does the child get its own ACP session id? | **No.** Omnigent created no child session. Gemini gives the child its own internal session id (`kind: subagent`), in its own files only | `child_sessions` = []; `~/.gemini/tmp/.../chats/<parent>/<child>.jsonl` |
+| 4 | Are child model calls visible at the gateway? | **Yes.** All of them, through the same `/run/<id>/gemini` route | 11 model spans |
+| 5 | Can child calls be told from root calls? | **Yes, by content.** The child has its own `context_key` (its own system instruction), and its own model: **`gemini-3.8-flash`** (the root runs `gemini-3.6-flash`; `GEMINI_MODEL` does not reach it). No price card exists for 3.8 Flash, so its calls are recorded with cost incomplete, never priced as 3.6 | span metadata, `outcomes.cost_complete` |
+| 6 | Does ACP expose the child's start and end? | **No.** While the child worked, Gemini sent Omnigent no ACP update for over 300 s. Omnigent's ACP idle deadline (`HARNESS_ACP_PROMPT_TIMEOUT_S`, default 300) then ended the turn: "Timeout waiting for ACP response". The generic `acp` harness has no Gemini sub-agent source (`omnigent/inner/acp_subagents.py`) | runner log |
+| 7 | Can the child be addressed after it finishes? | **No.** Omnigent has no handle for it, and `invoke_agent` takes only `agent_name` and `prompt`, with no id to continue | as 3; Gemini's tool arguments |
+| 8 | Can it be resumed? | **No**, for the same reasons | |
+| 9 | Can Omnigent redirect the delegation? | **No.** Gemini runs `invoke_agent` itself. With `--approval-mode yolo` it asks no permission, and an Omnigent policy cannot rewrite a native tool's arguments over ACP | |
+
+**Outcome B: worker placement is unsupported for Gemini.** Its sub-agents run inside
+the Gemini process as loops of their own, but they are not sessions Omnigent can list,
+continue or resume. EconoContext does not emulate them. Worker placement stays on the
+controlled `openai-agents` path. On Gemini, what can be measured is everything the
+gateway sees, per conversation loop: calls, tokens, cost, evidence, acquisition turns.
+
+Two practical consequences:
+- **A delegating Gemini session needs a longer ACP idle deadline.** Set
+  `HARNESS_ACP_PROMPT_TIMEOUT_S` (e.g. 1800) in the environment of the Omnigent
+  process that launches runners. The spec has no field for it.
+- **Gemini retries a failed model call with the identical request.** The gateway marks
+  such a call `retry_of` and does not count its evidence again.
+
+Also found: Gemini asks permission for some shell commands even with
+`--approval-mode yolo`. The headless client declined the resulting approval card and
+the turn ended (the first `pytest-5809` run stopped after 7 calls). Gemini runs now
+accept approval cards (`run_session(approve=True)`).
