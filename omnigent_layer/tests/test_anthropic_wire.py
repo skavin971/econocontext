@@ -61,3 +61,17 @@ def test_a_real_claude_code_request():
     seen = aw.observe_request(body, json.dumps(body).encode())
     assert seen["contents"] == 11 and [f["name"] for f in seen["function_responses"]] == ["Edit"]
     assert "Agent" in {t["name"] for t in body["tools"]}  # Claude Code's sub-agent tool
+
+
+def test_segments_of_a_real_request_pair_every_tool_call_with_its_result():
+    import json
+    from pathlib import Path
+    from econocontext.types import SegmentKind as K
+    body = json.loads((Path(__file__).parent / "fixtures" / "anthropic" /
+                       "smoke_last_request.json").read_text())
+    segs = aw.to_segments("r", "r:root", body)
+    assert [s.kind for s in segs[:3]] == [K.TOOLS, K.SYSTEM, K.TASK]
+    calls = {i for s in segs if s.kind == K.TOOL_CALL for i in s.pair_id.split(",")}
+    results = {s.pair_id for s in segs if s.kind == K.TOOL_RESULT}
+    assert calls == results and len(results) == 3
+    assert {s.source for s in segs if s.kind == K.TOOL_RESULT} == {"tool:Bash", "tool:Read", "tool:Edit"}

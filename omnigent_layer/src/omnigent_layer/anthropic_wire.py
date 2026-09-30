@@ -4,6 +4,8 @@ Why it exists: Claude Code calls the gateway in Anthropic's own format
 (POST /v1/messages, usually ?beta=true, usually streamed). This is the single place
 that reads that format: whether a request is a model call, what the provider reported,
 and what the call carried (sizes, hashes, tool calls and results; never prompt text).
+to_segments gives EconoContext's planner the request in segments (observe mode: the
+gateway logs the planner's decision and sends the request unchanged).
 What it must never do: decide anything, or change a request.
 
 Usage mapping (Anthropic's documented fields):
@@ -22,7 +24,8 @@ non-null values win.
 import hashlib
 import json
 
-from econocontext.types import ProviderUsage
+from econocontext.engine import make_segment
+from econocontext.types import ProviderUsage, Segment, SegmentKind
 
 from . import observe
 
@@ -161,3 +164,48 @@ def observe_request(body: dict, raw: bytes) -> dict:
 def observe_response(payloads: list[dict]) -> dict:
     found, text = reply(payloads)
     return {"response_calls": observe.calls(TOOLS, found), "response_text": text}
+
+
+def to_segments(run_id: str, agent_id: str, body: dict) -> list[Segment]:
+    """Segments for a request, for plan_prompt: the tools, the system prompt, then each
+    message. Mid-conversation system messages are SYSTEM; each tool_result block is its
+    own TOOL_RESULT, paired with its tool_use by id. Thinking blocks are kept as they are
+    (their text is not read). Translation only: nothing here is sent back."""
+    segments: list[Segment] = []
+    if body.get("tools"):
+        segments.append(make_segment(run_id, agent_id, "tools", SegmentKind.TOOLS,
+                                     json.dumps(body["tools"], sort_keys=True), role="system"))
+    if body.get("system"):
+        segments.append(make_segment(run_id, agent_id, "system", SegmentKind.SYSTEM,
+                                     _text(body["system"]), role="system"))
+    msgs = _messages(body)
+    names = {b.get("id"): b.get("name") for m in msgs for b in _blocks(m.get("content"))
+             if b.get("type") == "tool_use"}
+    seen_task = False
+    for i, m in enumerate(msgs):
+        role, blocks, native = m.get("role"), _blocks(m.get("content")), f"pos{i}"
+        if role == "system":
+            segments.append(make_segment(run_id, agent_id, native, SegmentKind.SYSTEM,
+                                         _text(blocks), role="system"))
+        elif role == "assistant":
+            uses = [b for b in blocks if b.get("type") == "tool_use"]
+            text = _text(blocks) + ("\n" + json.dumps([{"id": b.get("id"), "name": b.get("name"),
+                                                         "input": b.get("input")} for b in uses],
+                                                       sort_keys=True) if uses else "")
+            segments.append(make_segment(
+                run_id, agent_id, native, SegmentKind.TOOL_CALL if uses else SegmentKind.MESSAGE,
+                text, role="assistant", pair_id=",".join(b.get("id", "") for b in uses) or None))
+        else:
+            for b in blocks:
+                if b.get("type") == "tool_result":
+                    use = b.get("tool_use_id")
+                    segments.append(make_segment(run_id, agent_id, use or native,
+                                                 SegmentKind.TOOL_RESULT, _text(b.get("content")),
+                                                 role="tool", pair_id=use,
+                                                 source=f"tool:{names.get(use) or 'unknown'}"))
+            text = _text([b for b in blocks if b.get("type") == "text"])
+            if text:
+                kind = SegmentKind.MESSAGE if seen_task else SegmentKind.TASK
+                seen_task = True
+                segments.append(make_segment(run_id, agent_id, native, kind, text, role="user"))
+    return segments

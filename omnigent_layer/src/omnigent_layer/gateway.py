@@ -207,7 +207,10 @@ class Gateway(common.Handler):
         self.save_body(raw or b"")
         call_id = uuid.uuid4().hex
         observed = self.observe(wire_module, engine, arm, agent, run_id, raw, body)
-        span = self.start_span(engine, agent, call_id, model, None,
+        decision_id = None
+        if arm == "econo" and hasattr(wire_module, "to_segments") and "retry_of" not in observed:
+            decision_id = self.plan_observed(engine, run_id, agent, wire_module, body)
+        span = self.start_span(engine, agent, call_id, model, decision_id,
                                {"arm": arm, "stream": stream, "format": match["provider"], **observed})
         status, payloads = 502, []
         try:
@@ -220,7 +223,20 @@ class Gateway(common.Handler):
         entry.update(status=status, usage=usage, latency_ms=round(latency))
         self.write_log(entry)
         if status == 200:
-            self.measure(engine, agent, call_id, None, wire_module.to_usage(usage, latency), model)
+            self.measure(engine, agent, call_id, decision_id, wire_module.to_usage(usage, latency),
+                         model)
+
+    def plan_observed(self, engine, run_id, agent, wire_module, body) -> str | None:
+        """plan_prompt on a provider-format request, for the record only: the decision and
+        its predicted cost are logged, and the request is sent as the harness built it.
+        (Carrying a decision out needs the way back from segments, which this route does
+        not have yet; the benchmark runs these harnesses in observe mode only.)"""
+        try:
+            segments = wire_module.to_segments(run_id, agent, body)
+            return engine.plan_prompt(agent, HostRequest(agent, segments)).decision_id
+        except Exception:
+            log.exception("plan_prompt failed; the request is sent unchanged")
+            return None
 
     def observe(self, wire_module, engine, arm: str, agent: str, run_id: str,
                 raw: bytes | None, body: dict) -> dict:

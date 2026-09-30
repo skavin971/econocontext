@@ -115,6 +115,9 @@ def main() -> None:
         p.error("gemini-omnigent is measured only: --mode observe, no --jev/--learned/--pointer")
     if a.harness == "claude-code" and a.set:
         p.error("claude-code runs one --instance at a time (the Anthropic key has a small budget)")
+    if a.harness == "claude-code" and (a.mode != "observe" or a.pointer):
+        p.error("claude-code runs in observe mode for now: the gateway logs EconoContext's "
+                "decisions on its requests but cannot carry them out yet")
     instances = SETS[a.set] if a.set else [a.instance]
     overrides = {}
     if a.learned:

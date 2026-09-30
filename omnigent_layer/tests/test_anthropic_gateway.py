@@ -156,3 +156,14 @@ def test_the_key_stops_at_its_total_budget(gw, monkeypatch):
     register("a7")  # another run on the same key
     status, reply = post(f"{gw}/run/a7/anthropic/v1/messages", BODY)
     assert status == 429 and b"Anthropic key" in reply
+
+
+def test_the_econo_arm_logs_a_planner_decision_and_sends_the_request_unchanged(gw):
+    register("a8", arm="econo")
+    raw = json.dumps(BODY).encode()
+    assert post(f"{gw}/run/a8/anthropic/v1/messages", raw)[0] == 200
+    assert Upstream.seen[0][2] == raw
+    [d] = db().rows("SELECT intercept, applied, decision_id FROM decisions WHERE run_id='a8'")
+    assert (d["intercept"], d["applied"]) == ("plan_prompt", 0)
+    time.sleep(0.2)
+    assert db().rows("SELECT decision_id FROM outcomes WHERE run_id='a8'")[0][0] == d["decision_id"]
