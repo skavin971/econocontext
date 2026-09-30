@@ -82,7 +82,7 @@ def main() -> None:
     status, reply = "done", ""
     try:
         reply, _ = asyncio.run(run_session(a.server, spec, workdir, TASK, a.max_minutes * 60,
-                                           approve=True))
+                                           approve=True, native=a.harness == "claude-code"))
     except TimeoutError:
         status = "timeout"
     except Exception as exc:  # report, don't crash: the run row still gets its status

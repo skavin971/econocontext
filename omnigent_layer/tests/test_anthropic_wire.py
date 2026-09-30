@@ -46,3 +46,18 @@ def test_a_non_streamed_reply_and_a_sub_agent_context():
     root = {"system": "main", "messages": [{"role": "user", "content": "task"}]}
     child = {"system": "sub-agent", "messages": [{"role": "user", "content": "look"}]}
     assert aw.context_key(root) != aw.context_key(child)
+
+
+def test_a_real_claude_code_request():
+    # The 6th request of the Claude Code smoke task (trimmed): Bash, Read, Edit, each followed
+    # by a mid-conversation system message; the last assistant turn asked for Edit.
+    import json
+    from pathlib import Path
+    body = json.loads((Path(__file__).parent / "fixtures" / "anthropic" /
+                       "smoke_last_request.json").read_text())
+    assert aw.model_request("/v1/messages", body) == ("claude-sonnet-5", True)
+    [latest] = aw.tool_results(body)
+    assert latest["name"] == "Edit" and not latest["error"]
+    seen = aw.observe_request(body, json.dumps(body).encode())
+    assert seen["contents"] == 11 and [f["name"] for f in seen["function_responses"]] == ["Edit"]
+    assert "Agent" in {t["name"] for t in body["tools"]}  # Claude Code's sub-agent tool

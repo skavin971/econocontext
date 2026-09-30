@@ -96,10 +96,44 @@ def approve_all(ctx) -> bool:
     return True
 
 
+BUSY = ("running", "waiting")
+
+
+async def wait_until_done(client, session_id: str, seconds: float) -> None:
+    """For a native harness (Claude Code): Omnigent completes the turn as soon as the
+    prompt is typed into the terminal, and the work shows up afterwards. Wait until the
+    session (and any sub-agent) has been busy and is idle on two checks in a row."""
+    loop = asyncio.get_running_loop()
+    deadline, seen_busy, idle = loop.time() + seconds, False, 0
+    while loop.time() < deadline:
+        session = await client.sessions.get(session_id)
+        busy = session.status in BUSY or await client.sessions.subtree_busy(session_id)
+        seen_busy = seen_busy or busy
+        idle = 0 if busy else idle + 1
+        if idle >= 2 and (seen_busy or idle >= 10):  # never busy: give up after ~30 s
+            return
+        await asyncio.sleep(3)
+    raise TimeoutError
+
+
+async def last_reply(client, session_id: str) -> str:
+    """The text of the session's last assistant message."""
+    items = await client.sessions.list_items(session_id, limit=100, order="desc")
+    for item in items:
+        if item.get("type") == "message" and item.get("role") == "assistant":
+            content = item.get("content")
+            if isinstance(content, str):
+                return content
+            return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict))
+    return ""
+
+
 async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
-                      seconds: float, approve: bool = False) -> tuple[str, str]:
+                      seconds: float, approve: bool = False,
+                      native: bool = False) -> tuple[str, str]:
     """One Omnigent session, one task. Returns the reply and the session id. `approve`
-    accepts approval cards (Gemini runs); otherwise the client declines them."""
+    accepts approval cards (Gemini and Claude Code runs); otherwise the client declines
+    them. `native` waits for a terminal-driven harness (Claude Code) to finish."""
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -116,6 +150,9 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
                             hooks=StreamHooks(on_elicitation_request=approve_all) if approve else None)
         try:
             result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
+            if native:
+                await wait_until_done(client, bound.id, seconds)
+                return await last_reply(client, bound.id), bound.id
         finally:
             _stop_headless_session(base_url=server, session_id=bound.id)
         return getattr(result, "text", "") or "", bound.id

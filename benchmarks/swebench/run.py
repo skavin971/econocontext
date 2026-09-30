@@ -16,9 +16,10 @@ the run up and reads the outcome.
 Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Docker.
 
---harness gemini-omnigent runs stock Gemini CLI instead (harness/specs/gemini/agent.yaml): no
-container (Gemini's shell runs on the host), no policy; the gateway records its calls
-and, in the econo arm, the evidence they carried.
+--harness picks the agent. claude-code (the default): stock Claude Code on the Anthropic
+key, one instance at a time, with the container's testbed_shell and, in the econo arm,
+the policy. openai-controlled: our openai-agents spec with a worker. gemini-omnigent:
+stock Gemini CLI, no container (its shell runs on the host), no policy.
 
 Run: .venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
      .venv/bin/python benchmarks/swebench/run.py --harness gemini-omnigent --label g1 --instance pytest-dev__pytest-5809 --arm econo
@@ -45,6 +46,15 @@ from harness.session import run_session, write_spec  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
 GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
+# Claude Code on the Anthropic key: its price card, and caps per task (calls and dollars;
+# the key's total is capped at the gateway too).
+CLAUDE_OVERRIDES = {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},
+                    "limits": {"max_model_calls": 40, "per_instance_budget_usd": 1.50}}
+CLAUDE_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
+               "Hidden tests will check your fix. Keep the change minimal. Run Python, tests and "
+               "scripts with the testbed_shell tool: it runs in the repository's own environment "
+               "(your Bash tool runs on a different machine, without the repository's "
+               "dependencies).\n\n")
 # Gemini gets the issue with the framing the openai-controlled agent has in its spec
 # prompt, and nothing about how to work: its own instructions apply.
 GEMINI_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
@@ -69,7 +79,7 @@ def prepare(image: str, workdir: Path, container: str, run_container: bool = Tru
     # Omnigent's runner probes the workspace with an mtime-test-* directory; keep it out
     # of the patch and of the write barrier.
     with open(workdir / ".git" / "info" / "exclude", "a") as exclude:
-        exclude.write("\nmtime-test-*/\n.econocontext/\n")  # Omnigent's probe; our pointer files
+        exclude.write("\nmtime-test-*/\n.econocontext/\n.claude/\n")  # Omnigent's probe; our files
     if not run_container:
         return
     # Labels let omnigent_layer.tools.container_shell (testbed_shell) find this container.
@@ -82,8 +92,8 @@ def prepare(image: str, workdir: Path, container: str, run_container: bool = Tru
 def main() -> None:
     p = argparse.ArgumentParser(description="Run one SWE-bench instance on Omnigent.")
     p.add_argument("--label", required=True)
-    p.add_argument("--harness", choices=["openai-controlled", "gemini-omnigent"],
-                   default="openai-controlled")
+    p.add_argument("--harness", choices=["claude-code", "openai-controlled", "gemini-omnigent"],
+                   default="claude-code")
     which = p.add_mutually_exclusive_group(required=True)
     which.add_argument("--instance", help="one SWE-bench Verified instance id")
     which.add_argument("--set", choices=sorted(SETS), help="a fixed set from benchmarks/swebench/tasks.py")
@@ -103,6 +113,8 @@ def main() -> None:
     gemini = a.harness == "gemini-omnigent"
     if gemini and (a.jev or a.learned or a.pointer or a.mode != "observe"):
         p.error("gemini-omnigent is measured only: --mode observe, no --jev/--learned/--pointer")
+    if a.harness == "claude-code" and a.set:
+        p.error("claude-code runs one --instance at a time (the Anthropic key has a small budget)")
     instances = SETS[a.set] if a.set else [a.instance]
     overrides = {}
     if a.learned:
@@ -121,21 +133,25 @@ def run_one(a, instance: str, overrides: dict) -> None:
     safe = re.sub(r"[^\w.-]", "_", run_id)
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
-    gemini = a.harness == "gemini-omnigent"
-    spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo")
+    gemini, claude = a.harness == "gemini-omnigent", a.harness == "claude-code"
+    spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo", container=claude)
     if gemini:
         overrides = {**overrides, "limits": {"max_model_calls": GEMINI_MAX_CALLS}}
+    if claude:
+        overrides = {**overrides, **CLAUDE_OVERRIDES}
+    host = {"gemini-omnigent": "omnigent:gemini", "claude-code": "omnigent:claude-code"}
     register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo",
-                 current=not gemini, overrides=overrides or None, workdir=str(workdir),
-                 host="omnigent:gemini" if gemini else "omnigent")
+                 current=a.harness == "openai-controlled", overrides=overrides or None,
+                 workdir=str(workdir), host=host.get(a.harness, "omnigent"))
     print(f"== {run_id}", flush=True)
 
     status = "done"
     try:
         prepare(inst.image, workdir, container, run_container=not gemini)
-        task = GEMINI_TASK + inst.problem_statement if gemini else inst.problem_statement
+        task = {"gemini-omnigent": GEMINI_TASK, "claude-code": CLAUDE_TASK}.get(a.harness, "") \
+            + inst.problem_statement
         summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60,
-                                             approve=gemini))
+                                             approve=gemini or claude, native=claude))
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"
@@ -152,8 +168,7 @@ def run_one(a, instance: str, overrides: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
     predictions = out / f"{safe}.jsonl"
     predictions.write_text(json.dumps({"instance_id": instance, "model_patch": patch,
-                                       "model_name_or_path": (f"omnigent-gemini-{a.arm}" if gemini
-                                                              else f"omnigent-{a.arm}")}) + "\n")
+                                       "model_name_or_path": f"omnigent-{a.harness}-{a.arm}"}) + "\n")
     engine, _ = engine_for(run_id)
     engine.end_run(status)
     grade = evaluate(predictions, [instance], run_id=f"{safe}-eval")
