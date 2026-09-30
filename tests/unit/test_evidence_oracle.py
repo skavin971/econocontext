@@ -26,8 +26,10 @@ def test_classes():
     assert classify([TOPIC], False) == classify([], True) == NOT_REMOVABLE
 
 
-def run(tmp_path, calls):
-    """calls: [(context_key, response_calls, response_text, cost_usd, evidence acquired)]"""
+def run(tmp_path, calls, writes=None):
+    """calls: [(context_key, response_calls, response_text, cost_usd, evidence acquired)];
+    writes: {call_no: cache write tokens}"""
+    writes = writes or {}
     db = AgentDB(tmp_path / "db.sqlite3")
     db.start_run("r", "omnigent:gemini", None, "econo", "observe", "m", 1.0, "f")
     for call_no, (key, response, text, cost, acquired) in enumerate(calls):
@@ -37,10 +39,10 @@ def run(tmp_path, calls):
         db.finish_runtime_span(span, 10.0, "completed",
                                {"response_calls": response, "response_text": text})
         db.add_outcome(f"c{call_no}", "r", "r:root", None, "agent",
-                       ProviderUsage(1, 0, None, 1), 1.0, cost, True, "p")
+                       ProviderUsage(1, 0, writes.get(call_no, 0), 1), 1.0, cost, True, "p")
         db.add_evidence_events("r", "r:root", call_no, acquired)
         time.sleep(0.002)  # spans are ordered by start time
-    return schedule(db, "r", usd_per_input_token=0.001)
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
 
 
 def evidence(path):
@@ -84,3 +86,11 @@ def test_a_turn_without_a_price_still_counts_as_removable(tmp_path):
     assert rows[0]["removable_calls"] == 1 and rows[0]["estimated_saved_usd"] is None
     total = headroom(rows)
     assert (total["strict"], total["strict_unpriced"], total["estimated_saved_usd"]) == (1, 1, 0)
+
+
+def test_a_removed_turn_hands_its_cache_write_to_the_next_call(tmp_path):
+    # Call 0 wrote 40 tokens to the cache; without it, call 1 writes them instead of reading.
+    rows = run(tmp_path, [("root", [READ], False, 0.10, []), ("root", [], True, 0.1, [evidence("a.py")])],
+               writes={0: 40})
+    moved = 40 * (0.00125 - 0.0001)
+    assert rows[0]["estimated_saved_usd"] == pytest.approx(0.10 - moved - rows[0]["tokens_added"] * 0.001)

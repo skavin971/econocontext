@@ -88,6 +88,7 @@ class AgentDB:
         self._add_column("runs", "workdir", "TEXT")
         self._add_column("segments", "blob_key", "TEXT")
         self._add_column("stored_results", "blob_key", "TEXT")
+        self._add_column("outcomes", "cache_write_1h", "INTEGER")
         self._add_column("labels", "reacquired_same_version", "INTEGER")
         self._add_column("labels", "reacquired_after_mutation", "INTEGER")
         self.conn.commit()
@@ -307,10 +308,10 @@ class AgentDB:
         self.execute(
             "INSERT OR IGNORE INTO outcomes "
             "(outcome_id, run_id, agent_id, decision_id, phase, uncached_input, cache_read, "
-            "cache_write, output, reasoning, latency_ms, cost_nu, cost_usd, cost_complete, "
-            "price_period, raw, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "cache_write, cache_write_1h, output, reasoning, latency_ms, cost_nu, cost_usd, "
+            "cost_complete, price_period, raw, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (outcome_id, run_id, agent_id, decision_id, phase, u.uncached_input,
-             u.cache_read, u.cache_write, u.output, u.reasoning, u.latency_ms,
+             u.cache_read, u.cache_write, u.cache_write_1h, u.output, u.reasoning, u.latency_ms,
              cost_nu, cost_usd, int(complete), period, json.dumps(u.raw, default=str), now()))
 
     # -- runtime timing -----------------------------------------------------------

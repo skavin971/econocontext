@@ -19,10 +19,14 @@ conversation received (evidence_events):
   A call that retried an earlier one (span metadata 'retry_of') is skipped: it is the
   same decision again, not another turn.
 
-  estimated_saved_usd (STRICT only) = cost of call t - evidence tokens x the price of
-      one fresh input token: the turn is gone, and its evidence is paid once more as
-      uncached input. Conservative for the evidence, optimistic that the next turn
-      would have gone the same way. None when call t's cost is unknown (no price card
+  estimated_saved_usd (STRICT only) = cost of call t
+      - the cache writes of call t, repriced as the next call's writes instead of its
+        reads (removing a turn moves its cache write to the next call; it does not
+        remove it)
+      - evidence tokens x the price of one fresh input token (the evidence is paid once
+        more, uncached)
+      Conservative for the evidence, optimistic that the next turn would have gone the
+      same way. None when call t's cost is unknown (no price card
       for its model); the turn still counts as removable.
 What it must never do: count a turn with a side effect, or read the future into a
 prediction (it is a bound, not a policy).
@@ -43,16 +47,19 @@ def classify(response_calls: list[dict], response_text: bool) -> str:
     return MIXED if response_text else STRICT
 
 
-def schedule(db: AgentDB, run_id: str, usd_per_input_token: float) -> list[dict]:
+def schedule(db: AgentDB, run_id: str, prices: dict) -> list[dict]:
     """One row per model call of the run, in order, with its class and (for acquisition
-    turns) the evidence that would have had to be in its request."""
+    turns) the evidence that would have had to be in its request. `prices`: USD per token
+    for 'input', 'cache_read', 'cache_write' and 'cache_write_1h' (missing = 0)."""
     calls = []
-    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd FROM runtime_spans s LEFT JOIN "
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+                     "FROM runtime_spans s LEFT JOIN "
                      "outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' "
                      "ORDER BY s.started_at", (run_id,)):
         meta = json.loads(r["metadata"] or "{}")
         if "call_no" in meta and "retry_of" not in meta:
-            calls.append({**meta, "cost_usd": r["cost_usd"]})
+            calls.append({**meta, "cost_usd": r["cost_usd"], "cache_write": r["cache_write"] or 0,
+                          "cache_write_1h": r["cache_write_1h"] or 0})
     evidence: dict[int, list[dict]] = {}
     for r in db.rows("SELECT e.call_no, e.evidence_id, v.source_key, v.source_version, v.token_size "
                      "FROM evidence_events e JOIN evidence v ON v.run_id = e.run_id AND "
@@ -73,9 +80,12 @@ def schedule(db: AgentDB, run_id: str, usd_per_input_token: float) -> list[dict]
             row["tokens_added"] = sum(e["token_size"] for e in evidence.get(consumer["call_no"], []))
             if kind == STRICT:
                 row["removable_calls"] = 1
+                read = prices.get("cache_read", 0)
+                moved = (call["cache_write"] * (prices.get("cache_write", 0) - read)
+                         + call["cache_write_1h"] * (prices.get("cache_write_1h", 0) - read))
                 row["estimated_saved_usd"] = (
                     None if call["cost_usd"] is None
-                    else call["cost_usd"] - row["tokens_added"] * usd_per_input_token)
+                    else call["cost_usd"] - moved - row["tokens_added"] * prices.get("input", 0))
         rows.append(row)
     return rows
 

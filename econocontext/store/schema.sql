@@ -178,7 +178,8 @@ CREATE TABLE IF NOT EXISTS outcomes (
   phase               TEXT NOT NULL,            -- 'agent' | 'compaction' (host summarization)
   uncached_input      INTEGER,                  -- NULL = not reported (never read as zero)
   cache_read          INTEGER,
-  cache_write         INTEGER,
+  cache_write         INTEGER,                  -- 5-minute writes (Anthropic) / the only kind
+  cache_write_1h      INTEGER,                  -- 1-hour writes (Anthropic), when reported
   output              INTEGER,                  -- includes reasoning
   reasoning           INTEGER,                  -- subset of output, for explanation only
   latency_ms          REAL,

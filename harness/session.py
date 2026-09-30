@@ -39,8 +39,8 @@ policies:
     handler: omnigent_layer.policy.econocontext
     factory_params: {run_id: "$run_id", workdir: "$workdir"}
 """
-# The benchmark container's shell, for harnesses that do not bring one of their own
-# (Claude Code reaches it through Omnigent's MCP relay). Added only when there is a container.
+# The benchmark container's shell, for a harness that takes our function tools
+# (openai-agents already declares it in its spec). Added only when asked for.
 TESTBED_SHELL = """
 tools:
   testbed_shell:
@@ -59,8 +59,8 @@ def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bo
                container: bool = False) -> Path:
     """The run's agent spec, filled in. openai-controlled: specs/openai_agents.yaml (+ the policy
     in the econo arm). gemini-omnigent: specs/gemini/agent.yaml, never with a policy.
-    claude-code: specs/claude_code/ (+ the policy in the econo arm, + testbed_shell when
-    the benchmark runs a container)."""
+    claude-code: specs/claude_code/ (+ the policy in the econo arm). `container` adds
+    testbed_shell for harnesses that take our function tools."""
     values = {"run_id": run_id, "gateway": gateway, "workdir": str(workdir)}
     safe = re.sub(r"[^\w.-]", "_", run_id)
     if harness == "gemini-omnigent":

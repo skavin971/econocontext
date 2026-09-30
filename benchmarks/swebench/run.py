@@ -17,8 +17,8 @@ Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Docker.
 
 --harness picks the agent. claude-code (the default): stock Claude Code on the Anthropic
-key, one instance at a time, with the container's testbed_shell and, in the econo arm,
-the policy. openai-controlled: our openai-agents spec with a worker. gemini-omnigent:
+key, one instance at a time; its own Bash runs the tests in the container (docker exec)
+and, in the econo arm, the policy watches its tools. openai-controlled: our openai-agents spec with a worker. gemini-omnigent:
 stock Gemini CLI, no container (its shell runs on the host), no policy.
 
 Run: .venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
@@ -50,11 +50,14 @@ GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
 # the key's total is capped at the gateway too).
 CLAUDE_OVERRIDES = {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},
                     "limits": {"max_model_calls": 40, "per_instance_budget_usd": 1.50}}
+# Claude Code's own Bash runs on this machine, where Docker is: it runs the repository's
+# tests in the task's container (Omnigent's MCP relay does not carry our testbed_shell).
 CLAUDE_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
-               "Hidden tests will check your fix. Keep the change minimal. Run Python, tests and "
-               "scripts with the testbed_shell tool: it runs in the repository's own environment "
-               "(your Bash tool runs on a different machine, without the repository's "
-               "dependencies).\n\n")
+               "Hidden tests will check your fix. Keep the change minimal. The repository's own "
+               "environment (its Python and dependencies) is in a Docker container with this "
+               "directory mounted at /testbed; run Python, tests and scripts there, e.g.\n"
+               "  docker exec -w /testbed $container bash -lc "
+               "'source /opt/miniconda3/bin/activate testbed && python -m pytest testing/some_test.py'\n\n")
 # Gemini gets the issue with the framing the openai-controlled agent has in its spec
 # prompt, and nothing about how to work: its own instructions apply.
 GEMINI_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
@@ -151,9 +154,10 @@ def run_one(a, instance: str, overrides: dict) -> None:
     try:
         prepare(inst.image, workdir, container, run_container=not gemini)
         # After prepare, which recreates the workspace: Claude Code's settings live in it.
-        spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo", container=claude)
+        spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo")
         check_settings(a.harness, workdir)
-        task = {"gemini-omnigent": GEMINI_TASK, "claude-code": CLAUDE_TASK}.get(a.harness, "") \
+        task = {"gemini-omnigent": GEMINI_TASK,
+                "claude-code": CLAUDE_TASK.replace("$container", container)}.get(a.harness, "") \
             + inst.problem_statement
         summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60,
                                              approve=gemini or claude, native=claude))

@@ -161,6 +161,7 @@ One row per model call.
 | decision_id | text | yes | |
 | phase | text | | `agent` \| `compaction` |
 | uncached_input, cache_read, cache_write, output, reasoning | integer | yes | NULL = not reported |
+| cache_write_1h | integer | yes | 1-hour cache writes (Anthropic); cache_write holds the 5-minute ones |
 | latency_ms | double | yes | |
 | cost_nu, cost_usd | double | yes | |
 | cost_complete | boolean | | |

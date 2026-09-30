@@ -85,15 +85,23 @@ def main() -> None:
           "A pipeline check on few tasks at temperature 1.0: not a savings claim.")
 
 
+def prices(db: AgentDB, run_id: str) -> dict:
+    """USD per token for the run's own price card (its config overrides pick the model)."""
+    overrides = db.rows("SELECT overrides FROM runs WHERE run_id=?", (run_id,))[0]["overrides"]
+    card = config.load(ROOT / "config", json.loads(overrides) if overrides else None).card
+    tier = card.tier(datetime.now(timezone.utc).date(), None)
+    return {"input": tier.input_per_mtok / 1e6, "cache_read": (tier.cache_read_per_mtok or 0) / 1e6,
+            "cache_write": (tier.cache_write_per_mtok or 0) / 1e6,
+            "cache_write_1h": (tier.cache_write_1h_per_mtok or 0) / 1e6}
+
+
 def oracle(db: AgentDB, todo: list[dict]) -> None:
     """Per run: model turns that only fetched evidence, and what removing them would save."""
-    card = config.load(ROOT / "config").card
-    usd_per_token = ratios(card, datetime.now(timezone.utc).date()).usd_per_nu
     print(f"{'run':52} {'calls':>5} {'strict':>6} {'mixed':>5} {'share':>6} "
           f"{'run $':>8} {'saved $':>8} {'share':>6} {'unpriced':>8}")
     total = dict(calls=0, strict=0, mixed=0, cost=0.0, saved=0.0)
     for run in todo:
-        h = headroom(schedule(db, run["run_id"], usd_per_token))
+        h = headroom(schedule(db, run["run_id"], prices(db, run["run_id"])))
         print(f"{run['run_id'][:52]:52} {h['calls']:>5} {h['strict']:>6} {h['mixed']:>5} "
               f"{h['share_of_calls'] or 0:>6.0%} {h['cost_usd']:>8.4f} "
               f"{h['estimated_saved_usd']:>8.4f} {h['share_of_cost'] or 0:>6.0%} "
@@ -106,7 +114,8 @@ def oracle(db: AgentDB, todo: list[dict]) -> None:
           f"{total['saved']:>8.4f} {total['saved'] / total['cost'] if total['cost'] else 0:>6.0%}")
     print("\nstrict = turns that only read (files, searches) and said nothing: the upper bound on\n"
           "turns evidence supplied one call earlier could remove. mixed = reads plus text, not\n"
-          "claimed. saved = strict turns' cost minus their evidence paid again as fresh input.\n"
+          "claimed. saved = strict turns' cost, minus their cache writes (the next call would\n"
+          "make them instead) and their evidence paid again as fresh input.\n"
           "unpriced = strict turns whose model has no price card (counted, not in saved $).")
 
 

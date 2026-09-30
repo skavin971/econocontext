@@ -65,7 +65,7 @@ def evidence(db: AgentDB, run_id: str) -> dict | None:
                    "run_id=? AND kind='evidence'", (run_id,))[0]
     return {"acquisitions": acquired,
             "same_version_reacquisitions": same["k"] if same["n"] else None,  # after labelling
-            "strict_acquisition_turns": sum(r["class"] == STRICT for r in schedule(db, run_id, 0.0))}
+            "strict_acquisition_turns": sum(r["class"] == STRICT for r in schedule(db, run_id, {}))}
 
 
 def build_report(db: AgentDB, cfg, label: str) -> dict:
