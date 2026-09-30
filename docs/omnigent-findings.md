@@ -272,3 +272,31 @@ From the `Agent` tool's definition in Claude Code 2.1.286's requests (no model c
 - `model` accepts `sonnet`, `opus`, `haiku`, `fable`. The model pins cover the first three,
   not `fable`, so the gateway now refuses any model but `claude-sonnet-5` on this route
   (`ECONO_ANTHROPIC_MODELS`), instead of sending it.
+
+### Can Omnigent and EconoContext see and address Claude Code's sub-agents? (2026-09-30)
+
+`harness/probe.py --harness claude-code`, on the pytest repository. The task asked Claude
+Code to use a sub-agent and then continue that same one. The first attempt was stopped
+early by our runner: Claude Code ran the sub-agent in the background and ended its own
+turn, and the runner took the idle session for done. It now waits for 30 s of real quiet,
+with no busy session, no busy sub-agent and no new model call. Second attempt
+(`probe-claude-code:econo:subagents-20260930T214221`): 19 calls, $0.27, every call
+`claude-sonnet-5`.
+
+| # | Question | Gemini CLI | **Claude Code** | Evidence (Claude Code) |
+|---|---|---|---|---|
+| 1 | Is the delegation visible to Omnigent? | not observed | **Yes**: an `Agent` tool call in the session's items | `session_view` |
+| 2 | Is the sub-agent named? | in model traffic only | **Yes**: Omnigent's child session is titled `general-purpose:<agent id>` | child sessions |
+| 3 | Does the sub-agent get its own session? | no (Gemini-internal only) | **Yes**: an Omnigent child session, and Claude Code's own `subagents/agent-<id>.jsonl` transcript | child sessions, `~/.claude/projects/...` |
+| 4 | Are its model calls visible at the gateway? | yes | **Yes** | 12 calls |
+| 5 | Can they be told from the root's? | yes (context, model) | **Yes**: its own `context_key`; same model (pinned) | span metadata |
+| 6 | Are its start and end visible? | no | **Yes**: the child session's task status (`completed`); the sub-agent ends each phase with `SubagentHandback` | child sessions, gateway |
+| 7 | Can it be addressed after it finishes? | no | **Yes, by Claude Code**: `SendMessage` to the agent's id (loaded through `ToolSearch`) | root calls 12–13 |
+| 8 | Can it be continued? | no | **Yes, with its context and its cache**: after the follow-up the sub-agent's first call read 24,516 tokens from cache and wrote 1,985; the same child session and conversation key continued | calls 14–17 |
+| 9 | Can EconoContext steer it? | not over ACP | **Not tried yet.** Two ways are open: an Omnigent policy may deny an `Agent` call with a reason ("continue agent X with SendMessage"; Omnigent honors a deny on `PreToolUse`), or Omnigent's sub-agent router for Claude Code's spawns | — |
+
+**Outcome A for Claude Code.** Its sub-agents can be told apart, seen starting and
+ending, and continued with their cache, which is what worker placement (RESUME) prices.
+Worker placement on Claude Code is therefore feasible. The remaining work is the
+steering: let the policy turn a new `Agent` call into a continuation when the pricing
+model says an idle worker already holds the files.

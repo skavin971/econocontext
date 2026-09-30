@@ -18,12 +18,12 @@ $4.50) and a per-run budget (`limits.per_instance_budget_usd`) enforced at the g
 
 | Capability on Claude Code | Status |
 |---|---|
-| Every model call: tokens, cache reads, 5-minute and 1-hour cache writes, cost | yes (gateway) |
+| Every model call: tokens, cache reads, 5-minute and 1-hour cache writes, cost | yes (gateway); only `claude-sonnet-5` is allowed through |
 | Tool calls and results per call, versioned evidence, labels, oracle | yes (gateway) |
-| EconoContext's planner on each request | yes, observe mode: decisions logged, request unchanged |
-| Carrying decisions out (reorder, pointers) | not yet: needs the way back from segments |
+| EconoContext's planner on each request | yes: every call gets a decision (observe logs it; autopilot may carry it out) |
+| Carrying decisions out | autopilot: COMMIT_PENDING only (old tool results → pointers, kept stable); never reordering; falls back to the original if Anthropic refuses a changed request |
 | Tool events in Omnigent policies | yes (`PreToolUse`/`PostToolUse`); a policy can deny, not replace a result |
-| Sub-agents (`Agent` tool) | calls told apart by `context_key`; routing to Omnigent sessions not tried yet |
+| Sub-agents (`Agent` tool) | seen by Omnigent (child session per agent id) and the gateway (own `context_key`); continued with context and cache via `SendMessage` (probe); steering by EconoContext not built yet |
 
 # Gemini CLI on Omnigent
 
