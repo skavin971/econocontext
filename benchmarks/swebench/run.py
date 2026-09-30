@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT))
 
 from benchmarks.swebench.evaluate import evaluate  # noqa: E402
 from benchmarks.swebench.tasks import SETS, load  # noqa: E402
-from harness.session import run_session, write_spec  # noqa: E402
+from harness.session import check_measured, check_settings, run_session, write_spec  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
 GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
@@ -137,7 +137,6 @@ def run_one(a, instance: str, overrides: dict) -> None:
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
     gemini, claude = a.harness == "gemini-omnigent", a.harness == "claude-code"
-    spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo", container=claude)
     if gemini:
         overrides = {**overrides, "limits": {"max_model_calls": GEMINI_MAX_CALLS}}
     if claude:
@@ -151,6 +150,9 @@ def run_one(a, instance: str, overrides: dict) -> None:
     status = "done"
     try:
         prepare(inst.image, workdir, container, run_container=not gemini)
+        # After prepare, which recreates the workspace: Claude Code's settings live in it.
+        spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo", container=claude)
+        check_settings(a.harness, workdir)
         task = {"gemini-omnigent": GEMINI_TASK, "claude-code": CLAUDE_TASK}.get(a.harness, "") \
             + inst.problem_statement
         summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60,
@@ -173,6 +175,7 @@ def run_one(a, instance: str, overrides: dict) -> None:
     predictions.write_text(json.dumps({"instance_id": instance, "model_patch": patch,
                                        "model_name_or_path": f"omnigent-{a.harness}-{a.arm}"}) + "\n")
     engine, _ = engine_for(run_id)
+    status = check_measured(engine, status)
     engine.end_run(status)
     grade = evaluate(predictions, [instance], run_id=f"{safe}-eval")
     engine.db.set_resolved(run_id, grade["per_instance"][instance])

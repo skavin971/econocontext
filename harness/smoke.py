@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.session import run_session, write_spec  # noqa: E402
+from harness.session import check_measured, check_settings, run_session, write_spec  # noqa: E402
 
 from econocontext.pricing.ledger import summary  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
@@ -77,6 +77,7 @@ def main() -> None:
     register_run(run_id, a.arm, a.mode, f"{a.harness}-smoke", workdir=str(workdir),
                  host=host, overrides=overrides)
     spec = write_spec(a.harness, run_id, workdir, a.gateway, a.arm == "econo")
+    check_settings(a.harness, workdir)
     print(f"== {run_id}", flush=True)
 
     status, reply = "done", ""
@@ -88,6 +89,7 @@ def main() -> None:
     except Exception as exc:  # report, don't crash: the run row still gets its status
         status = f"error: {str(exc)[:300]}"
     engine, _ = engine_for(run_id)
+    status = check_measured(engine, status)
     engine.end_run(status)
     diff = subprocess.run(["git", "-C", str(workdir), "diff"], capture_output=True, text=True).stdout
     totals = summary(engine.db, run_id)["totals"]

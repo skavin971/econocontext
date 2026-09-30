@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.session import run_session, session_view, write_spec  # noqa: E402
+from harness.session import check_measured, run_session, session_view, write_spec  # noqa: E402
 
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
@@ -80,6 +80,7 @@ def main() -> None:
     except Exception as exc:
         status = f"error: {str(exc)[:300]}"
     engine, _ = engine_for(run_id)
+    status = check_measured(engine, status)
     engine.end_run(status)
     if session_id is None:  # the session id is printed by run_session; find it if we timed out
         print("no session id: evidence from the gateway and Gemini's files only")

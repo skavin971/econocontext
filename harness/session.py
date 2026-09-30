@@ -99,6 +99,21 @@ def approve_all(ctx) -> bool:
 BUSY = ("running", "waiting")
 
 
+def check_measured(engine, status: str) -> str:
+    """A run whose model calls never reached the gateway was not measured (the harness
+    used some other credential, e.g. a local login). Say so instead of "done"."""
+    calls = engine.db.rows("SELECT COUNT(*) n FROM outcomes WHERE run_id=?", (engine.run_id,))[0]["n"]
+    return status if calls or status != "done" else "not measured: no model call reached the gateway"
+
+
+def check_settings(harness: str, workdir: Path) -> None:
+    """Claude Code must find its per-run settings, or it would fall back to a local login
+    and bypass the gateway. Raise before the session starts if they are missing."""
+    if harness == "claude-code" and not (workdir / ".claude" / "settings.local.json").exists():
+        raise RuntimeError(f"{workdir}/.claude/settings.local.json is missing: Claude Code "
+                           f"would bypass the gateway")
+
+
 async def wait_until_done(client, session_id: str, seconds: float) -> None:
     """For a native harness (Claude Code): Omnigent completes the turn as soon as the
     prompt is typed into the terminal, and the work shows up afterwards. Wait until the
