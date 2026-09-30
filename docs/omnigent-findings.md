@@ -154,7 +154,7 @@ fired (below).
 | 6 | Does ACP expose the child's start and end? | **No.** While the child worked, Gemini sent Omnigent no ACP update for over 300 s. Omnigent's ACP idle deadline (`HARNESS_ACP_PROMPT_TIMEOUT_S`, default 300) then ended the turn: "Timeout waiting for ACP response". The generic `acp` harness has no Gemini sub-agent source (`omnigent/inner/acp_subagents.py`) | runner log |
 | 7 | Can the child be addressed after it finishes? | **No.** Omnigent has no handle for it, and `invoke_agent` takes only `agent_name` and `prompt`, with no id to continue | as 3; Gemini's tool arguments |
 | 8 | Can it be resumed? | **No**, for the same reasons | |
-| 9 | Can Omnigent redirect the delegation? | **No.** Gemini runs `invoke_agent` itself. With `--approval-mode yolo` it asks no permission, and an Omnigent policy cannot rewrite a native tool's arguments over ACP | |
+| 9 | Can the delegation be redirected? | **Not over ACP, but yes through Gemini's own hooks** (corrected below). Gemini runs `invoke_agent` itself, and an Omnigent policy cannot rewrite a native tool's arguments over ACP. Gemini CLI's `BeforeTool` hook can block the call or rewrite its arguments, and it is configured in the per-run settings file | Gemini bundle: `BeforeToolHookOutput.getModifiedToolInput`, blocking decisions |
 
 **Outcome B: worker placement is unsupported for Gemini.** Its sub-agents run inside
 the Gemini process as loops of their own, but they are not sessions Omnigent can list,
@@ -173,3 +173,37 @@ Also found: Gemini asks permission for some shell commands even with
 `--approval-mode yolo`. The headless client declined the resulting approval card and
 the turn ended (the first `pytest-5809` run stopped after 7 calls). Gemini runs now
 accept approval cards (`run_session(approve=True)`).
+
+### Correction: other harnesses, and Gemini's own hooks (2026-09-30)
+
+Checked in the installed source (Omnigent 0.15.0, Gemini CLI 0.62.0), not live:
+Codex is not installed here, needs OpenAI auth, and calls the Responses API, which
+Vertex does not serve.
+
+- **Omnigent does reach native sub-agents, for some harnesses.** `claude-native`,
+  `codex-native`, `opencode-native` and `devin-native` declare `subagents=True`; the
+  generic `acp` harness (Gemini) does not. The mechanism is not ACP: Omnigent installs
+  a pre-tool hook in the harness (`omnigent/inner/hook_scripts/subagent_router.py`;
+  Codex: `PreToolUse` on `spawn_agent`; Claude Code: on its Task tool). The hook can
+  rewrite the spawn (model, effort) or deny it, and the denial tells the model to use
+  Omnigent's `sys_session_create` instead. A routed worker is then an Omnigent session,
+  which can be continued like our `openai-agents` workers. Omnigent turns this on for
+  its Smart Routing sessions.
+- **Gemini CLI has the same kind of hook.** A `BeforeTool` hook can block a tool call
+  ("Tool execution blocked: <reason>" goes back to the model) or rewrite its
+  arguments (`hookSpecificOutput.tool_input` is merged into the call). A `BeforeModel`
+  hook can rewrite the model request. Hooks are set in Gemini's settings, which each
+  run already gets its own copy of, so no fork is needed.
+- **What stays impossible without changing Gemini:** continuing one of Gemini's *own*
+  sub-agents. `invoke_agent` has no id to continue; each call starts afresh.
+- **Not yet verified live:** that `BeforeTool` fires for `invoke_agent` in ACP mode, and
+  whether a sub-agent's own tool calls go through hooks.
+
+So the probe's Outcome B holds for Gemini's own sub-agents. Two routes are open
+through Gemini's hook, both decisions rather than facts:
+1. **Rewrite `invoke_agent`** (stays native): e.g. give a new sub-agent the evidence an
+   earlier one already acquired.
+2. **Route delegation to Omnigent workers** (as Omnigent does for Codex and Claude): deny
+   `invoke_agent` and point the model at `sys_session_create`/`sys_session_send`
+   (needs `omnigent_mcp: true`). Workers become addressable and EconoContext's
+   existing RESUME applies, but Gemini no longer delegates in its own way.
