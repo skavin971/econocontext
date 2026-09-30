@@ -191,6 +191,20 @@ def test_an_unreadable_body_is_still_forwarded_unchanged(gw):
     assert db().rows("SELECT COUNT(*) FROM outcomes WHERE run_id='g10'")[0][0] == 1
 
 
+def test_the_econo_arm_records_evidence_and_the_baseline_does_not(gw, tmp_path):
+    (tmp_path / "a.py").write_text("print(1)\n")
+    history = {**BODY, "contents": BODY["contents"] + [
+        {"role": "model", "parts": [{"functionCall": {"name": "read_file", "id": "1",
+                                                      "args": {"file_path": "a.py"}}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "read_file", "id": "1",
+                                                         "response": {"output": "print(1)"}}}]}]}
+    for run, arm in (("e1", "econo"), ("b1", "baseline")):
+        register_run(run, arm, "observe", host="omnigent:gemini", workdir=str(tmp_path))
+        post(f"{gw}/run/{run}/gemini{MODEL}:generateContent", history)
+    rows = db().rows("SELECT run_id, call_no, event, source_key FROM evidence_events")
+    assert [tuple(r) for r in rows] == [("e1", 0, "acquired", "a.py")]
+
+
 def test_a_model_without_a_price_card_is_recorded_as_incomplete(gw):
     register_run("g8", "baseline", "observe", host="omnigent:gemini")
     post(f"{gw}/run/g8/gemini/v1beta1/publishers/google/models/gemini-9-lite:generateContent",

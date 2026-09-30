@@ -184,6 +184,39 @@ One row per model call.
 | status | text | | `open` \| `completed` \| `failed` |
 | metadata | jsonb | | default `{}` |
 
+### evidence
+What an agent read, identified by the version it read (`econocontext/evidence.py`).
+Written once. Recorded for Gemini CLI runs in the econo arm, from the gateway.
+
+| column | type | null | meaning |
+|---|---|---|---|
+| run_id | text | | **PK** part 1 |
+| evidence_id | text | | **PK** part 2: sha256(kind \| source_key \| source_version \| range) |
+| source_kind | text | | `file` \| `search` |
+| source_key | text | | repo-relative path, or `<tool>:<args key>` |
+| source_version | text | | `sha256:<file bytes>` \| `text:<content hash>` (not recoverable) \| `epoch:<n>` (searches) |
+| range | text | | `''` = the whole source; else the narrowing arguments as JSON |
+| content_hash | text | | sha256 of the text the agent received |
+| byte_size, token_size | integer | | |
+| recoverable | boolean | | whether the source can give these bytes again |
+| created_at | timestamptz | | |
+
+### evidence_events
+When evidence entered an agent's context, and when a source changed.
+
+| column | type | null | meaning |
+|---|---|---|---|
+| run_id | text | | **PK** part 1 |
+| seq | integer | | **PK** part 2: order within the run |
+| agent_id | text | | |
+| call_no | integer | | the model call whose request carried it (0 = the run's first) |
+| event | text | | `acquired` \| `mutated` |
+| evidence_id | text → evidence | yes | NULL for `mutated` |
+| source_key | text | | for `mutated`: the path, or `*` when unknown |
+| tool_name | text | | |
+| args_key | text | | sha256 of the normalized call |
+| created_at | timestamptz | | |
+
 ### labels
 Written after a run.
 
@@ -282,7 +315,9 @@ Omnigent layer.
 | `cache_share(run_id)` | cache_read ÷ (uncached + cache_read), or none |
 | `predicted_vs_actual(run_id)`, `worker_calls(run_id)`, `last_prompt_tokens(agent_id)`, `input_tokens_since(time)` | |
 | `add_runtime_span(...)` | insert as open; ignore if it exists |
-| `finish_runtime_span(span_id, duration_ms, status)` | |
+| `finish_runtime_span(span_id, duration_ms, status, metadata?)` | metadata is merged into the span's |
+| `add_evidence_events(run_id, agent_id, call_no, events)` | atomic: each acquired evidence row once (ignore if it exists), every event with the next `seq` |
+| `mutations(run_id)` | count of `mutated` events: the epoch search evidence depends on |
 | `spans_of(run_id, kind?)`, `has_open_model_span(agent_id)`, `count_model_spans(run_id)` | |
 
 ### Labels, pointers

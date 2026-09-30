@@ -46,6 +46,7 @@ class EconoContext:
         self.cfg = self.config.raw
         self.mode = Mode(mode) if mode in ("observe", "autopilot") else self.config.mode
         self.host = host
+        self.workdir = workdir
         self.caps = host.capabilities if host else HostCapabilities()
         self.run_id = run_id
         self.arm = arm
@@ -354,6 +355,12 @@ class EconoContext:
         """Write barrier: bump the path (and the workspace epoch); invalidate what depended on it."""
         self.registry.mark_side_effect(agent_id)
         self.db.bump(self.run_id, [path] if path else [])
+
+    def observe_evidence(self, agent_id: str, call_no: int, events: list) -> None:
+        """Evidence entering an agent's context, and sources changing (evidence.py). Measured
+        only: nothing here changes what the agent sees."""
+        if events:
+            self.db.add_evidence_events(self.run_id, agent_id, call_no, events)
 
     def on_turn_end(self, agent_id: str) -> None:
         self.registry.turn_end(agent_id)

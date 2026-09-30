@@ -123,3 +123,34 @@ def test_a_malformed_request_is_observed_as_empty_not_an_error():
     for body in ({}, {"contents": "x"}, {"contents": [1, {"parts": "y"}]}):
         seen = gemini_wire.observe_request(body, b"{}")
         assert seen["contents"] <= 1 and seen["function_responses"] == []
+
+
+def test_tool_results_become_versioned_evidence(tmp_path):
+    (tmp_path / "auth.py").write_text("def login(): pass\n")
+    results = [
+        {"name": "read_file", "args": {"file_path": "auth.py"}, "response": {"output": "def login"}},
+        {"name": "read_file", "args": {"file_path": "auth.py", "offset": 10, "limit": 5},
+         "response": {"output": "login"}},
+        {"name": "grep_search", "args": {"pattern": "login"}, "response": {"output": "auth.py:1"}},
+        {"name": "read_file", "args": {"file_path": "gone.py"}, "response": {"error": "not found"}},
+        {"name": "replace", "args": {"file_path": "auth.py"}, "response": {"output": "ok"}},
+        {"name": "glob", "args": {"pattern": "*"}, "response": {"output": "auth.py"}},
+        {"name": "run_shell_command", "args": {"command": "make"}, "response": {"output": ""}},
+        {"name": "update_topic", "args": {}, "response": {"output": "topic"}},
+        {"name": "invoke_agent", "args": {}, "response": {"output": "report"}},
+    ]
+    events = gemini_wire.evidence_events(results, str(tmp_path), epoch=4)
+    assert [(e.event, e.source_key) for e in events] == [
+        ("acquired", "auth.py"), ("acquired", "auth.py"), ("acquired", events[2].source_key),
+        ("mutated", "auth.py"), ("acquired", events[4].source_key), ("mutated", "*")]
+    whole, part, grep, _, glob, _ = events
+    assert whole.ref.source_version == part.ref.source_version  # same file bytes...
+    assert whole.ref.evidence_id != part.ref.evidence_id        # ...different range
+    assert whole.ref.recoverable and whole.ref.source_version.startswith("sha256:")
+    assert grep.ref.source_version == "epoch:4" and glob.ref.source_version == "epoch:5"
+
+
+def test_without_a_workspace_the_version_is_the_text_and_not_recoverable():
+    [event] = gemini_wire.evidence_events(
+        [{"name": "read_file", "args": {"file_path": "a.py"}, "response": {"output": "x"}}], None, 0)
+    assert event.ref.source_version.startswith("text:") and not event.ref.recoverable

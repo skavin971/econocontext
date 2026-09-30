@@ -4,7 +4,8 @@ Why it exists: stock Gemini CLI calls the gateway in Gemini's own format (in Ver
 mode: /v1beta1/publishers/google/models/<model>:<method>). This is the single place
 that reads that format: which call a path is, and what the provider reported.
 It also reads what each call carried (observe_request, observe_response): sizes, hashes,
-and the tool calls and results, never the prompt text.
+and the tool calls and results, never the prompt text; and turns new tool results into
+versioned evidence (evidence_events, econocontext/evidence.py).
 What it must never do: decide anything, or change a request.
 
 Usage mapping (checked against Vertex on 2026-09-30, docs/gemini-integration-baseline.md):
@@ -25,6 +26,8 @@ import hashlib
 import json
 import re
 
+from econocontext.evidence import (EvidenceEvent, file_version, make_ref, normalize_path,
+                                   sha256)
 from econocontext.types import ProviderUsage
 
 # ".../models/<model>:<method>", in both the Gemini API and Vertex path shapes.
@@ -195,3 +198,35 @@ def observe_response(payloads: list[dict]) -> dict:
                                 "args_key": args_key(c.get("name"), c.get("args") or {})}
                                for c in extract_function_calls(payloads)],
             "response_text": response_has_text(payloads)}
+
+
+def evidence_events(results: list[dict], workdir: str | None, epoch: int) -> list[EvidenceEvent]:
+    """The tool results new in a request (find_latest_tool_result), as evidence events.
+    `epoch` is the run's workspace changes so far. A file's version is read from disk
+    when the gateway sees the result; a failed read acquires nothing; a write counts as
+    a change even if it failed (the safe side)."""
+    events = []
+    for r in results:
+        name, args = r["name"] or "", r["args"] or {}
+        kind, key, path = tool_kind(name), args_key(name, args), tool_path(name, args)
+        response = r["response"]
+        if kind == "write":
+            events.append(EvidenceEvent("mutated", name, key,
+                                        normalize_path(path, workdir) if path else "*"))
+            epoch += 1
+            continue
+        if kind not in ("file", "search") or (isinstance(response, dict) and "error" in response):
+            continue
+        text = response_text(response)
+        if kind == "file" and path:
+            source = normalize_path(path, workdir)
+            version = file_version(workdir, source)
+            narrowed = {k: v for k, v in args.items() if k != TOOLS[name][1]}  # offset, limit...
+            ref = make_ref("file", source, version or "text:" + sha256(text), text,
+                           json.dumps(narrowed, sort_keys=True) if narrowed else "",
+                           recoverable=version is not None)
+        else:  # a search, or a multi-file read: depends on the whole workspace
+            source = f"{name}:{key}"
+            ref = make_ref("search", source, f"epoch:{epoch}", text)
+        events.append(EvidenceEvent("acquired", name, key, source, ref))
+    return events

@@ -323,6 +323,31 @@ class AgentDB:
             (span_id, run_id, agent_id, kind, name, native_id, decision_id, now(), "open",
              json.dumps(metadata or {}, sort_keys=True)))
 
+    def add_evidence_events(self, run_id: str, agent_id: str, call_no: int, events) -> None:
+        """Record evidence.EvidenceEvent's in order: each acquired ref once, every event."""
+        with self.lock:
+            seq = self.conn.execute("SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events "
+                                    "WHERE run_id=?", (run_id,)).fetchone()[0]
+            for e in events:
+                if e.ref is not None:
+                    r = e.ref
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (run_id, r.evidence_id, r.source_kind, r.source_key, r.source_version,
+                         r.range, r.content_hash, r.byte_size, r.token_size, int(r.recoverable),
+                         now()))
+                self.conn.execute(
+                    "INSERT INTO evidence_events VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (run_id, agent_id, call_no, seq, e.event, e.ref.evidence_id if e.ref else None,
+                     e.source_key, e.tool_name, e.args_key, now()))
+                seq += 1
+            self.conn.commit()
+
+    def mutations(self, run_id: str) -> int:
+        """Workspace changes seen so far in the run: the epoch search evidence depends on."""
+        return self.rows("SELECT COUNT(*) n FROM evidence_events WHERE run_id=? AND "
+                         "event='mutated'", (run_id,))[0]["n"]
+
     def finish_runtime_span(self, span_id: str, duration_ms: float, status: str,
                             metadata: dict | None = None) -> None:
         """Close a span; `metadata` (what was learned only at the end) is merged in."""

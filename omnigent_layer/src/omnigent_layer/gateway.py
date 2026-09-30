@@ -163,7 +163,7 @@ class Gateway(common.Handler):
         entry.update(arm=arm, model=model, stream=stream, request_bytes=len(raw or b""))
         self.save_body(raw or b"")
         call_id = uuid.uuid4().hex
-        observed = self.observe(run_id, raw)
+        observed = self.observe(engine, arm, agent, run_id, raw)
         span = self.start_span(engine, agent, call_id, model, None,
                                {"arm": arm, "stream": stream, "format": "gemini", **observed})
         status, payloads = 502, []
@@ -179,14 +179,19 @@ class Gateway(common.Handler):
         if status == 200:
             self.measure(engine, agent, call_id, None, gemini_wire.to_usage(usage, latency), model)
 
-    def observe(self, run_id: str, raw: bytes | None) -> dict:
-        """What this Gemini request carried (gemini_wire.observe_request), and its call
-        number in the run. Never blocks the call: a body it cannot read is still sent."""
+    def observe(self, engine, arm: str, agent: str, run_id: str, raw: bytes | None) -> dict:
+        """What this Gemini request carried (gemini_wire.observe_request) and its call
+        number in the run; in the econo arm also the evidence it brought in. Never blocks
+        the call: a body it cannot read is still sent."""
         try:
+            body = json.loads(raw or b"{}")
             call_no = self.db.rows("SELECT COUNT(*) n FROM runtime_spans WHERE run_id=? AND "
                                    "kind='model'", (run_id,))[0]["n"]
-            return {"call_no": call_no, **gemini_wire.observe_request(json.loads(raw or b"{}"),
-                                                                     raw or b"")}
+            if arm == "econo":
+                engine.observe_evidence(agent, call_no, gemini_wire.evidence_events(
+                    gemini_wire.find_latest_tool_result(body), engine.workdir,
+                    self.db.mutations(run_id)))
+            return {"call_no": call_no, **gemini_wire.observe_request(body, raw or b"")}
         except Exception:
             log.exception("could not read the Gemini request")
             return {}

@@ -210,6 +210,39 @@ CREATE TABLE IF NOT EXISTS runtime_spans (
 CREATE INDEX IF NOT EXISTS runtime_spans_run ON runtime_spans(run_id, started_at);
 CREATE INDEX IF NOT EXISTS runtime_spans_open ON runtime_spans(run_id, status, agent_id);
 
+-- Evidence (econocontext/evidence.py): what an agent read, identified by the version it
+-- read. Write-once. The same path at another version is another piece of evidence.
+CREATE TABLE IF NOT EXISTS evidence (
+  run_id              TEXT NOT NULL,
+  evidence_id         TEXT NOT NULL,            -- sha256(kind | source_key | source_version | range)
+  source_kind         TEXT NOT NULL,            -- file | search
+  source_key          TEXT NOT NULL,            -- repo-relative path, or '<tool>:<args key>'
+  source_version      TEXT NOT NULL,            -- 'sha256:<file bytes>' | content hash | 'epoch:<n>'
+  range               TEXT NOT NULL,            -- '' = whole source
+  content_hash        TEXT NOT NULL,            -- sha256 of the text received
+  byte_size           INTEGER NOT NULL,
+  token_size          INTEGER NOT NULL,
+  recoverable         INTEGER NOT NULL,         -- 1 if the source can give these bytes again
+  created_at          TEXT NOT NULL,
+  PRIMARY KEY (run_id, evidence_id)
+);
+
+-- When evidence entered an agent's context ('acquired', at model call call_no), and
+-- when a source changed ('mutated'; source_key '*' = unknown which).
+CREATE TABLE IF NOT EXISTS evidence_events (
+  run_id              TEXT NOT NULL,
+  agent_id            TEXT NOT NULL,
+  call_no             INTEGER NOT NULL,         -- the model call whose request carried it
+  seq                 INTEGER NOT NULL,         -- order within the run
+  event               TEXT NOT NULL,            -- acquired | mutated
+  evidence_id         TEXT,                     -- NULL for mutated
+  source_key          TEXT NOT NULL,
+  tool_name           TEXT NOT NULL,
+  args_key            TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  PRIMARY KEY (run_id, seq)
+);
+
 -- What actually happened, derived after a run (econocontext/learn/labels.py). The truth
 -- that replay scores against and that the learned predictors are fitted to.
 CREATE TABLE IF NOT EXISTS labels (
