@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.swebench.evaluate import evaluate  # noqa: E402
+from econocontext.config import merge  # noqa: E402
 from benchmarks.swebench.tasks import SETS, load  # noqa: E402
 from harness.session import check_measured, check_settings, run_session, write_spec  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
@@ -48,8 +49,11 @@ from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
 # Claude Code on the Anthropic key: its price card, and caps per task (calls and dollars;
 # the key's total is capped at the gateway too).
+# ZONED (reordering) is never carried out on a Claude Code request: the gateway only
+# replaces old tool results with pointers (COMMIT_PENDING), in autopilot with --pointer.
 CLAUDE_OVERRIDES = {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},
-                    "limits": {"max_model_calls": 40, "per_instance_budget_usd": 1.50}}
+                    "limits": {"max_model_calls": 40, "per_instance_budget_usd": 1.50},
+                    "allowlist": {"ZONED": False}}
 # Claude Code's own Bash runs on this machine, where Docker is: it runs the repository's
 # tests in the task's container (Omnigent's MCP relay does not carry our testbed_shell).
 CLAUDE_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
@@ -118,9 +122,6 @@ def main() -> None:
         p.error("gemini-omnigent is measured only: --mode observe, no --jev/--learned/--pointer")
     if a.harness == "claude-code" and a.set:
         p.error("claude-code runs one --instance at a time (the Anthropic key has a small budget)")
-    if a.harness == "claude-code" and (a.mode != "observe" or a.pointer):
-        p.error("claude-code runs in observe mode for now: the gateway logs EconoContext's "
-                "decisions on its requests but cannot carry them out yet")
     instances = SETS[a.set] if a.set else [a.instance]
     overrides = {}
     if a.learned:
@@ -143,7 +144,7 @@ def run_one(a, instance: str, overrides: dict) -> None:
     if gemini:
         overrides = {**overrides, "limits": {"max_model_calls": GEMINI_MAX_CALLS}}
     if claude:
-        overrides = {**overrides, **CLAUDE_OVERRIDES}
+        overrides = merge(overrides, CLAUDE_OVERRIDES)
     host = {"gemini-omnigent": "omnigent:gemini", "claude-code": "omnigent:claude-code"}
     register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo",
                  current=a.harness == "openai-controlled", overrides=overrides or None,

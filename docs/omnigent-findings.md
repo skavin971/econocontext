@@ -232,3 +232,23 @@ Runs (one task each):
   logged a decision on every call (AS_IS each time; nothing applied in observe mode).
   Oracle: 2 of 15 turns only read, worth about $0.015 (7% of the run). Claude Code could
   not run the tests in this run (the docker exec instruction came after it).
+- **c3** (same task, same arm, with the docker exec instruction): **resolved** in 10 calls,
+  $0.15, 86% of input from cache. Claude Code ran the repository's tests in the container
+  itself ("All pastebin tests pass"). Tools asked for: Read ×3, Edit ×2, Bash ×2. Oracle: 3 of
+  10 turns only read, worth about $0.023 (15% of the run).
+
+### Autopilot on Claude Code requests (2026-09-30)
+
+What the gateway may change on a Claude Code request, and nothing else:
+- **COMMIT_PENDING only.** An old tool result is replaced by a pointer (a head/tail preview
+  and the path of a file holding the full text, which Claude Code can Read). The same
+  replacement is repeated in every later request of the run (`gateway_pointers`), so the
+  cached prefix is stable again after the one change. Thinking blocks, message order,
+  roles and `cache_control` are left exactly as Claude Code sent them.
+- **Never ZONED or retrieval.** Claude Code runs always set `allowlist.ZONED: false`.
+- **Fallback.** Editing earlier turns can be refused on some models and accounts (Anthropic's
+  "preserved thinking" check). If Anthropic answers 4xx to a changed request, the gateway
+  sends Claude Code's original instead (Claude Code never sees the error), forgets the
+  run's pointers and changes nothing more in that run (`*stopped*` in `gateway_pointers`,
+  and an `autopilot_stopped` line in the gateway log).
+

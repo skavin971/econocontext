@@ -207,14 +207,20 @@ class Gateway(common.Handler):
         self.save_body(raw or b"")
         call_id = uuid.uuid4().hex
         observed = self.observe(wire_module, engine, arm, agent, run_id, raw, body)
-        decision_id = None
-        if arm == "econo" and hasattr(wire_module, "to_segments") and "retry_of" not in observed:
-            decision_id = self.plan_observed(engine, run_id, agent, wire_module, body)
+        decision_id, sent = None, raw
+        if arm == "econo" and hasattr(wire_module, "to_segments"):
+            decision_id, sent = self.plan_provider(engine, run_id, agent, wire_module, body, raw,
+                                                   plan="retry_of" not in observed)
+        changed = sent is not raw
         span = self.start_span(engine, agent, call_id, model, decision_id,
-                               {"arm": arm, "stream": stream, "format": match["provider"], **observed})
+                               {"arm": arm, "stream": stream, "format": match["provider"],
+                                "changed": changed, **observed})
         status, payloads = 502, []
         try:
-            status, payloads = self.relay(url, raw, headers, stream)  # the body, unchanged
+            status, payloads = self.relay(url, sent, headers, stream,
+                                          original=raw if changed else None)
+            if self.rejected:  # the provider refused the change: stop changing this run
+                self.stop_changes(run_id, agent, self.rejected)
         finally:
             latency = (time.monotonic() - started) * 1000
             self.finish_span(engine, agent, span, latency, status == 200,
@@ -226,17 +232,45 @@ class Gateway(common.Handler):
             self.measure(engine, agent, call_id, decision_id, wire_module.to_usage(usage, latency),
                          model)
 
-    def plan_observed(self, engine, run_id, agent, wire_module, body) -> str | None:
-        """plan_prompt on a provider-format request, for the record only: the decision and
-        its predicted cost are logged, and the request is sent as the harness built it.
-        (Carrying a decision out needs the way back from segments, which this route does
-        not have yet; the benchmark runs these harnesses in observe mode only.)"""
+    def plan_provider(self, engine, run_id, agent, wire_module, body, raw, plan=True):
+        """plan_prompt on a provider-format request (Claude Code). Returns the decision id and
+        the bytes to send. Observe mode: the harness's request, unchanged. Autopilot: the
+        one change this route makes is COMMIT_PENDING, an old tool result replaced by a
+        pointer; a result pointed out once stays pointed out in every later request (the
+        prefix stays stable), and a run whose change the provider refused gets no more.
+        Reordering (ZONED) and retrieval are never carried out here. Fails open."""
         try:
-            segments = wire_module.to_segments(run_id, agent, body)
-            return engine.plan_prompt(agent, HostRequest(agent, segments)).decision_id
+            stopped = self.db.rows("SELECT 1 FROM gateway_pointers WHERE run_id=? AND agent_id=? "
+                                   "AND tool_call_id='*stopped*'", (run_id, agent))
+            pointers = {} if stopped else {r["tool_call_id"]: r["text"] for r in self.db.rows(
+                "SELECT tool_call_id, text FROM gateway_pointers WHERE run_id=? AND agent_id=?",
+                (run_id, agent))}
+            body = wire_module.with_pointers(body, pointers)
+            decision_id = None
+            if plan:
+                rendered = engine.plan_prompt(agent, HostRequest(
+                    agent, wire_module.to_segments(run_id, agent, body)))
+                decision_id = rendered.decision_id
+                new = {s.native_id: rendered.pointer_texts[s.id] for s in rendered.segments
+                       if s.id in (rendered.pointer_texts or {})} if rendered.applied and not stopped else {}
+                for use_id, text in new.items():
+                    self.db.execute("INSERT OR REPLACE INTO gateway_pointers VALUES(?,?,?,?)",
+                                    (run_id, agent, use_id, text))
+                body = wire_module.with_pointers(body, new)
+                pointers = {**pointers, **new}
+            return decision_id, (wire_module.encode(body) if pointers else raw)
         except Exception:
             log.exception("plan_prompt failed; the request is sent unchanged")
-            return None
+            return None, raw
+
+    def stop_changes(self, run_id, agent, rejected: dict) -> None:
+        """The provider refused a changed request: forget this agent's pointers, change
+        nothing more in this run, and say why in the log."""
+        self.db.execute("DELETE FROM gateway_pointers WHERE run_id=? AND agent_id=?", (run_id, agent))
+        self.db.execute("INSERT OR REPLACE INTO gateway_pointers VALUES(?,?,?,?)",
+                        (run_id, agent, "*stopped*", json.dumps(rejected)))
+        self.write_log({"at": datetime.now(timezone.utc).isoformat(), "run": run_id,
+                        "autopilot_stopped": rejected})
 
     def observe(self, wire_module, engine, arm: str, agent: str, run_id: str,
                 raw: bytes | None, body: dict) -> dict:

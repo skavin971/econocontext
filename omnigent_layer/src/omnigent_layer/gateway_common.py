@@ -78,13 +78,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def relay(self, url: str, raw: bytes, headers: dict, stream: bool) -> tuple[int, list[dict]]:
+    def relay(self, url: str, raw: bytes, headers: dict, stream: bool,
+              original: bytes | None = None) -> tuple[int, list[dict]]:
         """Send upstream; relay the reply to the harness unchanged (a stream line by line).
         Returns the status and the reply's JSON payloads: the body, or each SSE data
-        chunk. Payloads are parsed only after they were relayed, and only on success."""
+        chunk. Payloads are parsed only after they were relayed, and only on success.
+        `original`: the harness's own request, when `raw` is a changed one. If the provider
+        rejects the change (4xx), the original is sent instead, and `self.rejected` says so."""
+        self.rejected = None
         try:
             upstream = urllib.request.urlopen(urllib.request.Request(url, raw, headers), timeout=600)
         except urllib.error.HTTPError as err:
+            if original is not None and 400 <= err.code < 500:
+                rejected = {"status": err.code, "error": err.read()[:500].decode(errors="replace")}
+                log.warning("provider rejected a changed request (%s); sending the original", err.code)
+                result = self.relay(url, original, headers, stream)
+                self.rejected = rejected  # after the resend, which starts by clearing it
+                return result
             upstream = err
         status = upstream.status if hasattr(upstream, "status") else upstream.code
         self.send_response(status)

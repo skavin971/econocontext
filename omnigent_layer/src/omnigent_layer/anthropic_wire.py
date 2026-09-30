@@ -209,3 +209,25 @@ def to_segments(run_id: str, agent_id: str, body: dict) -> list[Segment]:
                 seen_task = True
                 segments.append(make_segment(run_id, agent_id, native, kind, text, role="user"))
     return segments
+
+
+def with_pointers(body: dict, pointers: dict[str, str]) -> dict:
+    """The request with the tool results named in `pointers` (tool_use id -> pointer text)
+    replaced by that text: the only change autopilot makes to a Claude Code request.
+    Everything else, including thinking blocks, order and cache_control, is kept."""
+    if not pointers:
+        return body
+
+    def block(b):
+        if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in pointers:
+            return {**b, "content": [{"type": "text", "text": pointers[b["tool_use_id"]]}]}
+        return b
+
+    return {**body, "messages": [
+        {**m, "content": [block(b) for b in m["content"]]} if isinstance(m.get("content"), list) else m
+        for m in _messages(body)]}
+
+
+def encode(body: dict) -> bytes:
+    """A changed request as bytes, compact as Claude Code sends it."""
+    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()

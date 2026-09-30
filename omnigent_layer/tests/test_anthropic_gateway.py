@@ -49,9 +49,14 @@ class Upstream(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    refuse_changes = False  # answer 400 to a request carrying a pointer (like a history check)
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         Upstream.seen.append((self.path, dict(self.headers), body))
+        if Upstream.refuse_changes and b"Full output:" in body:
+            return self.reply(400, b'{"type":"error","error":{"type":"invalid_request_error",'
+                                   b'"message":"history was edited"}}')
         if self.path.startswith("/v1/messages/count_tokens"):
             return self.reply(200, b'{"input_tokens": 7}')
         if json.loads(body).get("stream"):
@@ -62,11 +67,12 @@ class Upstream(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def gw(monkeypatch):
-    Upstream.seen = []
+    Upstream.seen, Upstream.refuse_changes = [], False
     upstream = serve(Upstream)
     monkeypatch.setattr(gateway, "ANTHROPIC_UPSTREAM", f"http://127.0.0.1:{upstream.server_port}")
     monkeypatch.setenv("ECONOCONTEXT_ANTHROPIC_KEY", "real-anthropic-key")
     gateway.Gateway.db = AgentDB(omnigent_layer.DB_PATH)
+    gateway.Gateway.db.execute(gateway.POINTERS_TABLE)
     server = serve(gateway.Gateway)
     yield f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
@@ -167,3 +173,48 @@ def test_the_econo_arm_logs_a_planner_decision_and_sends_the_request_unchanged(g
     assert (d["intercept"], d["applied"]) == ("plan_prompt", 0)
     time.sleep(0.2)
     assert db().rows("SELECT decision_id FROM outcomes WHERE run_id='a8'")[0][0] == d["decision_id"]
+
+
+AUTOPILOT = {**CLAUDE, "allowlist": {"COMMIT_PENDING": True, "ZONED": False},
+             "constraints": {"max_quality_risk": 0.2}}
+BIG = "\n".join(f"line {i}: " + "x" * 80 for i in range(150))
+
+
+def old_result_history():
+    return {**BODY, "messages": [
+        {"role": "user", "content": "fix it"},
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "sig"},
+                                          {"type": "tool_use", "id": "t1", "name": "Read",
+                                           "input": {"file_path": "a.py"}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": BIG}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "looked at it"}]},
+        {"role": "user", "content": "go on"}]}
+
+
+def test_autopilot_points_out_an_old_result_and_keeps_it_pointed_out(gw, tmp_path):
+    register_run("p1", "econo", "autopilot", workdir=str(tmp_path), host="omnigent:claude-code",
+                 overrides=AUTOPILOT)
+    history = old_result_history()
+    for turn in range(2):
+        assert post(f"{gw}/run/p1/anthropic/v1/messages", history)[0] == 200
+        sent = json.loads(Upstream.seen[-1][2])
+        result = sent["messages"][2]["content"][0]
+        assert "Full output:" in result["content"][0]["text"] and BIG not in json.dumps(result), turn
+        assert sent["messages"][1] == history["messages"][1]  # the thinking turn is untouched
+        assert [m["role"] for m in sent["messages"]] == [m["role"] for m in history["messages"]]
+    [pointer] = list((tmp_path / ".econocontext" / "pointers").iterdir())
+    assert pointer.read_text() == BIG
+    assert db().rows("SELECT applied FROM decisions WHERE run_id='p1' AND chosen='COMMIT_PENDING'")
+
+
+def test_a_refused_change_sends_the_original_and_stops_changing_the_run(gw, tmp_path):
+    Upstream.refuse_changes = True
+    register_run("p2", "econo", "autopilot", workdir=str(tmp_path), host="omnigent:claude-code",
+                 overrides=AUTOPILOT)
+    history = old_result_history()
+    status, reply = post(f"{gw}/run/p2/anthropic/v1/messages", history)
+    assert status == 200 and json.loads(reply) == REPLY           # the harness never sees the 400
+    assert json.loads(Upstream.seen[-1][2]) == history            # the original went through
+    post(f"{gw}/run/p2/anthropic/v1/messages", history)
+    assert json.loads(Upstream.seen[-1][2]) == history            # and no change is tried again
+    assert db().rows("SELECT 1 FROM gateway_pointers WHERE run_id='p2' AND tool_call_id='*stopped*'")
