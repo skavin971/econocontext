@@ -1,8 +1,8 @@
 """Label finished runs, then replay them: Phase 1's labels and Phase 2's counterfactuals.
 
-    .venv/bin/python bench/learn.py label  --label p1
-    .venv/bin/python bench/learn.py replay --label p1 [--allow POINTER]
-    .venv/bin/python bench/learn.py oracle --label g1
+    .venv/bin/python harness/learn.py label  --label p1
+    .venv/bin/python harness/learn.py replay --label p1 [--allow POINTER]
+    .venv/bin/python harness/learn.py oracle --label g1
 
 `label` writes what actually happened to the `labels` table (econocontext/learn/labels.py;
 for runs with evidence, also learn/evidence_labels.py: which reads were repeated, and

@@ -3,7 +3,8 @@
 ## Three parts, one rule about imports
 
 ```
-bench/            the experiment: SWE-bench instances run as Omnigent sessions
+harness/          how an agent runs on Omnigent, whatever the benchmark
+benchmarks/       one folder per benchmark: swebench/ runs SWE-bench instances as Omnigent sessions
         │  starts sessions; registers runs and reads reports from the Agent DB
         ▼
 omnigent_layer/   the platform layer: an Omnigent policy and a model gateway
@@ -12,10 +13,10 @@ omnigent_layer/   the platform layer: an Omnigent policy and a model gateway
 econocontext/     the optimizer: all decisions. Imports only the stdlib and pyyaml
 ```
 
-- **Why the optimizer is kept apart:** it can be developed and tested alone (`pytest -q`, no Omnigent installed), and a second platform would need only its own `<platform>_layer/`. `tests/unit/test_isolation.py` fails if the core imports anything but the standard library and pyyaml, or if anything but `bench/run.py` imports Omnigent.
+- **Why the optimizer is kept apart:** it can be developed and tested alone (`pytest -q`, no Omnigent installed), and a second platform would need only its own `<platform>_layer/`. `tests/unit/test_isolation.py` fails if the core imports anything but the standard library and pyyaml, or if anything but `benchmarks/swebench/run.py` imports Omnigent.
 - **One shared language:** the core's parts talk to each other only through the dataclasses in `econocontext/types.py`, such as `Segment`, `Candidate`, `Decision` and `ProviderUsage`.
 - **Why Omnigent:** it can run many harnesses (Claude Code, Codex, Pi, the OpenAI Agents SDK, …), with sessions, sub-agents, sandboxes and a UI. EconoContext adds only what is new: pricing and choosing.
-- **The harness we actually use:** the **OpenAI Agents SDK** (Omnigent's `openai-agents` harness), thinking with Gemini 3.6 Flash. It is the agent loop that solves the SWE-bench task. It is installed with Omnigent, not part of this repo, and chosen in `bench/agent.yaml`. The other harnesses need Anthropic or OpenAI keys we don't have yet.
+- **The harness we actually use:** the **OpenAI Agents SDK** (Omnigent's `openai-agents` harness), thinking with Gemini 3.6 Flash. It is the agent loop that solves the SWE-bench task. It is installed with Omnigent, not part of this repo, and chosen in `harness/specs/openai_agents.yaml`. The other harnesses need Anthropic or OpenAI keys we don't have yet.
 
 ## The core, module by module
 
@@ -71,16 +72,16 @@ Why two: Omnigent's policy events carry only a summary of each model call (never
 
 ## One run, start to finish
 
-This is `bench/run.py`, for one SWE-bench instance:
+This is `benchmarks/swebench/run.py`, for one SWE-bench instance:
 
 1. **Register the run** in the Agent DB (`omnigent_layer.register_run`): arm, mode, model, config fingerprint, and whether `--jev` is on. From now on the gateway and the policy know the run from its id alone.
 2. **Prepare the workspace:** copy `/testbed` out of the instance's official image into `data/work/<run>`, then start that image with the copy mounted at `/testbed`, so tests run in the repository's own environment.
-3. **Write the agent spec** from `bench/agent.yaml`: the model URL is `http://127.0.0.1:8787/run/<run_id>/v1`, the working directory is the workspace, and the econo arm gets the EconoContext policy. This is the only difference between the arms.
+3. **Write the agent spec** from `harness/specs/openai_agents.yaml`: the model URL is `http://127.0.0.1:8787/run/<run_id>/v1`, the working directory is the workspace, and the econo arm gets the EconoContext policy. This is the only difference between the arms.
 4. **Start an Omnigent session** and send the issue text. The agent reads and edits with Omnigent's file tools, and runs tests with `testbed_shell` (`omnigent_layer/tools.py`), which runs in the container.
 5. **Stop** when the agent says it is done, when the gateway's cap (60 model calls) refuses a call, or on an error.
 6. **Take the patch** (`git diff` of the workspace) and write it to `data/runs/<label>/`.
 7. **Grade it** with the official SWE-bench harness in a fresh container. The result is written back to `runs.resolved`.
-8. **Report:** `bench/report.py --label <label>`.
+8. **Report:** `harness/report.py --label <label>`.
 
 ## Agents
 

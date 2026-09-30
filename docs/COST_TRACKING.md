@@ -164,19 +164,19 @@ GROUP BY run_id;
 Text remains the default human-readable format:
 
 ```sh
-.venv/bin/python bench/report.py --label check1
+.venv/bin/python harness/report.py --label check1
 ```
 
 JSON is the timeline-ready export for notebooks or later visualization:
 
 ```sh
-.venv/bin/python bench/report.py --label check1 --format json --output report.json
+.venv/bin/python harness/report.py --label check1 --format json --output report.json
 ```
 
 CSV is one flattened row per run for spreadsheets and statistical analysis:
 
 ```sh
-.venv/bin/python bench/report.py --label check1 --format csv --output report.csv
+.venv/bin/python harness/report.py --label check1 --format csv --output report.csv
 ```
 
 JSON includes run metadata, pricing provenance, price periods, configuration

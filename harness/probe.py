@@ -13,7 +13,7 @@ Gemini delegate (the sub-agent is not named) and collects, side by side:
 It prints the evidence as JSON; the answers are written up in docs/omnigent-findings.md.
 One run on purpose: the API is rate limited.
 
-Run: .venv/bin/python bench/gemini/probe.py --repo data/work/g1_econo_pytest-dev__pytest-5809
+Run: .venv/bin/python harness/probe.py --repo data/work/g1_econo_pytest-dev__pytest-5809
 """
 
 import argparse
@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from run import run_session, session_view, write_spec  # noqa: E402
+from harness.session import run_session, session_view, write_spec  # noqa: E402
 
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 

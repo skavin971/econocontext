@@ -117,7 +117,7 @@ with no screen at all. It has three parts:</p>
 </table></div>
 <p>The harness that actually solves the task is the <b>OpenAI Agents SDK</b> (Omnigent's
 <code>openai-agents</code> harness), thinking with <b>Gemini 3.6 Flash</b>. None of that
-code is in our repo; it is installed with Omnigent and chosen in <code>bench/agent.yaml</code>.</p>
+code is in our repo; it is installed with Omnigent and chosen in <code>harness/specs/openai_agents.yaml</code>.</p>
 
 <figure>
 <div class="diagram">
@@ -141,7 +141,7 @@ code is in our repo; it is installed with Omnigent and chosen in <code>bench/age
 <text class="t-s" x="56" y="274">REST: /v1/sessions, /items, /child_sessions, /fork, /v1/usage …</text>
 
 <rect class="box-ours" x="600" y="20" width="260" height="56" rx="10"/>
-<text class="t-h" x="616" y="44">bench/run.py</text>
+<text class="t-h" x="616" y="44">benchmarks/swebench/run.py</text>
 <text class="t-s" x="616" y="64">one SWE-bench task per session</text>
 <rect class="box-ours" x="600" y="110" width="260" height="70" rx="10"/>
 <text class="t-h" x="616" y="134">gateway.py</text>
@@ -193,10 +193,10 @@ events reach our policy through Omnigent's policy hook.</figcaption>
 <h3>Used now</h3>
 <div class="table"><table>
 <tr><th>API</th><th>What for</th><th>Our code</th></tr>
-<tr><td><code>executor.auth.base_url</code> in the agent spec</td><td>Send every model call through our gateway</td><td><code>bench/agent.yaml</code></td></tr>
+<tr><td><code>executor.auth.base_url</code> in the agent spec</td><td>Send every model call through our gateway</td><td><code>harness/specs/openai_agents.yaml</code></td></tr>
 <tr><td>Policy events <code>tool_call</code> and <code>tool_result</code> (of the six phases a policy can see)</td><td>See tool traffic, and change a tool result</td><td><code>omnigent_layer/policy.py</code></td></tr>
 <tr><td><code>callable:</code> function tools</td><td>Add <code>testbed_shell</code></td><td><code>omnigent_layer/tools.py</code></td></tr>
-<tr><td>Session create + runner launch, <code>SessionsChat</code></td><td>Start a task and wait for the answer</td><td><code>bench/run.py</code></td></tr>
+<tr><td>Session create + runner launch, <code>SessionsChat</code></td><td>Start a task and wait for the answer</td><td><code>benchmarks/swebench/run.py</code></td></tr>
 </table></div>
 <h3>Available, not used yet</h3>
 <div class="table"><table>
@@ -279,14 +279,14 @@ agent's summary of its fix. Clicking the worked-for line expands every tool call
 </figure>
 <p>Each new run adds one session to this list, with its full transcript. The UI shows
 <b>what the agent did</b>. It does not show <b>what EconoContext decided or what each call
-really cost</b>: that lives in our Agent DB and <code>bench/report.py</code>. Once we run
+really cost</b>: that lives in our Agent DB and <code>harness/report.py</code>. Once we run
 both arms, you can open the two sessions side by side in the UI and compare them in the
 report.</p>
 
 <h2 id="look">See it yourself</h2>
 <pre><code>.venv/bin/omnigent server status                 # is Omnigent running?
 open http://127.0.0.1:6767                       # the UI: sessions and transcripts
-.venv/bin/python bench/report.py --label q6b     # EconoContext's view of the same run</code></pre>
+.venv/bin/python harness/report.py --label q6b     # EconoContext's view of the same run</code></pre>
 <p>The UI opens on a new session. Pick <b>"Fix pastebin lexer parameter to text"</b> in
 the sidebar to see the SWE-bench run.</p>
 </div>

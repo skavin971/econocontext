@@ -13,7 +13,7 @@ with no fake models and no toy harness.
 | **SWE-bench Verified** | 500 real GitHub issues from Python projects, each with hidden tests that pass only if the bug is fixed | `swebench==5.0.2` |
 | **Docker** | Each instance has an official image with the repository at `/testbed` at the buggy commit, and its dependencies installed | linux/amd64, runs under emulation on Apple Silicon |
 
-## The agent (`bench/agent.yaml`)
+## The agent (`harness/specs/openai_agents.yaml`)
 
 - **One spec for both arms.** A short prompt: fix the issue in the working directory; hidden tests will check it.
 - **Its tools:**
@@ -55,8 +55,8 @@ When nothing is changed, the harness's request is forwarded byte for byte.
 | Everything else (model, prompt, tools, workspace, caps) | same | same |
 
 Commands (the Omnigent server and the gateway must be running; see [TESTING.md](TESTING.md)):
-- baseline: `.venv/bin/python bench/run.py --label L --instance ID --arm baseline`
-- econo: `.venv/bin/python bench/run.py --label L --instance ID --arm econo --mode observe|autopilot [--jev]`
+- baseline: `.venv/bin/python benchmarks/swebench/run.py --label L --instance ID --arm baseline`
+- econo: `.venv/bin/python benchmarks/swebench/run.py --label L --instance ID --arm econo --mode observe|autopilot [--jev]`
 
 ## Instances (fixed before any run)
 
@@ -75,7 +75,7 @@ Commands (the Omnigent server and the gateway must be running; see [TESTING.md](
 | `pytest-dev__pytest-7432` | 1 | 77 |
 | `sphinx-doc__sphinx-8721` | 1 | 3 |
 
-## Grading (`bench/evaluate.py`)
+## Grading (`benchmarks/swebench/evaluate.py`)
 
 - **Who grades:** only the official SWE-bench harness decides pass or fail. It runs the hidden tests on the patch in a fresh container.
 - **Without Docker:** it stops with a message; there is no homemade substitute.

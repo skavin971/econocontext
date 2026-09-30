@@ -37,7 +37,7 @@ Checked against live replies on 2026-09-28 ([findings](omnigent-findings.md), qu
 
 - **Per call:** each billing category × its price from `config/billing_rates.yaml`, in USD and NU, written to the call's `outcomes` row with the price period used.
 - **Incomplete:** when a billed counter was not reported, the call is marked incomplete; the known subtotal is kept but not treated as a full bill.
-- **Per run:** a SQL sum over `outcomes` (`Ledger.run_cost`). `bench/report.py` prints it, and exports JSON or CSV.
+- **Per run:** a SQL sum over `outcomes` (`Ledger.run_cost`). `harness/report.py` prints it, and exports JSON or CSV.
 - **Checked:** its acceptance tests price a real v0 bill to the cent, and a layer test pins the SWE-bench run on Omnigent at $0.097717875. Details: [COST_TRACKING.md](COST_TRACKING.md).
 - **Dollar budgets** are not enforced on Omnigent yet; the gateway's caps (calls per run, input tokens per day) stop paid runs.
 
@@ -76,7 +76,7 @@ Schema and comments: `econocontext/store/schema.sql`.
 ## Reading results
 
 ```sh
-.venv/bin/python bench/report.py --label q6b
+.venv/bin/python harness/report.py --label q6b
 ```
 
 For each run, the report prints:

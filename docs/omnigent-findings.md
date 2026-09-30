@@ -16,7 +16,7 @@ OpenAI-compatible endpoint. Evidence lives in `logs/gateway/calls.jsonl` and
 | 3 | Session identity in policy events | **No session id.** Stamping into `session_state` works, but the state a policy sees differs by phase: `request` events saw none of it, `llm_request` saw only its own key, tool events saw all keys. **Design consequence:** our policy gets its run id from `factory_params`, not from session state | probe log |
 | 4 | Sub-agents | (a) A per-agent `auth.base_url` **is honored**: the sub-agent called `/run/<id>/agent/helper/v1/…`, so the gateway attributes calls per agent. (b) A sub-agent's own `policies:` are **not evaluated**: its tool events reach the **root** agent's policy. (c) A sub-agent **ignores** `use_responses: false` and calls `/responses`; setting `HARNESS_OPENAI_AGENTS_USE_RESPONSES=false` on the runner does not reach it either. After the refusal Omnigent retried the sub-agent on a Databricks model, which Vertex rejected (400). **So on Gemini today, `openai-agents` sub-agents do not work**; the bench uses a single agent | gateway log, probe log |
 | 5 | Per-call usage from Omnigent | **Not available.** `llm_response` never fired in any run (0 events), and `context.usage` is a session total. **The gateway is the only per-call usage source**, and it has the cache fields (0b) | probe log |
-| 6 | SWE-bench workspace end to end | **Yes.** `pytest-dev__pytest-5809`, econo arm, observe mode: **resolved** by the official harness. 28 model calls; 73% of input tokens were cache reads; 1,339-byte patch (3 files, all part of the fix). The write barrier bumped each changed path, and 4 of 6 stored file reads were invalidated when their files changed. 83 decisions logged, none applied (observe) | run `q6b:econo:pytest-dev__pytest-5809`; `bench/report.py --label q6b` |
+| 6 | SWE-bench workspace end to end | **Yes.** `pytest-dev__pytest-5809`, econo arm, observe mode: **resolved** by the official harness. 28 model calls; 73% of input tokens were cache reads; 1,339-byte patch (3 files, all part of the fix). The write barrier bumped each changed path, and 4 of 6 stored file reads were invalidated when their files changed. 83 decisions logged, none applied (observe) | run `q6b:econo:pytest-dev__pytest-5809`; `harness/report.py --label q6b` |
 | — | Native mode (Pi) | **Not answered today.** Pi 0.87.1 installed. `pi-native` ignores the spec's `auth`; it needs an Omnigent *provider*. A project-level `.omnigent/config.yaml` is not read (the runner's cwd is elsewhere). With a temporary user-level provider the session started, but Pi made no model call through the gateway within 110 s, and its tmux screen was not reachable to see why. The user-level config was restored afterwards | runner logs |
 
 Other things we hit:
@@ -114,13 +114,13 @@ Where it can diverge, and what happens:
 ## Stock Gemini CLI over ACP (2026-09-30)
 
 Gemini CLI 0.62.0, Omnigent's generic `acp` harness, Vertex through the gateway's
-`/run/<id>/gemini` route. Smoke task (`bench/gemini/smoke.py`): **resolved**, 6 model
+`/run/<id>/gemini` route. Smoke task (`harness/smoke.py`): **resolved**, 6 model
 calls, $0.031, 52% of input tokens cache reads. What it took:
 
 | Problem | Cause | Fix |
 |---|---|---|
-| `harness 'acp' is not configured on host` | The host daemon launches `acp` only when an ACP agent is registered in `~/.omnigent/config.yaml`, even though the spec embeds its own | `bench/setup_provider.py` also registers Gemini CLI. The spec's embedded agent is what runs |
-| `did not answer authenticate within 30s` | In ACP mode Gemini takes its auth type only from settings (`security.auth.selectedType`), not from `GOOGLE_GENAI_USE_VERTEXAI`, so `session/new` failed. Omnigent's fallback then sent `authenticate` with `gemini-api-key` (the first non-browser method), which never returns. `GEMINI_CLI_SYSTEM_SETTINGS_PATH` was not enough | Each run gets its own `HOME`, with `bench/gemini/settings.json` as `~/.gemini/settings.json` (`vertex-ai`). It also keeps each run's Gemini session files apart |
+| `harness 'acp' is not configured on host` | The host daemon launches `acp` only when an ACP agent is registered in `~/.omnigent/config.yaml`, even though the spec embeds its own | `harness/setup.py` also registers Gemini CLI. The spec's embedded agent is what runs |
+| `did not answer authenticate within 30s` | In ACP mode Gemini takes its auth type only from settings (`security.auth.selectedType`), not from `GOOGLE_GENAI_USE_VERTEXAI`, so `session/new` failed. Omnigent's fallback then sent `authenticate` with `gemini-api-key` (the first non-browser method), which never returns. `GEMINI_CLI_SYSTEM_SETTINGS_PATH` was not enough | Each run gets its own `HOME`, with `harness/specs/gemini/settings.json` as `~/.gemini/settings.json` (`vertex-ai`). It also keeps each run's Gemini session files apart |
 | Turn ended at the first edit, empty reply | Gemini asked permission for `replace`. Omnigent raised an approval card despite `permission_mode: bypassPermissions` (a policy verdict of ASK wins over bypass), and the headless client ended the turn | `gemini --acp --approval-mode yolo`: Gemini does not ask. ACP `tool_call` events still reach Omnigent |
 
 Observed from the requests (not assumed):
@@ -137,7 +137,7 @@ Observed from the requests (not assumed):
 
 ## Can Omnigent see and address Gemini's own sub-agents? (2026-09-30)
 
-`bench/gemini/probe.py`, one run (`probe-gemini:econo:subagents-20260930T193842`, pytest
+`harness/probe.py`, one run (`probe-gemini:econo:subagents-20260930T193842`, pytest
 repository). The task asked how pytest collects tests and did not name a sub-agent.
 Gemini delegated on its own first call: `invoke_agent` with
 `agent_name: codebase_investigator`. The sub-agent then made 10 model calls (1 grep,

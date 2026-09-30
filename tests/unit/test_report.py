@@ -5,7 +5,7 @@ from econocontext import config
 from econocontext.pricing.ledger import Ledger
 from econocontext.store.db import AgentDB
 from econocontext.types import AgentNode, ProviderUsage
-from bench.report import build_report, csv_text, render_text
+from harness.report import build_report, csv_text, render_text
 
 
 def test_report_exports_costs_timings_and_no_raw_usage(tmp_path):

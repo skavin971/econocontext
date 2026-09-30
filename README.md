@@ -14,9 +14,10 @@ How we use Omnigent, on one page: [`docs/html/omnigent.html`](docs/html/omnigent
 |---|---|---|---|
 | **EconoContext** | The optimizer: decides, prices, logs | [`econocontext/`](econocontext/) | ✅ ours |
 | **Omnigent layer** | The glue that connects Omnigent to EconoContext | [`omnigent_layer/`](omnigent_layer/) | ✅ ours |
-| **Bench** | Runs SWE-bench tasks and grades them | [`bench/`](bench/) | ✅ ours |
+| **Harness** | Runs an agent on Omnigent (specs, sessions, setup, labels, reports), whatever the benchmark | [`harness/`](harness/) | ✅ ours |
+| **Benchmarks** | Task loading and grading, one folder per benchmark (SWE-bench today) | [`benchmarks/`](benchmarks/) | ✅ ours |
 | **Omnigent** | The platform that runs agents: sessions, tools, sandboxes, UI | installed: `pip install omnigent==0.15.0` | ❌ Databricks, open source |
-| **The coding harness** | The agent loop that actually solves the task (think, call a tool, read the result, repeat) | the OpenAI Agents SDK (`openai-agents`), installed with Omnigent, chosen in [`bench/agent.yaml`](bench/agent.yaml) | ❌ OpenAI, open source |
+| **The coding harness** | The agent loop that actually solves the task (think, call a tool, read the result, repeat) | the OpenAI Agents SDK (`openai-agents`), installed with Omnigent, chosen in [`harness/specs/openai_agents.yaml`](harness/specs/openai_agents.yaml) | ❌ OpenAI, open source |
 | **The model** | Gemini 3.6 Flash | Google Vertex AI (key in `.env`) | ❌ Google |
 | **SWE-bench** | Real GitHub bugs, their Docker images, the official grader | installed: `pip install swebench` | ❌ SWE-bench |
 
@@ -26,7 +27,7 @@ with Gemini**. EconoContext only watches it and, when allowed, adjusts what it s
 ## The picture
 
 ```
- bench/run.py ── starts one Omnigent session per SWE-bench task ──┐
+ benchmarks/swebench/run.py ── starts one Omnigent session per SWE-bench task ──┐
                                                                   ▼
  ┌──────────────── Omnigent (installed, not modified) ───────────────────┐
  │  the coding harness: OpenAI Agents SDK                                 │
@@ -49,12 +50,12 @@ with Gemini**. EconoContext only watches it and, when allowed, adjusts what it s
 
 ## One task, step by step
 
-1. **`bench/run.py`** takes one bug (say `pytest-dev__pytest-5809`), copies its repository to `data/work/…`, and starts the bug's Docker image so tests can run.
-2. It asks **Omnigent** to start a session with the agent in `bench/agent.yaml`.
+1. **`benchmarks/swebench/run.py`** takes one bug (say `pytest-dev__pytest-5809`), copies its repository to `data/work/…`, and starts the bug's Docker image so tests can run.
+2. It asks **Omnigent** to start a session with the agent in `harness/specs/openai_agents.yaml`.
 3. **The harness** (OpenAI Agents SDK) works on the bug: it reads and edits files, and runs tests with `testbed_shell` inside the Docker image.
 4. **Every model call** goes to `omnigent_layer/gateway.py`, which passes it on to Gemini and records the exact tokens. **Every tool result** goes through `omnigent_layer/policy.py`.
 5. Both hand what they see to **`econocontext/`**, which decides and writes everything to the Agent DB. In `observe` mode it only logs; in `autopilot` its choices are applied.
-6. When the agent is done, `bench/run.py` takes the `git diff` and **SWE-bench's official grader** says pass or fail.
+6. When the agent is done, `benchmarks/swebench/run.py` takes the `git diff` and **SWE-bench's official grader** says pass or fail.
 
 ## Folders
 
@@ -72,7 +73,8 @@ omnigent_layer/   the glue, its own small package (pip install -e omnigent_layer
   workspace.py      which files changed (so old results are not reused)
   tools.py          testbed_shell: a shell inside the task's Docker image
   wire.py           converts the model's message format to EconoContext's
-bench/            the experiment: run.py, agent.yaml (with a worker), learn.py, report.py
+harness/          how an agent runs: session.py, specs/ (openai_agents.yaml with a worker, gemini/), learn.py, report.py
+benchmarks/       one folder per benchmark: swebench/ (run.py, tasks.py, evaluate.py)
 config/           every number the optimizer uses, and the price cards
 tests/            tests for the optimizer (omnigent_layer/tests/ for the glue)
 docs/             the guide, the Omnigent findings, how to run everything
@@ -81,7 +83,7 @@ v0/               the earlier prototype (archive)
 
 **The rule that keeps it separate:** `econocontext/` never imports Omnigent, the
 harness or any provider, so it can be worked on alone (`pytest -q` needs nothing else
-installed). Only `bench/run.py` imports Omnigent. `tests/unit/test_isolation.py`
+installed). Only `harness/session.py` imports Omnigent. `tests/unit/test_isolation.py`
 fails if either rule is broken. The earlier Deep Agents version is in git under the tag
 `deepagents-host`; what we learned moving to Omnigent is in
 [`docs/omnigent-findings.md`](docs/omnigent-findings.md).
@@ -95,7 +97,7 @@ between releases.
 - [Omnigent on Databricks](https://docs.databricks.com/aws/en/omnigent/): the managed version and quickstart
 - [Introducing Omnigent](https://www.databricks.com/blog/introducing-omnigent-meta-harness-combine-control-and-share-your-agents): what a meta-harness is
 - [Policies](https://github.com/omnigent-ai/omnigent/blob/main/docs/POLICIES.md): the hook `omnigent_layer/policy.py` uses
-- [Agent YAML spec](https://github.com/omnigent-ai/omnigent/blob/main/docs/AGENT_YAML_SPEC.md): the format of `bench/agent.yaml`
+- [Agent YAML spec](https://github.com/omnigent-ai/omnigent/blob/main/docs/AGENT_YAML_SPEC.md): the format of `harness/specs/openai_agents.yaml`
 - Ours: [how we use Omnigent, on one page](docs/html/omnigent.html) and [what we found wiring it up](docs/omnigent-findings.md)
 
 ## Details: where EconoContext decides
@@ -126,12 +128,12 @@ Cost tracking, runtime spans, and text/JSON/CSV reporting are documented in
 Step by step, with what each step proves and costs: [`docs/TESTING.md`](docs/TESTING.md).
 
 ```sh
-.venv/bin/pip install -e ".[bench,dev]" -e omnigent_layer
+.venv/bin/pip install -e ".[swebench,dev]" -e omnigent_layer
 .venv/bin/python -m pytest -q && .venv/bin/python -m pytest -q omnigent_layer   # free
 .venv/bin/omnigent start --no-open --non-interactive     # Omnigent server + runner host
 .venv/bin/python -m omnigent_layer.gateway               # the gateway (localhost:8787)
-.venv/bin/python bench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe
-.venv/bin/python bench/report.py --label dev1
+.venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe
+.venv/bin/python harness/report.py --label dev1
 ```
 
 Credentials come from `.env` (`AGENT_PLATFORM_API_KEY`). Only the gateway reads the key;

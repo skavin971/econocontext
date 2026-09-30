@@ -6,13 +6,13 @@ passes the gateway (placeholder key in, real key upstream), and the reply comes 
 It makes a handful of model calls on purpose (call cap 10): the API is rate limited.
 
   1. make a tiny git repository with one bug, in data/work/<run>
-  2. register the run (host omnigent:gemini) and fill bench/gemini/agent.yaml
+  2. register the run (host omnigent:gemini) and fill harness/specs/gemini/agent.yaml
   3. one Omnigent session, one task; print the reply, the diff and the measured calls
 
 Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Gemini CLI in data/tools (see README).
 
-Run: .venv/bin/python bench/gemini/smoke.py [--arm econo --mode observe]
+Run: .venv/bin/python harness/smoke.py [--arm econo --mode observe]
 """
 
 import argparse
@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from run import run_session, write_spec  # noqa: E402
+from harness.session import run_session, write_spec  # noqa: E402
 
 from econocontext.pricing.ledger import summary  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402

@@ -8,7 +8,7 @@ the run up and reads the outcome.
   1. register the run (arm, mode) in the Agent DB, so the gateway and policy know it
   2. copy /testbed out of the instance image into data/work/<run>, and start that image
      with the copy mounted at /testbed (the repository's own environment)
-  3. create an Omnigent session from bench/agent.yaml; its testbed_shell tool
+  3. create an Omnigent session from harness/specs/openai_agents.yaml (harness/session.py); its testbed_shell tool
      (omnigent_layer.tools.container_shell) runs commands in that container and shows
      the host path in place of /testbed, so the agent sees one path
   4. send the issue; take `git diff`; grade with the official harness
@@ -16,14 +16,14 @@ the run up and reads the outcome.
 Needs: the Omnigent server (omnigent start) and the gateway
 (python -m omnigent_layer.gateway) running, and Docker.
 
---harness gemini-omnigent runs stock Gemini CLI instead (bench/gemini/agent.yaml): no
+--harness gemini-omnigent runs stock Gemini CLI instead (harness/specs/gemini/agent.yaml): no
 container (Gemini's shell runs on the host), no policy; the gateway records its calls
 and, in the econo arm, the evidence they carried.
 
-Run: .venv/bin/python bench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
-     .venv/bin/python bench/run.py --harness gemini-omnigent --label g1 --instance pytest-dev__pytest-5809 --arm econo
-     .venv/bin/python bench/run.py --label p1 --set mid5 --arm econo --mode observe
-     .venv/bin/python bench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
+Run: .venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
+     .venv/bin/python benchmarks/swebench/run.py --harness gemini-omnigent --label g1 --instance pytest-dev__pytest-5809 --arm econo
+     .venv/bin/python benchmarks/swebench/run.py --label p1 --set mid5 --arm econo --mode observe
+     .venv/bin/python benchmarks/swebench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
 """
 
 import argparse
@@ -35,36 +35,21 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from string import Template
 
-from omnigent.chat import (_prepare_chat_session_via_daemon, _remote_headers, _server_auth,
-                           _stop_headless_session)
-from omnigent.cli import _bundle
-from omnigent.host.identity import load_or_create_host_identity
-from omnigent_client import OmnigentClient, SessionsChat, StreamHooks
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
-from omnigent_layer import HOME, engine_for, register_run
+from benchmarks.swebench.evaluate import evaluate  # noqa: E402
+from benchmarks.swebench.tasks import SETS, load  # noqa: E402
+from harness.session import run_session, write_spec  # noqa: E402
+from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).parent))
-from evaluate import evaluate  # noqa: E402
-from tasks import SETS, load  # noqa: E402
-
-BENCH = Path(__file__).parent
-GEMINI = HOME / "data" / "tools" / "node_modules" / ".bin" / "gemini"  # pinned: docs/gemini-integration-baseline.md
-GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
 # Gemini gets the issue with the framing the openai-controlled agent has in its spec
 # prompt, and nothing about how to work: its own instructions apply.
 GEMINI_TASK = ("Fix the GitHub issue below in the repository in your working directory. "
                "Hidden tests will check your fix. Keep the change minimal.\n\n")
 ACTIVATE = "source /opt/miniconda3/bin/activate testbed"
-POLICY = """
-policies:
-  econocontext:
-    type: function
-    handler: omnigent_layer.policy.econocontext
-    factory_params: {run_id: "$run_id", workdir: "$workdir"}
-"""
 
 
 def sh(*cmd: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -94,61 +79,6 @@ def prepare(image: str, workdir: Path, container: str, run_container: bool = Tru
        "-v", f"{workdir}:/testbed", "-w", "/testbed", image, "sleep", "infinity")
 
 
-def approve_all(ctx) -> bool:
-    """Headless: accept an approval card (and say what asked), instead of the client's
-    default decline, which ends the turn. Gemini asks for some shell commands even with
-    --approval-mode yolo."""
-    print(f"approved: {ctx.policy_name or ctx.phase or 'harness'}: {ctx.message[:160]}", flush=True)
-    return True
-
-
-async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
-                      seconds: float, approve: bool = False) -> tuple[str, str]:
-    """One Omnigent session, one task. Returns the reply and the session id. `approve`
-    accepts approval cards (Gemini runs); otherwise the client declines them."""
-    # The same path `omnigent run` takes: the host daemon launches a runner for the new
-    # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
-    prepared = await _prepare_chat_session_via_daemon(
-        base_url=server, headers=_remote_headers(server_url=server, host_id=None),
-        auth=_server_auth(server_url=server, session_id=None),
-        host_id=load_or_create_host_identity().host_id, bundle=_bundle(spec),
-        resume_conversation_id=None, fork_session_id=None, workspace=str(workdir))
-    async with OmnigentClient(base_url=server) as client:
-        bound = await client.sessions.get(prepared.session_id)
-        print(f"session {server}/c/{bound.id}", flush=True)
-        files = client.files.for_session(bound.id)
-        chat = SessionsChat(namespace=client.sessions, files_uploader=files.upload,
-                            files_getter=files.get, session=bound,
-                            hooks=StreamHooks(on_elicitation_request=approve_all) if approve else None)
-        try:
-            result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
-        finally:
-            _stop_headless_session(base_url=server, session_id=bound.id)
-        return getattr(result, "text", "") or "", bound.id
-
-
-async def session_view(server: str, session_id: str) -> dict:
-    """What Omnigent recorded for a session: its item types, the tool calls as the harness
-    reported them, and the child (sub-agent) sessions it created."""
-    async with OmnigentClient(base_url=server) as client:
-        items, after = [], None
-        while True:
-            page = await client.sessions.list_items(session_id, limit=1000, after=after)
-            items += page
-            if len(page) < 1000:
-                break
-            after = page[-1].get("id")
-        children = await client.sessions.child_sessions(session_id)
-    types: dict[str, int] = {}
-    for i in items:
-        types[str(i.get("type"))] = types.get(str(i.get("type")), 0) + 1
-    return {"item_types": types,
-            "tool_calls": [{"name": i.get("name"), "arguments": str(i.get("arguments") or "")[:300]}
-                           for i in items if i.get("type") in ("function_call", "tool_call")],
-            "child_sessions": [{k: c.get(k) for k in ("id", "title", "tool", "agent_name", "busy",
-                                                       "current_task_status")} for c in children]}
-
-
 def main() -> None:
     p = argparse.ArgumentParser(description="Run one SWE-bench instance on Omnigent.")
     p.add_argument("--label", required=True)
@@ -156,14 +86,14 @@ def main() -> None:
                    default="openai-controlled")
     which = p.add_mutually_exclusive_group(required=True)
     which.add_argument("--instance", help="one SWE-bench Verified instance id")
-    which.add_argument("--set", choices=sorted(SETS), help="a fixed set from bench/tasks.py")
+    which.add_argument("--set", choices=sorted(SETS), help="a fixed set from benchmarks/swebench/tasks.py")
     p.add_argument("--arm", choices=["baseline", "econo"], required=True)
     p.add_argument("--mode", choices=["observe", "autopilot"], default="observe")
     p.add_argument("--jev", action="store_true",
                    help="econo arm: ask planner/jev_planner.py for p_need_again (default: fixed guess)")
     p.add_argument("--max-minutes", type=float, default=20, help="wall-clock cap per task")
     p.add_argument("--learned", action="store_true",
-                   help="learned H and p from earlier labelled runs (bench/learn.py label)")
+                   help="learned H and p from earlier labelled runs (harness/learn.py label)")
     p.add_argument("--pointer", action="store_true",
                    help="autopilot may use POINTER, COMMIT_PENDING and RESUME (quality risk <= 0.2)")
     p.add_argument("--server", default="http://127.0.0.1:6767")
@@ -182,28 +112,6 @@ def main() -> None:
                          constraints={"max_quality_risk": 0.2})
     for instance in instances:
         run_one(a, instance, overrides)
-
-
-def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bool) -> Path:
-    """The run's agent spec, filled in. openai-controlled: bench/agent.yaml (+ the policy
-    in the econo arm). gemini-omnigent: bench/gemini/agent.yaml, never with a policy."""
-    values = {"run_id": run_id, "gateway": gateway, "workdir": str(workdir)}
-    safe = re.sub(r"[^\w.-]", "_", run_id)
-    if harness == "gemini-omnigent":
-        # Gemini's own HOME per run: its settings (Vertex auth; in ACP mode Gemini reads
-        # the auth type only from settings) and, afterwards, its session files.
-        home = HOME / "data" / "work" / f"{safe}.home"
-        (home / ".gemini").mkdir(parents=True, exist_ok=True)
-        shutil.copy(BENCH / "gemini" / "settings.json", home / ".gemini" / "settings.json")
-        text = (BENCH / "gemini" / "agent.yaml").read_text()
-        values.update(gemini=str(GEMINI), model=GEMINI_MODEL, home=str(home),
-                      path=f"{Path(shutil.which('node') or '/usr/bin/node').parent}:/usr/bin:/bin")
-    else:
-        text = (BENCH / "agent.yaml").read_text() + (POLICY if econo else "")
-    spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
-    spec.parent.mkdir(parents=True, exist_ok=True)
-    spec.write_text(Template(text).substitute(values))
-    return spec
 
 
 def run_one(a, instance: str, overrides: dict) -> None:

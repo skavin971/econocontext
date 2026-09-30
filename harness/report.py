@@ -2,10 +2,10 @@
 
 Examples::
 
-    .venv/bin/python bench/report.py --label check1
-    .venv/bin/python bench/report.py --label p1 p3        # Phase 1 next to Phase 3
-    .venv/bin/python bench/report.py --label check1 --format json --output report.json
-    .venv/bin/python bench/report.py --label check1 --format csv --output report.csv
+    .venv/bin/python harness/report.py --label check1
+    .venv/bin/python harness/report.py --label p1 p3        # Phase 1 next to Phase 3
+    .venv/bin/python harness/report.py --label check1 --format json --output report.json
+    .venv/bin/python harness/report.py --label check1 --format csv --output report.csv
 
 Exports contain numeric usage, cost, timing and decision data only. Full prompts,
 tool output and raw provider payloads remain in the SQLite audit database.

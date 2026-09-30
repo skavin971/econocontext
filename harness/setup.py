@@ -4,16 +4,16 @@ Why it exists: Omnigent 0.15.0 drops `use_responses: false` for inline sub-agent
 worker would call the Responses API, which Vertex does not serve. A provider with
 `wire_api: chat` does reach sub-agents (omnigent/runtime/workflow.py), and a worker
 spec selects it with `auth: {type: provider, name: econo}`. The provider's URL is
-global, so it points at the gateway's /current route: the run bench/run.py marked current.
+global, so it points at the gateway's /current route: the run benchmarks/swebench/run.py marked current.
 
 Omnigent's host daemon launches the generic `acp` harness only when at least one ACP
-agent is registered in the user config, even though bench/gemini/agent.yaml embeds its
+agent is registered in the user config, even though harness/specs/gemini/agent.yaml embeds its
 own (which is what a run actually uses). So Gemini CLI is registered here too.
 
 It edits ~/.omnigent/config.yaml (Omnigent's user config), after a backup next to it.
 The key is a placeholder: the gateway adds the real one.
 
-Run once: .venv/bin/python bench/setup_provider.py [--gateway http://127.0.0.1:8787]
+Run once: .venv/bin/python harness/setup.py [--gateway http://127.0.0.1:8787]
 """
 
 import argparse

@@ -27,11 +27,11 @@ def test_core_imports_only_stdlib_yaml_and_itself():
             assert ok, f"{path.relative_to(ROOT)} imports {name}"
 
 
-def test_only_the_bench_driver_imports_omnigent():
+def test_only_the_session_runner_imports_omnigent():
     # The Omnigent layer reads Omnigent's events as plain dicts (policy.py) and speaks HTTP
-    # (gateway.py); only bench/run.py uses Omnigent's own code, to start sessions.
-    for folder in ("omnigent_layer/src", "bench"):
+    # (gateway.py); only harness/session.py uses Omnigent's own code, to start sessions.
+    for folder in ("omnigent_layer/src", "harness", "benchmarks"):
         for path in (ROOT / folder).rglob("*.py"):
-            if path.relative_to(ROOT).as_posix() == "bench/run.py":
+            if path.relative_to(ROOT).as_posix() == "harness/session.py":
                 continue
             assert not imports(path) & OMNIGENT, f"{path.relative_to(ROOT)} imports Omnigent"

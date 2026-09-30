@@ -7,7 +7,7 @@ the steps from the repository root.
 
 ```sh
 python3.12 -m venv .venv                                  # Omnigent needs Python 3.12+
-.venv/bin/pip install -e ".[bench,dev]" -e omnigent_layer  # core, SWE-bench, Omnigent 0.15.0
+.venv/bin/pip install -e ".[swebench,dev]" -e omnigent_layer  # core, SWE-bench, Omnigent 0.15.0
 ```
 
 Put the key in `.env` at the repository root. The file is gitignored; never print or commit it.
@@ -42,7 +42,7 @@ Silicon Mac they run under emulation (slower, but it works). Each image is about
 See the top of [`tests/test_planner_jev.py`](../tests/test_planner_jev.py). The Jev
 module's spec is the docstring of
 [`econocontext/planner/jev_planner.py`](../econocontext/planner/jev_planner.py). On
-SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`.
+SWE-bench, add `--jev` to `benchmarks/swebench/run.py`; those runs are reported as `econo+jev`.
 
 ## 3. Start the two services (paid steps need them)
 
@@ -61,15 +61,15 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
 ## 4. One SWE-bench instance: paid, a few minutes
 
 ```sh
-.venv/bin/python bench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm baseline
-.venv/bin/python bench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm econo --mode observe
-.venv/bin/python bench/report.py --label mytest
+.venv/bin/python benchmarks/swebench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm baseline
+.venv/bin/python benchmarks/swebench/run.py --label mytest --instance pytest-dev__pytest-5809 --arm econo --mode observe
+.venv/bin/python harness/report.py --label mytest
 ```
 
 - **What it proves:** an agent on Omnigent (the `openai-agents` harness with Gemini
   3.6 Flash) fixes a real GitHub issue. Tests run inside the official SWE-bench image,
   every model call is measured at the gateway, and the official harness grades the patch.
-- **Arms:** both use `bench/agent.yaml`. The econo arm also attaches the EconoContext
+- **Arms:** both use `harness/specs/openai_agents.yaml`. The econo arm also attaches the EconoContext
   policy, and the gateway applies `plan_prompt` only for econo runs.
 - **Modes:**
   - `observe` logs decisions and changes nothing.
@@ -87,15 +87,15 @@ SWE-bench, add `--jev` to `bench/run.py`; those runs are reported as `econo+jev`
 Replaces the fixed guesses (turns left `H`, needed-again `p`) with what earlier runs
 actually did. Each paid phase needs its own go.
 
-**Once:** `.venv/bin/python bench/setup_provider.py`. This adds the `econo` provider that
+**Once:** `.venv/bin/python harness/setup.py`. This adds the `econo` provider that
 workers use (it edits `~/.omnigent/config.yaml` after a backup). After any change to
 `omnigent_layer/` code, restart Omnigent: its server keeps the policy module loaded.
 
 | Phase | Command | Paid? |
 |---|---|---|
-| 1. Observe, then label | `bench/run.py --label p1 --set mid5 --arm econo --mode observe` then `bench/learn.py label --label p1` | yes, 5 tasks, at most 20 min each |
-| 2. Replay | `bench/learn.py replay --label p1` | no |
-| 3. Autopilot, learned | `bench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer` then `bench/report.py --label p1 p3` | yes |
+| 1. Observe, then label | `benchmarks/swebench/run.py --label p1 --set mid5 --arm econo --mode observe` then `harness/learn.py label --label p1` | yes, 5 tasks, at most 20 min each |
+| 2. Replay | `harness/learn.py replay --label p1` | no |
+| 3. Autopilot, learned | `benchmarks/swebench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer` then `harness/report.py --label p1 p3` | yes |
 
 (Prefix each command with `.venv/bin/python`.)
 
@@ -122,8 +122,8 @@ Five tasks at temperature 1.0 is a pipeline check, not proof of savings.
 | Each model call's path, arm, status and usage | `logs/gateway/calls.jsonl` |
 | Work directories and per-run agent specs | `data/work/` |
 | Patches sent for grading, and grading output | `data/runs/<label>/` |
-| Summary | `bench/report.py --label <label> [<label> ...]` |
-| Labels (what happened after each decision) | `labels` table; `bench/learn.py label` |
+| Summary | `harness/report.py --label <label> [<label> ...]` |
+| Labels (what happened after each decision) | `labels` table; `harness/learn.py label` |
 | The Omnigent session (transcript, tools) | the `session http://127.0.0.1:6767/c/...` link printed by `run.py` |
 
 ## Troubleshooting
@@ -132,7 +132,7 @@ Five tasks at temperature 1.0 is a pipeline check, not proof of savings.
   OpenAI's Responses API, and Vertex only serves Chat Completions. Set
   `executor.use_responses: false` in the spec. This works for the root agent only:
   Omnigent 0.15.0 does not pass it to inline sub-agents (see the findings).
-- **`run ... is not registered` (400):** runs are registered by `bench/run.py` before the
+- **`run ... is not registered` (400):** runs are registered by `benchmarks/swebench/run.py` before the
   session starts. For a hand-made session, call `omnigent_layer.register_run(...)` first.
 - **`429 ... reached 60 model calls`:** the per-run cap stopped the run, as designed.
 - **Docker is not running:** start Docker Desktop. Grading never falls back to anything else.

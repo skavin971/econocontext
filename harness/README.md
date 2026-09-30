@@ -16,7 +16,7 @@ Gemini CLI --ACP--> Omnigent (session, permissions, lifecycle)
 npm install --prefix data/tools @google/gemini-cli@0.62.0   # the pinned version
 ```
 
-`bench/run.py` looks for it at `data/tools/node_modules/.bin/gemini`.
+`benchmarks/swebench/run.py` looks for it at `data/tools/node_modules/.bin/gemini`.
 
 ## Run
 
@@ -26,24 +26,24 @@ changing `omnigent_layer/`):
 ```bash
 .venv/bin/omnigent start
 .venv/bin/python -m omnigent_layer.gateway
-.venv/bin/python bench/gemini/smoke.py                     # one tiny task, call cap 10
-.venv/bin/python bench/run.py --harness gemini-omnigent --label g1 \
+.venv/bin/python harness/smoke.py                     # one tiny task, call cap 10
+.venv/bin/python benchmarks/swebench/run.py --harness gemini-omnigent --label g1 \
     --instance pytest-dev__pytest-5809 --arm econo --mode observe
 ```
 
 Afterwards, offline (no model calls):
 
 ```bash
-.venv/bin/python bench/learn.py label  --label g1   # which reads were repeated, and needlessly
-.venv/bin/python bench/learn.py oracle --label g1   # model turns that only fetched evidence
-.venv/bin/python bench/report.py --label g1
+.venv/bin/python harness/learn.py label  --label g1   # which reads were repeated, and needlessly
+.venv/bin/python harness/learn.py oracle --label g1   # model turns that only fetched evidence
+.venv/bin/python harness/report.py --label g1
 ```
 
 `probe.py` asks, with one natural task, whether Gemini's own sub-agents are visible to
 and addressable by Omnigent (answers in `docs/omnigent-findings.md`):
 
 ```bash
-.venv/bin/python bench/gemini/probe.py --repo data/work/g1_econo_pytest-dev__pytest-5809
+.venv/bin/python harness/probe.py --repo data/work/g1_econo_pytest-dev__pytest-5809
 ```
 
 The API is rate limited: run one task at a time.
@@ -55,7 +55,7 @@ The API is rate limited: run one task at a time.
 - `--approval-mode yolo` (Gemini's own setting): a headless session has no one to answer
   approval cards, and an Omnigent card would end the turn. Omnigent still sees every
   ACP `tool_call`.
-- A per-run `HOME` whose `.gemini/settings.json` (from `bench/gemini/settings.json`)
+- A per-run `HOME` whose `.gemini/settings.json` (from `harness/specs/gemini/settings.json`)
   selects Vertex auth: in ACP mode Gemini reads the auth type only from settings.
 - Gemini runs in Vertex mode with a placeholder key. `GOOGLE_VERTEX_BASE_URL` points
   at the gateway's `/run/<run_id>/gemini` route, which is how calls are tied to a run.
@@ -66,7 +66,7 @@ The API is rate limited: run one task at a time.
 
 ## Known limits
 
-- One-time setup: `.venv/bin/python bench/setup_provider.py` also registers Gemini CLI as
+- One-time setup: `.venv/bin/python harness/setup.py` also registers Gemini CLI as
   an ACP agent. Omnigent's host daemon refuses the `acp` harness without one.
 - Gemini's `run_shell_command` runs on the host, which does not have a SWE-bench
   repository's Python environment. Gemini can read, search and edit, but its test runs
