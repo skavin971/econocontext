@@ -38,7 +38,7 @@ from http.server import ThreadingHTTPServer
 from econocontext.store.db import AgentDB
 from econocontext.types import HostRequest
 
-from . import (DB_PATH, agent_id, anthropic_wire, current_run, engine_for,
+from . import (DB_PATH, agent_id, anthropic_wire, claude_workers, current_run, engine_for,
                gateway_common as common, gemini_wire, observe, wire)
 from .gateway_common import env, log
 
@@ -212,6 +212,8 @@ class Gateway(common.Handler):
         self.save_body(raw or b"")
         call_id = uuid.uuid4().hex
         observed = self.observe(wire_module, engine, arm, agent, run_id, raw, body)
+        if match["provider"] == "anthropic":  # Claude Code's sub-agents: who, where, idle or not
+            self.track(claude_workers.track_request, run_id, body, observed.get("context_key"))
         decision_id, sent = None, raw
         if arm == "econo" and hasattr(wire_module, "to_segments"):
             decision_id, sent = self.plan_provider(engine, run_id, agent, wire_module, body, raw,
@@ -230,6 +232,9 @@ class Gateway(common.Handler):
             latency = (time.monotonic() - started) * 1000
             self.finish_span(engine, agent, span, latency, status == 200,
                              wire_module.observe_response(payloads) if payloads else None)
+        if match["provider"] == "anthropic" and payloads:
+            self.track(claude_workers.track_reply, run_id, observed.get("context_key"),
+                       wire_module.observe_response(payloads)["response_calls"])
         usage = wire_module.extract_usage(payloads)
         entry.update(status=status, usage=usage, latency_ms=round(latency))
         self.write_log(entry)
@@ -267,6 +272,13 @@ class Gateway(common.Handler):
         except Exception:
             log.exception("plan_prompt failed; the request is sent unchanged")
             return None, raw
+
+    def track(self, update, *args) -> None:
+        """Keep claude_workers up to date. Measurement only: never blocks a call."""
+        try:
+            update(self.db, *args)
+        except Exception:
+            log.exception("could not track Claude Code's sub-agents")
 
     def stop_changes(self, run_id, agent, rejected: dict) -> None:
         """The provider refused a changed request: forget this agent's pointers, change

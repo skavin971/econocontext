@@ -287,7 +287,8 @@ class EconoContext:
                         prior=prior)
 
     def plan_placement(self, agent_id: str, task: str, worker_type: str, workers: list[dict],
-                       file_tokens: dict[str, int]) -> tuple[str, str | None]:
+                       file_tokens: dict[str, int],
+                       need_named_files: bool = True) -> tuple[str, str | None]:
         """Before a sub-task is delegated: a new worker, or an existing one (RESUME).
         Returns (decision id, the title of the worker to continue, or None)."""
         box: dict = {}
@@ -297,7 +298,7 @@ class EconoContext:
             calls_hat = (self.history.h_hat(f"{self.run_id}:{worker_type}:new", 0) if self.history
                          else self.cfg["cost_model"]["fresh_expected_calls"])
             decision = select(planner.for_placement(ctx, self.cfg, task, workers, calls_hat,
-                                                    file_tokens),
+                                                    file_tokens, need_named_files),
                               ctx, self.config.constraints, self.cfg)
             decision.subject_id = hashlib.sha256(f"{worker_type}|{task}".encode()).hexdigest()
             box["decision"] = decision

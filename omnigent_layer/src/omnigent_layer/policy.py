@@ -20,7 +20,10 @@ run's root agent. Per-agent attribution comes from the gateway URL instead.
 Dispatches (sys_session_send) are timed as `dispatch` spans and placed by the planner:
 FRESH (as the root asked) or RESUME (an idle worker that already holds the task's files).
 Omnigent applies a replaced tool call's arguments (checked 2026-09-29), so RESUME is
-carried out by rewriting the dispatch's title to that worker's.
+carried out by rewriting the dispatch's title to that worker's. Claude Code's own
+sub-agents (the Agent tool) are placed the same way; there RESUME is carried out by
+denying the new Agent call with a reason naming the idle worker to continue with
+SendMessage (Omnigent honors only a deny on Claude Code's tool calls).
 
 What it must never do: deny or delay a tool, or fail one. Every error abstains, and
 Omnigent then does exactly what it would have done.
@@ -35,7 +38,7 @@ import time
 from econocontext.monitor import context_map
 from econocontext.types import ToolCallEvent, ToolResultEvent
 
-from . import agent_id, engine_for
+from . import agent_id, claude_workers, engine_for
 from .workspace import Workspace
 
 log = logging.getLogger("econocontext.policy")
@@ -46,6 +49,7 @@ READS = {"sys_os_read": "path", "Read": "file_path"}
 WRITES = {"sys_os_write", "sys_os_edit", "sys_os_shell", "testbed_shell",
           "Edit", "MultiEdit", "Write", "NotebookEdit", "Bash", "mcp__omnigent__testbed_shell"}
 DISPATCH = "sys_session_send"  # the root sends a sub-task to a worker: {agent, args, title}
+CLAUDE_AGENT = "Agent"  # Claude Code starts a sub-agent: {description, prompt, subagent_type, ...}
 
 
 def args_key(name: str, args: dict) -> str:
@@ -87,6 +91,32 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
             return {"result": "ALLOW", "data": {**args, "title": resume_title}}
         return None
 
+    def on_claude_agent(engine, args: dict) -> dict | None:
+        """Claude Code decided to delegate `prompt` to a new sub-agent. EconoContext may only
+        choose where that already-decided work runs: a new worker (let the call through),
+        or an idle one that already worked in this run (RESUME). In autopilot RESUME is
+        carried out by denying the Agent call with a reason naming the worker to continue
+        with SendMessage; Claude Code then sends the same task there. Forks inherit the
+        whole conversation and are never redirected."""
+        if args.get("subagent_type") == "fork" or not args.get("prompt"):
+            return None
+        kind = args.get("subagent_type") or "general-purpose"
+        workers = [w for w in claude_workers.workers(engine.db, run_id, engine.cfg["cache"]["ttl_seconds"])
+                   if w["type"] == kind]
+        sizes = {f: t for w in workers for f, t in w["file_tokens"].items()}
+        _, resume = engine.plan_placement(me, args["prompt"], kind, workers, sizes,
+                                          need_named_files=False)
+        if not resume:
+            return None
+        worker = next(w for w in workers if w["worker_id"] == resume)
+        held = ", ".join(worker["files"][:8]) or "its earlier findings"
+        return {"result": "DENY", "reason": (
+            f"EconoContext placement: do not start a new {kind} agent for this. Agent {resume} "
+            f"is idle and already worked in this repository (it has read {held}); continuing it "
+            f"reuses its context. Send the same task to it instead: SendMessage with "
+            f"to: '{resume}', summary: '{(args.get('description') or 'next task')[:60]}', and "
+            f"message: your prompt, unchanged.")}
+
     def on_tool_result(engine, name: str, args: dict, text: str) -> dict | None:
         path = args.get(READS[name]) if name in READS else None
         source = relative(path) if isinstance(path, str) else None
@@ -110,6 +140,8 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
             name, data = event.get("target") or "", event.get("data") or {}
             if phase == "tool_call" and name == DISPATCH:
                 return on_dispatch(engine, data.get("arguments") or {})
+            if phase == "tool_call" and name == CLAUDE_AGENT:
+                return on_claude_agent(engine, data.get("arguments") or {})
             if phase == "tool_result" and name == DISPATCH:
                 if open_dispatches:
                     span_id, started = open_dispatches.pop(0)

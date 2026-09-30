@@ -114,6 +114,8 @@ def main() -> None:
                    help="learned H and p from earlier labelled runs (harness/learn.py label)")
     p.add_argument("--pointer", action="store_true",
                    help="autopilot may use POINTER, COMMIT_PENDING and RESUME (quality risk <= 0.2)")
+    p.add_argument("--resume", action="store_true",
+                   help="RESUME only (worker placement): observe logs it, autopilot carries it out")
     p.add_argument("--server", default="http://127.0.0.1:6767")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
     a = p.parse_args()
@@ -130,6 +132,9 @@ def main() -> None:
     if a.pointer:
         overrides.update(allowlist={"POINTER": True, "COMMIT_PENDING": True, "RESUME": True},
                          constraints={"max_quality_risk": 0.2})
+    if a.resume:
+        overrides = merge(overrides, {"allowlist": {"RESUME": True},
+                                      "constraints": {"max_quality_risk": 0.2}})
     for instance in instances:
         run_one(a, instance, overrides)
 

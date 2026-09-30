@@ -26,6 +26,7 @@ from econocontext import config as config_module  # noqa: E402
 from econocontext.oracle.evidence_schedule import STRICT, schedule  # noqa: E402
 from econocontext.pricing.ledger import summary  # noqa: E402
 from econocontext.store.db import AgentDB  # noqa: E402
+from omnigent_layer import claude_workers  # noqa: E402
 
 WATCH = ("POINTER", "RETRIEVE_FROM_STORE", "ANSWER_FROM_STORE", "REUSE_RESULT")
 
@@ -115,6 +116,7 @@ def build_report(db: AgentDB, cfg, label: str) -> dict:
         harness = run["host"].split(":", 1)[1] + ":" if ":" in run["host"] else ""
         data["track"] = f"{harness}{run['arm']}{'+jev' if run.get('jev') else ''}/{run['mode']}"
         data["evidence"] = evidence(db, run_id)
+        data["workers"] = claude_workers.report(db, run_id) if run["host"].endswith(":claude-code") else []
         data["tool_calls"] = db.rows("SELECT COUNT(*) n FROM tool_results WHERE run_id=?",
                                      (run_id,))[0]["n"]
         runs.append(data)
@@ -188,6 +190,10 @@ def render_text(report: dict) -> str:
             lines.append(f"  evidence acquired {e['acquisitions']}  same-version reacquired "
                          f"{fmt(e['same_version_reacquisitions'])}  strict acquisition turns "
                          f"{e['strict_acquisition_turns']}")
+        for w in data["workers"]:
+            lines.append(f"  worker {w['agent_id']} ({w['type']}) resumed {w['resumed']}x: "
+                         f"calls {w['calls']}  fresh {fmt(w['fresh'])}  cached {fmt(w['cached'])}  "
+                         f"written {fmt(w['written'])}  ${w['usd'] or 0:.4f}  read {len(w['files_read'])} files")
         feasible = {k: v for k, v in data["feasible_counts"].items() if k in WATCH}
         if feasible:
             lines.append(f"  would-be (passed every gate): {feasible}")

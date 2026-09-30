@@ -128,9 +128,12 @@ def for_tool_result(ctx: PlanContext, cfg: dict, segment: Segment,
 
 
 def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
-                  calls_hat: int, file_tokens: dict[str, int]) -> list[Candidate]:
+                  calls_hat: int, file_tokens: dict[str, int],
+                  need_named_files: bool = True) -> list[Candidate]:
     """Before a sub-task is delegated: a new worker (FRESH), or the idle worker that
-    already holds the most of the files the task names (RESUME).
+    already holds the most of the files the task names (RESUME). With
+    need_named_files=False (Claude Code, whose sub-agent prompts rarely name files) any
+    idle worker is a candidate; the price still decides.
 
     Per worker call, a new worker sends its base context plus the files it must read;
     a resumed worker sends its resident context (at the cache-read price if its cache is
@@ -141,7 +144,8 @@ def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
     need = sum(file_tokens[p] for p in named)
     candidates = [_candidate("FRESH", cfg, extra_calls=calls_hat,
                              extra_call_input_tokens=base + task_tokens + need)]
-    free = [w for w in workers if not w["busy"] and w["title"] and set(w["files"]) & named]
+    free = [w for w in workers if not w["busy"] and w["title"]
+            and (set(w["files"]) & named or not need_named_files)]
     if free:
         best = max(free, key=lambda w: (sum(file_tokens[p] for p in set(w["files"]) & named),
                                         w["warm"]))
