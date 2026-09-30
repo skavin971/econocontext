@@ -300,3 +300,112 @@ ending, and continued with their cache, which is what worker placement (RESUME) 
 Worker placement on Claude Code is therefore feasible. The remaining work is the
 steering: let the policy turn a new `Agent` call into a continuation when the pricing
 model says an idle worker already holds the files.
+
+## Worker placement on Claude Code: first RESUME experiment (2026-09-30)
+
+**Question.** When Claude Code has already decided to delegate a task to a new sub-agent,
+is it cheaper to continue one of its existing, idle sub-agents instead, and why?
+
+**Rule of the experiment.** Claude Code decides whether to delegate and what to delegate.
+Nothing in the task mentions sub-agents. EconoContext only changes where an
+already-decided delegation runs:
+- **control:** every `Agent` call goes through, so Claude Code creates a new worker. The
+  placement decision is logged, not carried out (observe mode).
+- **econo:** when the pricing model prefers an idle worker (RESUME), the policy denies the
+  new `Agent` call. Its reason names the worker and asks Claude Code to send the same
+  prompt there with `SendMessage`. Claude Code then does so itself.
+
+**How it works** (`omnigent_layer/claude_workers.py`, `policy.py`):
+- **Workers, from the requests at the gateway.** An `Agent` call plus the `agentId` in its
+  result. Its loop is the conversation whose first user message is the `Agent` prompt,
+  matched by hash (no prompt text is stored). A worker is idle after `SubagentHandback`.
+  What it holds is the files its loop read, and its last context size.
+- **Placement, in the Omnigent policy on Claude Code's `PreToolUse` for `Agent`.**
+  `engine.plan_placement` prices FRESH against RESUME for any idle worker of the same
+  type (`need_named_files=False`). Forks are never redirected. Omnigent maps the
+  policy's DENY to Claude Code's `permissionDecision: deny` with the reason.
+- **Runs:** `harness/probe.py --harness claude-code --resume --mode observe|autopilot
+  --task … --followup …`, with the Omnigent server restarted to load the policy.
+
+**Finding a task that delegates on its own** (each outcome is a finding too):
+
+| Run | Task | Delegations | Result |
+|---|---|---|---|
+| wctl | SWE-bench `sphinx-doc__sphinx-8593` (bug fix) | **none**: Claude Code did it alone (Bash ×11, Read ×4, Edit ×4) | resolved, 22 calls, $0.32 |
+| wctl2 | "Write docs/autodoc-architecture.md…" (four parts) | **one** Explore agent (17 calls, $0.24 of the run's $0.34) | note written; its last 4 calls were refused by the gateway's daily token cap (fixed) |
+| wctl3 | the same, plus a follow-up | — | every call refused by the daily token cap; not measured. The cap counted cache reads and now applies to the Vertex routes only |
+| **wctl4** | the note, then in the same session: "Now add a section … on inherited members … and how it documents properties and class attributes" | **two** Explore agents, one per message | control arm |
+| **wres4** | the same two messages | **one** Explore agent; the second `Agent` call was redirected, and Claude Code continued the first worker with `SendMessage` (loaded via `ToolSearch`) | econo arm |
+
+A follow-up request in the same session is ordinary Claude Code use. It is what made a
+second delegation happen while the first worker was idle, which is the only situation
+where RESUME applies. A single bug fix did not delegate at all.
+
+**Results.** Both runs finished the document: control 199 lines, econo 219 lines, both
+with the requested sections.
+
+| | control (wctl4) | econo (wres4) |
+|---|---|---|
+| Whole run | 33 calls, $0.592 | 37 calls, $0.605 |
+| Root loop | 14 calls, $0.298 | 14 calls, $0.271 (incl. the denied `Agent`, `ToolSearch`, `SendMessage`) |
+| First delegation (worker 1, first message) | 10 calls, $0.176 (Bash ×8) | 11 calls, $0.159 (Bash ×14) |
+| **Follow-up delegation** | **new worker: 5 calls, $0.100**; fresh 10, cache reads 84,862, cache writes 20,595, output 3,121; tools: Bash ×2, Read ×5 | **resumed worker 1: about 9 calls, about $0.164**; cache reads about 343,000, writes about 17,800, output about 4,400; tools: Bash ×9 |
+| Each worker's extra call after its handback | 1 per worker, about $0.007 | 1, about $0.007 |
+
+(The resumed worker's figures exclude its phase-1 trailing call; the loop totals are 10
+calls and $0.171.)
+
+**What the resumed worker already had.** In phase 1 it had run 14 Bash commands, naming
+`sphinx/ext/autodoc/__init__.py`, `importer.py`, `directive.py`, `typehints.py`,
+`sphinx/registry.py`, `sphinx/application.py` and `sphinx/util/typing.py`. Its first
+continued call read 30,232 tokens from cache: its whole history was still warm. **In
+phase 2 it went back to `autodoc/__init__.py` and `importer.py`, files it had already
+touched, reading other line ranges** (`sed -n '140,244p'`, `'244,330p'`, …). The follow-up
+was about different code (inherited members, properties) from the first task
+(discovery, filtering, type hints).
+
+**Why RESUME cost more here, although its cache was warm:**
+1. **Warm history is cheap per token, not free, and it is paid on every call.** The resumed
+   worker's calls each carried about 30–45k tokens of history at $0.20/M. Over 9 calls that
+   was about $0.07 of cache reads, against about $0.02 for the new worker, whose calls
+   started from the ~11k-token prefix shared by all of Claude Code's agents.
+2. **It did not save the reading.** It had seen the files, but not the lines the new
+   question needed, so it made as many acquisition calls as a new worker (9 against 7 tool
+   calls), and more model calls (9 against 5).
+3. **Output and cache writes did not shrink.** Output 4.4k against 3.1k; writes 17.8k
+   against 20.6k.
+
+**The pricing model's prediction was wrong, and in the wrong direction.** It chose RESUME
+at 17,336 NU against 46,840 NU for FRESH (about 2.7× cheaper). The actual follow-up cost
+1.6× more. Where the estimate goes wrong:
+- **Calls:** both options are assumed to take 5 calls (a placeholder). A resumed worker's
+  call count is not known to be smaller.
+- **Context:** the resumed worker's resident context is priced once, at cache-read rate.
+  In reality it grows with every call and is paid on each.
+- **FRESH base:** a new worker is charged 9.3k fresh tokens per call. In reality Claude
+  Code's shared prefix is already cached, so a new worker is cheaper than that.
+- **Holdings:** credited as 0, because Explore reads files through Bash (`sed`, `grep`),
+  which the evidence layer does not count as reads. Had it counted them, the estimate
+  would have been *more* optimistic, since holding a file did not mean holding the lines
+  needed.
+
+**Conclusions, with their limits.**
+- One pair of runs (n = 1 per arm), and Claude Code is not deterministic: the two first
+  phases already differed (10 vs 11 calls). This shows a mechanism, not an average.
+- **The mechanism works end to end:** Claude Code's own delegation was redirected to an
+  existing worker, without prompting it to use sub-agents, and it used the redirect.
+- **Resuming is not automatically cheaper on Claude Code.** It pays when the follow-up
+  needs what the worker already read, not merely something from the same files. When the
+  new task is different, a fresh worker with the shared cached prefix is cheaper.
+- **To decide well, the placement price needs:**
+  - measured call counts for a new vs a resumed worker, learned from labelled runs
+    (not the placeholder)
+  - resident context priced on every expected call
+  - FRESH priced from Claude Code's real cached prefix
+  - a relevance test between the new task and what the worker holds (overlap of the files
+    **and line ranges** its history covers), with Bash reads (`sed -n`, `cat`, `grep`)
+    counted as evidence
+- Until then, RESUME should stay off (`allowlist.RESUME: false`, the default) for Claude
+  Code runs.
+
+Spend on the Anthropic key for all Claude Code work so far: **$2.84 of the $4.50 budget**.
