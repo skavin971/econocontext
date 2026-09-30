@@ -141,9 +141,9 @@ class EconoContext:
             raise
 
     def finish_span(self, span_id: str, agent_id: str, duration_ms: float,
-                    status: str = "completed") -> None:
+                    status: str = "completed", metadata: dict | None = None) -> None:
         try:
-            self.db.finish_runtime_span(span_id, duration_ms, status)
+            self.db.finish_runtime_span(span_id, duration_ms, status, metadata)
         finally:
             self.registry.activity_end(agent_id)
 

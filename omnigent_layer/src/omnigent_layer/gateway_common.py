@@ -132,11 +132,11 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("could not start the model span")
             return None
 
-    def finish_span(self, engine, agent, span_id, latency, ok) -> None:
+    def finish_span(self, engine, agent, span_id, latency, ok, metadata=None) -> None:
         if span_id is None:
             return
         try:
-            engine.finish_span(span_id, agent, latency, "completed" if ok else "failed")
+            engine.finish_span(span_id, agent, latency, "completed" if ok else "failed", metadata)
         except Exception:
             log.exception("could not finish the model span")
 

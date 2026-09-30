@@ -323,9 +323,19 @@ class AgentDB:
             (span_id, run_id, agent_id, kind, name, native_id, decision_id, now(), "open",
              json.dumps(metadata or {}, sort_keys=True)))
 
-    def finish_runtime_span(self, span_id: str, duration_ms: float, status: str) -> None:
-        self.execute("UPDATE runtime_spans SET ended_at=?, duration_ms=?, status=? "
-                     "WHERE span_id=?", (now(), duration_ms, status, span_id))
+    def finish_runtime_span(self, span_id: str, duration_ms: float, status: str,
+                            metadata: dict | None = None) -> None:
+        """Close a span; `metadata` (what was learned only at the end) is merged in."""
+        with self.lock:
+            if metadata:
+                row = self.conn.execute("SELECT metadata FROM runtime_spans WHERE span_id=?",
+                                        (span_id,)).fetchone()
+                merged = {**json.loads(row["metadata"] if row else "{}"), **metadata}
+                self.conn.execute("UPDATE runtime_spans SET metadata=? WHERE span_id=?",
+                                  (json.dumps(merged, sort_keys=True), span_id))
+            self.conn.execute("UPDATE runtime_spans SET ended_at=?, duration_ms=?, status=? "
+                              "WHERE span_id=?", (now(), duration_ms, status, span_id))
+            self.conn.commit()
 
 
 def row_to_segment(r: sqlite3.Row) -> Segment:

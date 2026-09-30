@@ -166,6 +166,31 @@ def test_unregistered_runs_are_refused_and_caps_apply(gw):
     assert len(Upstream.seen) == 1
 
 
+def test_each_call_records_what_it_carried_but_not_the_prompt(gw):
+    register_run("g9", "econo", "observe", host="omnigent:gemini")
+    history = {**BODY, "contents": BODY["contents"] + [
+        {"role": "model", "parts": [{"functionCall": {"name": "read_file", "id": "1",
+                                                      "args": {"file_path": "a.py"}}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "read_file", "id": "1",
+                                                         "response": {"output": "SECRET"}}}]}]}
+    post(f"{gw}/run/g9/gemini{MODEL}:generateContent", BODY)
+    post(f"{gw}/run/g9/gemini{MODEL}:generateContent", history)
+    spans = [json.loads(r[0]) for r in db().rows(
+        "SELECT metadata FROM runtime_spans WHERE run_id='g9' ORDER BY started_at")]
+    assert [s["call_no"] for s in spans] == [0, 1]
+    assert spans[0]["context_key"] == spans[1]["context_key"]
+    assert [(f["name"], f["bytes"]) for f in spans[1]["function_responses"]] == [("read_file", 6)]
+    assert spans[1]["response_calls"] == [] and spans[1]["response_text"] is True
+    assert "SECRET" not in json.dumps(spans)
+
+
+def test_an_unreadable_body_is_still_forwarded_unchanged(gw):
+    register_run("g10", "baseline", "observe", host="omnigent:gemini")
+    assert post(f"{gw}/run/g10/gemini{MODEL}:generateContent", b"not json")[0] == 200
+    assert Upstream.seen[0][2] == b"not json"
+    assert db().rows("SELECT COUNT(*) FROM outcomes WHERE run_id='g10'")[0][0] == 1
+
+
 def test_a_model_without_a_price_card_is_recorded_as_incomplete(gw):
     register_run("g8", "baseline", "observe", host="omnigent:gemini")
     post(f"{gw}/run/g8/gemini/v1beta1/publishers/google/models/gemini-9-lite:generateContent",

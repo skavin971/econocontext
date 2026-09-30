@@ -163,19 +163,33 @@ class Gateway(common.Handler):
         entry.update(arm=arm, model=model, stream=stream, request_bytes=len(raw or b""))
         self.save_body(raw or b"")
         call_id = uuid.uuid4().hex
+        observed = self.observe(run_id, raw)
         span = self.start_span(engine, agent, call_id, model, None,
-                               {"arm": arm, "stream": stream, "format": "gemini"})
+                               {"arm": arm, "stream": stream, "format": "gemini", **observed})
         status, payloads = 502, []
         try:
             status, payloads = self.relay(url, raw, headers, stream)  # the body, unchanged
         finally:
             latency = (time.monotonic() - started) * 1000
-            self.finish_span(engine, agent, span, latency, status == 200)
+            self.finish_span(engine, agent, span, latency, status == 200,
+                             gemini_wire.observe_response(payloads) if payloads else None)
         usage = gemini_wire.extract_usage(payloads)
         entry.update(status=status, usage=usage, latency_ms=round(latency))
         self.write_log(entry)
         if status == 200:
             self.measure(engine, agent, call_id, None, gemini_wire.to_usage(usage, latency), model)
+
+    def observe(self, run_id: str, raw: bytes | None) -> dict:
+        """What this Gemini request carried (gemini_wire.observe_request), and its call
+        number in the run. Never blocks the call: a body it cannot read is still sent."""
+        try:
+            call_no = self.db.rows("SELECT COUNT(*) n FROM runtime_spans WHERE run_id=? AND "
+                                   "kind='model'", (run_id,))[0]["n"]
+            return {"call_no": call_no, **gemini_wire.observe_request(json.loads(raw or b"{}"),
+                                                                     raw or b"")}
+        except Exception:
+            log.exception("could not read the Gemini request")
+            return {}
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
         """plan_prompt on the full request. Observe mode logs; autopilot may reorder, and
