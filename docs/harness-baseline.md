@@ -45,3 +45,15 @@ Key checks for Claude Sonnet 5 on Vertex (2 calls, 2026-09-30), with `AGENT_PLAT
 - OpenAI-compatible endpoint (`.../locations/global/endpoints/openapi/chat/completions`,
   model `anthropic/claude-sonnet-5`): the key is accepted, but **400**, "Publisher Model
   `.../claude-sonnet-5` is not servable in region global".
+- With Google Application Default Credentials (`gcloud auth application-default login`,
+  quota project `gen-lang-client-0621220639`), the same native endpoint **authenticates**
+  (the key check passes auth) but returns **429**, "Quota exceeded for
+  `global_online_prediction_requests_per_base_model` with base model:
+  anthropic-claude-sonnet", again after a one-minute wait. The project's Claude Sonnet
+  quota is effectively zero, so a quota increase is needed before any Claude Code run
+  (Google Cloud console → IAM & Admin → Quotas).
+
+So Claude on Vertex needs an OAuth identity, never the API key: a user login for
+development, a service account on a server (attached to the machine on Google Cloud,
+or a key file / Workload Identity Federation elsewhere). The gateway will read it
+through Application Default Credentials (`google.auth.default()`) and hold it alone.
