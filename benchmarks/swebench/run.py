@@ -53,7 +53,7 @@ GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
 # ZONED (reordering) is never carried out on a Claude Code request: the gateway only
 # replaces old tool results with pointers (COMMIT_PENDING), in autopilot with --pointer.
 CLAUDE_OVERRIDES = {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},
-                    "limits": {"max_model_calls": 40, "per_instance_budget_usd": 1.50},
+                    "limits": {"max_model_calls": 60, "per_instance_budget_usd": 1.50},
                     "allowlist": {"ZONED": False}}
 # Claude Code's own Bash runs on this machine, where Docker is: it runs the repository's
 # tests in the task's container (Omnigent's MCP relay does not carry our testbed_shell).
