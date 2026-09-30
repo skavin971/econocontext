@@ -26,9 +26,10 @@ import hashlib
 import json
 import re
 
-from econocontext.evidence import (EvidenceEvent, file_version, make_ref, normalize_path,
-                                   sha256)
+from econocontext.evidence import EvidenceEvent
 from econocontext.types import ProviderUsage
+
+from . import observe
 
 # ".../models/<model>:<method>", in both the Gemini API and Vertex path shapes.
 MODEL_CALL = re.compile(r"/models/(?P<model>[^/:]+):(?P<method>\w+)$")
@@ -91,18 +92,14 @@ TOOLS = {
 
 
 def tool_kind(name: str) -> str:
-    return TOOLS.get(name, ("other", None))[0]
+    return observe.tool_kind(TOOLS, name)
 
 
 def tool_path(name: str, args: dict) -> str | None:
-    """The file a tool call reads or writes, when its arguments name one."""
-    key = TOOLS.get(name, ("other", None))[1]
-    value = (args or {}).get(key) if key else None
-    return value if isinstance(value, str) else None
+    return observe.tool_path(TOOLS, name, args)
 
 
-def args_key(name: str, args) -> str:
-    return hashlib.sha256(json.dumps([name, args], sort_keys=True, default=str).encode()).hexdigest()
+args_key = observe.args_key
 
 
 def extract_contents(body: dict) -> list[dict]:
@@ -194,39 +191,28 @@ def observe_request(body: dict, raw: bytes) -> dict:
 def observe_response(payloads: list[dict]) -> dict:
     """What is recorded about a reply: the tool calls it asked for, and whether it said
     anything else."""
-    return {"response_calls": [{"name": c.get("name"), "kind": tool_kind(c.get("name") or ""),
-                                "args_key": args_key(c.get("name"), c.get("args") or {})}
-                               for c in extract_function_calls(payloads)],
+    return {"response_calls": observe.calls(TOOLS, extract_function_calls(payloads)),
             "response_text": response_has_text(payloads)}
 
 
+def _result(r: dict) -> dict:
+    """A find_latest_tool_result entry in observe.py's shape. A Gemini CLI tool that failed
+    answers {"error": ...}."""
+    return {"name": r["name"], "args": r["args"], "text": response_text(r["response"]),
+            "error": isinstance(r["response"], dict) and "error" in r["response"]}
+
+
+def tool_results(body: dict) -> list[dict]:
+    """The tool results new in this request, as observe.py reads them."""
+    return [_result(r) for r in find_latest_tool_result(body)]
+
+
 def evidence_events(results: list[dict], workdir: str | None, epoch: int) -> list[EvidenceEvent]:
-    """The tool results new in a request (find_latest_tool_result), as evidence events.
-    `epoch` is the run's workspace changes so far. A file's version is read from disk
-    when the gateway sees the result; a failed read acquires nothing; a write counts as
-    a change even if it failed (the safe side)."""
-    events = []
-    for r in results:
-        name, args = r["name"] or "", r["args"] or {}
-        kind, key, path = tool_kind(name), args_key(name, args), tool_path(name, args)
-        response = r["response"]
-        if kind == "write":
-            events.append(EvidenceEvent("mutated", name, key,
-                                        normalize_path(path, workdir) if path else "*"))
-            epoch += 1
-            continue
-        if kind not in ("file", "search") or (isinstance(response, dict) and "error" in response):
-            continue
-        text = response_text(response)
-        if kind == "file" and path:
-            source = normalize_path(path, workdir)
-            version = file_version(workdir, source)
-            narrowed = {k: v for k, v in args.items() if k != TOOLS[name][1]}  # offset, limit...
-            ref = make_ref("file", source, version or "text:" + sha256(text), text,
-                           json.dumps(narrowed, sort_keys=True) if narrowed else "",
-                           recoverable=version is not None)
-        else:  # a search, or a multi-file read: depends on the whole workspace
-            source = f"{name}:{key}"
-            ref = make_ref("search", source, f"epoch:{epoch}", text)
-        events.append(EvidenceEvent("acquired", name, key, source, ref))
-    return events
+    """find_latest_tool_result's results as evidence events (observe.evidence_events)."""
+    return observe.evidence_events([_result(r) for r in results], TOOLS, workdir, epoch)
+
+
+def model_request(rest: str, body: dict) -> tuple[str | None, bool] | None:
+    """(model, stream) when the request is a model call; None for anything else."""
+    model, method = model_call(rest)
+    return (model, method == "streamGenerateContent") if method in MODEL_METHODS else None
