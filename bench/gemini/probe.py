@@ -74,7 +74,7 @@ def main() -> None:
     status, reply, session_id = "done", "", None
     try:
         reply, session_id = asyncio.run(run_session(a.server, spec, workdir, TASK,
-                                                    a.max_minutes * 60))
+                                                    a.max_minutes * 60, approve=True))
     except TimeoutError:
         status = "timeout"
     except Exception as exc:

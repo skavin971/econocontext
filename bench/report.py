@@ -61,7 +61,7 @@ def evidence(db: AgentDB, run_id: str) -> dict | None:
                        "event='acquired'", (run_id,))[0]["n"]
     if not acquired:
         return None
-    same = db.rows("SELECT COUNT(*) n, SUM(reacquired_same_version) k FROM labels WHERE "
+    same = db.rows("SELECT COUNT(*) n, COALESCE(SUM(reacquired_same_version), 0) k FROM labels WHERE "
                    "run_id=? AND kind='evidence'", (run_id,))[0]
     return {"acquisitions": acquired,
             "same_version_reacquisitions": same["k"] if same["n"] else None,  # after labelling

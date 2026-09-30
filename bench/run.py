@@ -41,7 +41,7 @@ from omnigent.chat import (_prepare_chat_session_via_daemon, _remote_headers, _s
                            _stop_headless_session)
 from omnigent.cli import _bundle
 from omnigent.host.identity import load_or_create_host_identity
-from omnigent_client import OmnigentClient, SessionsChat
+from omnigent_client import OmnigentClient, SessionsChat, StreamHooks
 
 from omnigent_layer import HOME, engine_for, register_run
 
@@ -94,9 +94,18 @@ def prepare(image: str, workdir: Path, container: str, run_container: bool = Tru
        "-v", f"{workdir}:/testbed", "-w", "/testbed", image, "sleep", "infinity")
 
 
+def approve_all(ctx) -> bool:
+    """Headless: accept an approval card (and say what asked), instead of the client's
+    default decline, which ends the turn. Gemini asks for some shell commands even with
+    --approval-mode yolo."""
+    print(f"approved: {ctx.policy_name or ctx.phase or 'harness'}: {ctx.message[:160]}", flush=True)
+    return True
+
+
 async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
-                      seconds: float) -> tuple[str, str]:
-    """One Omnigent session, one task. Returns the reply and the session id."""
+                      seconds: float, approve: bool = False) -> tuple[str, str]:
+    """One Omnigent session, one task. Returns the reply and the session id. `approve`
+    accepts approval cards (Gemini runs); otherwise the client declines them."""
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -109,7 +118,8 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
         print(f"session {server}/c/{bound.id}", flush=True)
         files = client.files.for_session(bound.id)
         chat = SessionsChat(namespace=client.sessions, files_uploader=files.upload,
-                            files_getter=files.get, session=bound)
+                            files_getter=files.get, session=bound,
+                            hooks=StreamHooks(on_elicitation_request=approve_all) if approve else None)
         try:
             result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
         finally:
@@ -216,7 +226,8 @@ def run_one(a, instance: str, overrides: dict) -> None:
     try:
         prepare(inst.image, workdir, container, run_container=not gemini)
         task = GEMINI_TASK + inst.problem_statement if gemini else inst.problem_statement
-        summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60))
+        summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60,
+                                             approve=gemini))
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"
