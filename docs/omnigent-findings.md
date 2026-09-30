@@ -110,3 +110,27 @@ Where it can diverge, and what happens:
   inline sub-agents. Options: an upstream fix, or a gateway that also speaks the
   Responses API. A design decision, not taken here.
 - Deep Agents is removed (tagged `deepagents-host` in git).
+
+## Stock Gemini CLI over ACP (2026-09-30)
+
+Gemini CLI 0.62.0, Omnigent's generic `acp` harness, Vertex through the gateway's
+`/run/<id>/gemini` route. Smoke task (`bench/gemini/smoke.py`): **resolved**, 6 model
+calls, $0.031, 52% of input tokens cache reads. What it took:
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `harness 'acp' is not configured on host` | The host daemon launches `acp` only when an ACP agent is registered in `~/.omnigent/config.yaml`, even though the spec embeds its own | `bench/setup_provider.py` also registers Gemini CLI. The spec's embedded agent is what runs |
+| `did not answer authenticate within 30s` | In ACP mode Gemini takes its auth type only from settings (`security.auth.selectedType`), not from `GOOGLE_GENAI_USE_VERTEXAI`, so `session/new` failed. Omnigent's fallback then sent `authenticate` with `gemini-api-key` (the first non-browser method), which never returns. `GEMINI_CLI_SYSTEM_SETTINGS_PATH` was not enough | Each run gets its own `HOME`, with `bench/gemini/settings.json` as `~/.gemini/settings.json` (`vertex-ai`). It also keeps each run's Gemini session files apart |
+| Turn ended at the first edit, empty reply | Gemini asked permission for `replace`. Omnigent raised an approval card despite `permission_mode: bypassPermissions` (a policy verdict of ASK wins over bypass), and the headless client ended the turn | `gemini --acp --approval-mode yolo`: Gemini does not ask. ACP `tool_call` events still reach Omnigent |
+
+Observed from the requests (not assumed):
+- Gemini CLI's own tools: `read_file`, `list_directory`, `glob`, `grep_search`,
+  `replace`, `write_file`, `run_shell_command`, `web_fetch`, `google_web_search`,
+  `invoke_agent` (its sub-agents), `update_topic`, `enter_plan_mode`, `activate_skill`,
+  `list_background_processes`, `read_background_output`.
+- `functionCall` and `functionResponse` parts carry matching `id`s.
+- The system instruction is ~32 KB; the first request was 10,051 prompt tokens.
+- In Vertex mode with an API key, requests go to
+  `/v1beta1/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse`.
+  The session model is `gemini-3.6-flash` (`GEMINI_MODEL`). Gemini's "auto" router
+  (Pro and newer Flash) is not used.

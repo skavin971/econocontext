@@ -136,13 +136,18 @@ def write_spec(harness: str, run_id: str, workdir: Path, gateway: str, econo: bo
     """The run's agent spec, filled in. openai-controlled: bench/agent.yaml (+ the policy
     in the econo arm). gemini-omnigent: bench/gemini/agent.yaml, never with a policy."""
     values = {"run_id": run_id, "gateway": gateway, "workdir": str(workdir)}
+    safe = re.sub(r"[^\w.-]", "_", run_id)
     if harness == "gemini-omnigent":
+        # Gemini's own HOME per run: its settings (Vertex auth; in ACP mode Gemini reads
+        # the auth type only from settings) and, afterwards, its session files.
+        home = HOME / "data" / "work" / f"{safe}.home"
+        (home / ".gemini").mkdir(parents=True, exist_ok=True)
+        shutil.copy(BENCH / "gemini" / "settings.json", home / ".gemini" / "settings.json")
         text = (BENCH / "gemini" / "agent.yaml").read_text()
-        values.update(gemini=str(GEMINI), model=GEMINI_MODEL, home=str(Path.home()),
+        values.update(gemini=str(GEMINI), model=GEMINI_MODEL, home=str(home),
                       path=f"{Path(shutil.which('node') or '/usr/bin/node').parent}:/usr/bin:/bin")
     else:
         text = (BENCH / "agent.yaml").read_text() + (POLICY if econo else "")
-    safe = re.sub(r"[^\w.-]", "_", run_id)
     spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
     spec.parent.mkdir(parents=True, exist_ok=True)
     spec.write_text(Template(text).substitute(values))

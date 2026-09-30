@@ -8,11 +8,17 @@
 #
 # The ACP command sets Gemini's environment itself: Omnigent filters the environment
 # it passes to an ACP agent, and a per-run base URL cannot come from the daemon's.
+# $home is a per-run HOME holding bench/gemini/settings.json as ~/.gemini/settings.json:
+# in ACP mode Gemini takes its auth type (vertex-ai) only from settings; without it,
+# session/new fails and Omnigent's fallback `authenticate` never returns.
 name: gemini
 prompt: Stock Gemini CLI; its own instructions apply.
 executor:
   harness: acp
-  permission_mode: bypassPermissions   # headless: no one answers approval cards
+  # Headless: no one answers approval cards. Gemini's own --approval-mode yolo keeps it
+  # from asking at all (an Omnigent policy verdict of ASK would otherwise still prompt
+  # and end the turn); tool_call events still reach Omnigent.
+  permission_mode: bypassPermissions
   acp_agent:
     name: Gemini CLI
     command: >-
@@ -20,7 +26,7 @@ executor:
       GOOGLE_GENAI_USE_VERTEXAI=true GOOGLE_API_KEY=econo-placeholder
       GOOGLE_VERTEX_BASE_URL=$gateway/run/$run_id/gemini
       GEMINI_MODEL=$model GEMINI_CLI_TRUST_WORKSPACE=true
-      $gemini --acp
+      $gemini --acp --approval-mode yolo
     omnigent_mcp: false
     inject_system_prompt: false
 os_env:
