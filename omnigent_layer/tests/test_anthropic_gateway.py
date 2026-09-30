@@ -224,3 +224,12 @@ def test_a_model_other_than_sonnet_5_is_refused_not_sent(gw):
     register("m1")
     status, reply = post(f"{gw}/run/m1/anthropic/v1/messages", {**BODY, "model": "claude-fable-5-1"})
     assert status == 429 and b"not allowed" in reply and not Upstream.seen
+
+
+def test_the_daily_token_cap_does_not_apply_to_the_dollar_budgeted_route(gw, monkeypatch):
+    from omnigent_layer import gateway_common
+    monkeypatch.setattr(gateway_common, "MAX_INPUT_TOKENS_PER_DAY", 1)
+    register("t1")
+    assert post(f"{gw}/run/t1/anthropic/v1/messages", BODY)[0] == 200
+    time.sleep(0.2)
+    assert post(f"{gw}/run/t1/anthropic/v1/messages", BODY)[0] == 200  # 20k cache reads later

@@ -198,7 +198,8 @@ class Gateway(common.Handler):
             entry.update(status=status, passed_through=True)
             return self.write_log(entry)
         model, stream = call
-        cap = common.over_cap(self.db, run_id, engine.cfg["limits"].get("max_model_calls"))
+        cap = common.over_cap(self.db, run_id, engine.cfg["limits"].get("max_model_calls"),
+                              daily_tokens=match["provider"] != "anthropic")
         if not cap and match["provider"] == "anthropic" and model not in ANTHROPIC_MODELS:
             cap = f"model {model} is not allowed on this route (ECONO_ANTHROPIC_MODELS)"
         if not cap and match["provider"] == "anthropic":

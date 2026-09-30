@@ -42,9 +42,12 @@ MAX_INPUT_TOKENS_PER_DAY = int(env("ECONO_MAX_INPUT_TOKENS_PER_DAY", "3000000"))
 LOG_BODIES = env("ECONO_GATEWAY_LOG_BODIES", "0") == "1"  # full requests, for fixtures only
 
 
-def over_cap(db: AgentDB, run_id: str, run_limit: int | None = None) -> str | None:
+def over_cap(db: AgentDB, run_id: str, run_limit: int | None = None,
+             daily_tokens: bool = True) -> str | None:
     """Why this call must be refused, or None. `run_limit` is the run's own call cap
-    (config limits.max_model_calls), never above the gateway's."""
+    (config limits.max_model_calls), never above the gateway's. `daily_tokens`: the
+    day's input-token cap, a guard for the Vertex key; the Anthropic route is guarded by
+    dollar budgets instead (it counts cache reads, which Claude Code makes by the million)."""
     limit = min(MAX_CALLS_PER_RUN, run_limit or MAX_CALLS_PER_RUN)
     # Calls started (a model span is opened before forwarding), not just calls recorded:
     # usage is recorded after the reply, so a quick next call would otherwise slip past.
@@ -53,6 +56,8 @@ def over_cap(db: AgentDB, run_id: str, run_limit: int | None = None) -> str | No
                 db.rows("SELECT COUNT(*) n FROM outcomes WHERE run_id=?", (run_id,))[0]["n"])
     if calls >= limit:
         return f"run {run_id} reached {limit} model calls"
+    if not daily_tokens:
+        return None
     today = datetime.now(timezone.utc).date().isoformat()
     used = db.rows("SELECT COALESCE(SUM(COALESCE(uncached_input,0)+COALESCE(cache_read,0)),0) n "
                    "FROM outcomes WHERE created_at >= ?", (today,))[0]["n"]
