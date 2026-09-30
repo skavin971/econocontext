@@ -10,7 +10,7 @@ import pytest
 
 import omnigent_layer
 from econocontext.store.db import AgentDB
-from omnigent_layer import gateway, register_run
+from omnigent_layer import gateway, gateway_common, register_run
 
 REPLY = {"choices": [{"message": {"role": "assistant", "content": "hi"}}],
          "usage": {"prompt_tokens": 100, "completion_tokens": 2, "total_tokens": 102}}
@@ -44,7 +44,7 @@ def gw(monkeypatch):
     Upstream.seen = []
     upstream = serve(Upstream)
     monkeypatch.setattr(gateway, "UPSTREAM", f"http://127.0.0.1:{upstream.server_port}")
-    monkeypatch.setattr(gateway, "KEY", "real-key")
+    monkeypatch.setattr(gateway_common, "KEY", "real-key")
     gateway.Gateway.db = AgentDB(omnigent_layer.DB_PATH)
     gateway.Gateway.db.execute(gateway.POINTERS_TABLE)
     server = serve(gateway.Gateway)
@@ -121,11 +121,19 @@ def test_unregistered_runs_and_other_paths_are_refused(gw):
 
 
 def test_call_cap_stops_a_run(gw, monkeypatch):
-    monkeypatch.setattr(gateway, "MAX_CALLS_PER_RUN", 1)
+    monkeypatch.setattr(gateway_common, "MAX_CALLS_PER_RUN", 1)
     register_run("c1", "baseline", "observe")
     post(f"{gw}/run/c1/v1/chat/completions", BODY)
     with pytest.raises(urllib.error.HTTPError) as err:
         post(f"{gw}/run/c1/v1/chat/completions", BODY)
+    assert err.value.code == 429 and len(Upstream.seen) == 1
+
+
+def test_a_run_can_have_a_lower_call_cap(gw):
+    register_run("c2", "baseline", "observe", overrides={"limits": {"max_model_calls": 1}})
+    post(f"{gw}/run/c2/v1/chat/completions", BODY)
+    with pytest.raises(urllib.error.HTTPError) as err:
+        post(f"{gw}/run/c2/v1/chat/completions", BODY)
     assert err.value.code == 429 and len(Upstream.seen) == 1
 
 
