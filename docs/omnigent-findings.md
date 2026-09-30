@@ -409,3 +409,27 @@ at 17,336 NU against 46,840 NU for FRESH (about 2.7× cheaper). The actual follo
   Code runs.
 
 Spend on the Anthropic key for all Claude Code work so far: **$2.84 of the $4.50 budget**.
+
+## Cost model v2, step 0: a cold worker is never resumed (2026-09-30)
+
+The plan for the next phase ("price = meter(forecast)") lives in `docs/7-cost-model-v2.md` once
+written; its first step is this safety fix, which needs no model calls.
+
+- **The bug.** `planner.for_placement` let a worker whose cache had expired be a RESUME
+  candidate. It priced that worker's history at the full input rate (1.0×) instead of
+  the 1.25× cache write it really triggers.
+- **Why a cold resume can't win.** A cold resumed worker re-writes its whole history (about
+  30K tokens, so 37.5K NU at 1.25×) on its first call. In the wres4 follow-up, that is
+  already more than the new worker's entire 5-call run (about 37.7K NU). The new worker
+  starts from the shared prefix, which is already cached.
+- **The fix.** Only warm workers (last model call within `cache.ttl_seconds`, 300 s) are
+  RESUME candidates. It covers both harnesses: the openai-agents worker map and Claude
+  Code's `claude_workers`.
+- **The number to check in the logs before any RESUME:** the worker's seconds since its
+  last model call, against the cache TTL.
+- **Every option's price was already logged.** Every decision, in every mode, logs its
+  candidates' prices and sizes (`decisions.candidates`, `payloads`), so observe runs are
+  calibration data. Nothing changed there.
+- **Still open**, in the next steps:
+  - no worker placement run on openai-agents has had a real decision yet
+  - no option moves only the relevant held evidence to a new worker (HANDOFF)

@@ -136,24 +136,25 @@ def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
     idle worker is a candidate; the price still decides.
 
     Per worker call, a new worker sends its base context plus the files it must read;
-    a resumed worker sends its resident context (at the cache-read price if its cache is
-    warm) plus the task and only the files it does not hold yet."""
+    a resumed worker sends its cached resident context plus the task and only the files it
+    does not hold yet. A worker idle past the cache lifetime is never a candidate: its
+    whole history would be written again (1.25x) on the first call, which alone cost more
+    than a new worker's whole run in every case observed (wres4, docs/omnigent-findings.md)."""
     base = cfg["cost_model"]["fresh_expected_input_tokens_per_call"]  # PLACEHOLDER: a new worker's base context
     task_tokens = count_tokens(task)
     named = {p for p in file_tokens if p in task or p.rsplit("/", 1)[-1] in task}
     need = sum(file_tokens[p] for p in named)
     candidates = [_candidate("FRESH", cfg, extra_calls=calls_hat,
                              extra_call_input_tokens=base + task_tokens + need)]
-    free = [w for w in workers if not w["busy"] and w["title"]
+    free = [w for w in workers if not w["busy"] and w["warm"] and w["title"]
             and (set(w["files"]) & named or not need_named_files)]
     if free:
-        best = max(free, key=lambda w: (sum(file_tokens[p] for p in set(w["files"]) & named),
-                                        w["warm"]))
+        best = max(free, key=lambda w: sum(file_tokens[p] for p in set(w["files"]) & named))
         held = sum(file_tokens[p] for p in set(best["files"]) & named)
-        rate = ctx.rates.cache_read_ratio if best["warm"] else 1.0
         candidates.append(_candidate(
             "RESUME", cfg, extra_calls=calls_hat,
-            extra_call_input_tokens=best["resident_tokens"] * rate + task_tokens + need - held,
+            extra_call_input_tokens=(best["resident_tokens"] * ctx.rates.cache_read_ratio
+                                     + task_tokens + need - held),
             title=best["title"], worker_id=best["worker_id"], held_tokens=held))
     return candidates
 

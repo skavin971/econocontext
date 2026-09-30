@@ -87,3 +87,11 @@ def test_no_resume_for_a_busy_worker_or_unrelated_task():
     names = lambda task: [x.name for x in planner.for_placement(c, CFG.raw, task, WORKERS, 5, FILES)]
     assert names("run the tests in src/b.py") == ["FRESH"]  # its holder is busy
     assert names("summarize the README") == ["FRESH"]
+
+
+def test_no_resume_for_a_worker_whose_cache_expired():
+    c = ctx([], h=10)
+    cold = [{**WORKERS[0], "warm": False}]
+    names = [x.name for x in planner.for_placement(c, CFG.raw, "check how src/a.py parses flags",
+                                                    cold, 5, FILES)]
+    assert names == ["FRESH"]
