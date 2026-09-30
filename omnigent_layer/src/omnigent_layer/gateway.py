@@ -61,6 +61,9 @@ DROP_HEADERS = {"host", "content-length", "connection", "accept-encoding", "auth
                 "x-goog-api-key", "x-api-key", "x-econo-run-id"}
 # The Anthropic key's total dollar budget, across every run that uses it.
 ANTHROPIC_BUDGET_USD = float(env("ECONO_ANTHROPIC_BUDGET_USD", "4.5"))
+# The only models the Anthropic route may call (a harness can ask for others, e.g. Claude
+# Code's Agent tool takes model: "fable"). Anything else is refused, never sent.
+ANTHROPIC_MODELS = set((env("ECONO_ANTHROPIC_MODELS") or "claude-sonnet-5").split(","))
 
 
 def gemini_key() -> str:
@@ -196,6 +199,8 @@ class Gateway(common.Handler):
             return self.write_log(entry)
         model, stream = call
         cap = common.over_cap(self.db, run_id, engine.cfg["limits"].get("max_model_calls"))
+        if not cap and match["provider"] == "anthropic" and model not in ANTHROPIC_MODELS:
+            cap = f"model {model} is not allowed on this route (ECONO_ANTHROPIC_MODELS)"
         if not cap and match["provider"] == "anthropic":
             cap = over_budget(self.db, run_id, engine.cfg["limits"].get("per_instance_budget_usd"))
         if cap:

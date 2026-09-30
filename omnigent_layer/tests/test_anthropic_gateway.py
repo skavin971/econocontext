@@ -218,3 +218,9 @@ def test_a_refused_change_sends_the_original_and_stops_changing_the_run(gw, tmp_
     post(f"{gw}/run/p2/anthropic/v1/messages", history)
     assert json.loads(Upstream.seen[-1][2]) == history            # and no change is tried again
     assert db().rows("SELECT 1 FROM gateway_pointers WHERE run_id='p2' AND tool_call_id='*stopped*'")
+
+
+def test_a_model_other_than_sonnet_5_is_refused_not_sent(gw):
+    register("m1")
+    status, reply = post(f"{gw}/run/m1/anthropic/v1/messages", {**BODY, "model": "claude-fable-5-1"})
+    assert status == 429 and b"not allowed" in reply and not Upstream.seen

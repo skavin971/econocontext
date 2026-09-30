@@ -252,3 +252,23 @@ What the gateway may change on a Claude Code request, and nothing else:
   run's pointers and changes nothing more in that run (`*stopped*` in `gateway_pointers`,
   and an `autopilot_stopped` line in the gateway log).
 
+
+- **c4** (same task, **autopilot**, `--pointer`, ZONED off): **resolved** in 10 calls, $0.12,
+  92% of input from cache. **Nothing was changed.** COMMIT_PENDING was feasible on one call
+  and lost on cost: with the prefix already cached, replacing an old result would have
+  broken the cache for everything after it (predicted 360,884 NU against 360,690 NU for
+  leaving the request alone). On short, well-cached runs, shortening history does not pay;
+  the pricing model says so and the gateway obeyed. No refusal from Anthropic was needed.
+
+### Sub-agents on Claude Code: what the request itself says (2026-09-30)
+
+From the `Agent` tool's definition in Claude Code 2.1.286's requests (no model call needed):
+- Sub-agents are started with `Agent` (`description`, `prompt`, `subagent_type`, optional
+  `model`, `isolation`). `subagent_type: "fork"` starts one that inherits the whole parent
+  conversation (and so its cached prefix).
+- **A sub-agent can be continued**: "To continue a previously spawned agent, use SendMessage
+  with the agent's ID or name as the `to` field — that resumes it with full context."
+  `ListAgents` lists the agents that can be messaged. Gemini CLI has nothing like this.
+- `model` accepts `sonnet`, `opus`, `haiku`, `fable`. The model pins cover the first three,
+  not `fable`, so the gateway now refuses any model but `claude-sonnet-5` on this route
+  (`ECONO_ANTHROPIC_MODELS`), instead of sending it.
