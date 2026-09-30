@@ -43,7 +43,8 @@ sys.path.insert(0, str(ROOT))
 from benchmarks.swebench.evaluate import evaluate  # noqa: E402
 from econocontext.config import merge  # noqa: E402
 from benchmarks.swebench.tasks import SETS, load  # noqa: E402
-from harness.session import check_measured, check_settings, run_session, write_spec  # noqa: E402
+from harness.session import (check_measured, check_settings, latest_call, run_session,  # noqa: E402
+                             write_spec)
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
 GEMINI_MAX_CALLS = 30  # per task: the API is rate limited
@@ -161,7 +162,8 @@ def run_one(a, instance: str, overrides: dict) -> None:
                 "claude-code": CLAUDE_TASK.replace("$container", container)}.get(a.harness, "") \
             + inst.problem_statement
         summary, _ = asyncio.run(run_session(a.server, spec, workdir, task, a.max_minutes * 60,
-                                             approve=gemini or claude, native=claude))
+                                             approve=gemini or claude, native=claude,
+                                             activity=latest_call(engine_for(run_id)[0])))
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"

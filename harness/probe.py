@@ -30,8 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.session import (check_measured, check_settings, run_session, session_view,  # noqa: E402
-                             write_spec)
+from harness.session import (check_measured, check_settings, latest_call, run_session,  # noqa: E402
+                             session_view, write_spec)
 
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
 
@@ -105,7 +105,8 @@ def main() -> None:
     try:
         reply, session_id = asyncio.run(run_session(a.server, spec, workdir, TASKS[a.harness],
                                                     a.max_minutes * 60, approve=True,
-                                                    native=a.harness == "claude-code"))
+                                                    native=a.harness == "claude-code",
+                                                    activity=latest_call(engine_for(run_id)[0])))
     except TimeoutError:
         status = "timeout"
     except Exception as exc:

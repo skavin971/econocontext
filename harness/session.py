@@ -106,6 +106,12 @@ def check_measured(engine, status: str) -> str:
     return status if calls or status != "done" else "not measured: no model call reached the gateway"
 
 
+def latest_call(engine):
+    """For run_session(activity=...): the time of the run's latest model call."""
+    return lambda: engine.db.rows("SELECT MAX(started_at) t FROM runtime_spans WHERE run_id=? "
+                                  "AND kind='model'", (engine.run_id,))[0]["t"]
+
+
 def check_settings(harness: str, workdir: Path) -> None:
     """Claude Code must find its per-run settings, or it would fall back to a local login
     and bypass the gateway. Raise before the session starts if they are missing."""
@@ -114,18 +120,24 @@ def check_settings(harness: str, workdir: Path) -> None:
                            f"would bypass the gateway")
 
 
-async def wait_until_done(client, session_id: str, seconds: float) -> None:
+async def wait_until_done(client, session_id: str, seconds: float,
+                          activity=None, quiet: float = 30.0) -> None:
     """For a native harness (Claude Code): Omnigent completes the turn as soon as the
-    prompt is typed into the terminal, and the work shows up afterwards. Wait until the
-    session (and any sub-agent) has been busy and is idle on two checks in a row."""
+    prompt is typed into the terminal, and the work shows up afterwards. Claude Code can
+    also end its own turn while a background sub-agent works, and resume when it reports.
+    So: done once the session has been busy, and then nothing has happened for `quiet`
+    seconds: the session and every sub-agent idle, and (if `activity` is given, a function
+    returning the time of the run's latest model call) no new model call."""
     loop = asyncio.get_running_loop()
-    deadline, seen_busy, idle = loop.time() + seconds, False, 0
+    deadline, seen_busy = loop.time() + seconds, False
+    last_change, last_activity = loop.time(), activity() if activity else None
     while loop.time() < deadline:
         session = await client.sessions.get(session_id)
         busy = session.status in BUSY or await client.sessions.subtree_busy(session_id)
-        seen_busy = seen_busy or busy
-        idle = 0 if busy else idle + 1
-        if idle >= 2 and (seen_busy or idle >= 10):  # never busy: give up after ~30 s
+        now_activity = activity() if activity else None
+        if busy or now_activity != last_activity:
+            seen_busy, last_change, last_activity = True, loop.time(), now_activity
+        elif loop.time() - last_change >= (quiet if seen_busy else 3 * quiet):
             return
         await asyncio.sleep(3)
     raise TimeoutError
@@ -145,10 +157,11 @@ async def last_reply(client, session_id: str) -> str:
 
 async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
                       seconds: float, approve: bool = False,
-                      native: bool = False) -> tuple[str, str]:
+                      native: bool = False, activity=None) -> tuple[str, str]:
     """One Omnigent session, one task. Returns the reply and the session id. `approve`
     accepts approval cards (Gemini and Claude Code runs); otherwise the client declines
-    them. `native` waits for a terminal-driven harness (Claude Code) to finish."""
+    them. `native` waits for a terminal-driven harness (Claude Code) to finish; `activity`
+    (the time of the run's latest model call) keeps that wait going while calls still come."""
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -166,7 +179,7 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str,
         try:
             result = await asyncio.wait_for(chat.query(prompt), timeout=seconds)
             if native:
-                await wait_until_done(client, bound.id, seconds)
+                await wait_until_done(client, bound.id, seconds, activity)
                 return await last_reply(client, bound.id), bound.id
         finally:
             _stop_headless_session(base_url=server, session_id=bound.id)

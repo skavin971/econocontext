@@ -26,7 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.session import check_measured, check_settings, run_session, write_spec  # noqa: E402
+from harness.session import (check_measured, check_settings, latest_call, run_session,  # noqa: E402
+                             write_spec)
 
 from econocontext.pricing.ledger import summary  # noqa: E402
 from omnigent_layer import HOME, engine_for, register_run  # noqa: E402
@@ -83,7 +84,8 @@ def main() -> None:
     status, reply = "done", ""
     try:
         reply, _ = asyncio.run(run_session(a.server, spec, workdir, TASK, a.max_minutes * 60,
-                                           approve=True, native=a.harness == "claude-code"))
+                                           approve=True, native=a.harness == "claude-code",
+                                           activity=latest_call(engine_for(run_id)[0])))
     except TimeoutError:
         status = "timeout"
     except Exception as exc:  # report, don't crash: the run row still gets its status
