@@ -23,7 +23,8 @@ $4.50) and a per-run budget (`limits.per_instance_budget_usd`) enforced at the g
 | EconoContext's planner on each request | yes: every call gets a decision (observe logs it; autopilot may carry it out) |
 | Carrying decisions out | autopilot: COMMIT_PENDING only (old tool results → pointers, kept stable); never reordering; falls back to the original if Anthropic refuses a changed request |
 | Tool events in Omnigent policies | yes (`PreToolUse`/`PostToolUse`); a policy can deny, not replace a result |
-| Sub-agents (`Agent` tool) | seen by Omnigent (child session per agent id) and the gateway (own `context_key`); continued with context and cache via `SendMessage` (probe); steering by EconoContext not built yet |
+| Sub-agents (`Agent` tool) | seen by Omnigent (child session per agent id) and tracked by the gateway (`claude_workers`: loop, idle, files read) |
+| Worker placement (RESUME) | works: a new `Agent` call is redirected to an idle worker via `SendMessage` (`--resume`, autopilot). First experiment: resuming cost more than a new worker; off by default (`docs/omnigent-findings.md`) |
 
 # Gemini CLI on Omnigent
 
