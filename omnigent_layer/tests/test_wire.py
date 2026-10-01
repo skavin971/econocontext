@@ -62,3 +62,25 @@ def test_segments_and_round_trip_keep_original_messages():
                                           SegmentKind.MESSAGE]
     messages = wire.from_segments(segments, body, index)
     assert all(a is b for a, b in zip(messages, body["messages"]))
+
+
+def test_tool_results_read_omnigent_dict_replies_as_evidence(tmp_path):
+    from omnigent_layer import observe
+    (tmp_path / "a.py").write_text("".join(f"x = {i}\n" for i in range(1, 41)))
+    body = {"messages": [
+        {"role": "user", "content": "task"},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "sys_os_read", "arguments": '{"path": "a.py"}'}},
+            {"id": "c2", "type": "function", "function": {"name": "testbed_shell",
+                                                          "arguments": '{"command": "grep -n \'x = 3\' a.py"}'}},
+            {"id": "c3", "type": "function", "function": {"name": "sys_os_edit", "arguments": '{"path": "a.py"}'}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": str({"path": str(tmp_path / "a.py"), "content": "x = 1"})},
+        {"role": "tool", "tool_call_id": "c2", "content": str({"result": "exit code: 0\nstdout:\n3:x = 3\n30:x = 30\n"})},
+        {"role": "tool", "tool_call_id": "c3", "content": str({"error": "blocked by sandbox"})}]}
+    results = wire.tool_results(body)
+    assert [(r["name"], r["error"]) for r in results] == [
+        ("sys_os_read", False), ("testbed_shell", False), ("sys_os_edit", True)]
+    events = observe.evidence_events(results, wire.TOOLS, str(tmp_path), 0)
+    assert [(e.event, e.source_key, e.ref and e.ref.range) for e in events] == [
+        ("acquired", "a.py", "L1-40"), ("acquired", "a.py", "L3-3"), ("acquired", "a.py", "L30-30"),
+        ("mutated", "a.py", None)]

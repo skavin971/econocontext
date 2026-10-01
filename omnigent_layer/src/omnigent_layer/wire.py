@@ -22,6 +22,7 @@ Usage mapping (checked against Vertex on 2026-09-28, question 0b):
       already inside completion_tokens (the OpenAI convention) and not added twice.
 """
 
+import ast
 import json
 
 from econocontext.engine import make_segment
@@ -39,6 +40,55 @@ def text_of(message: dict) -> str:
                   "args": c.get("function", {}).get("arguments")} for c in message["tool_calls"]]
         text += "\n" + json.dumps(calls, sort_keys=True)
     return text
+
+
+# Omnigent's openai-agents tools and ours, by what they do (observe.py's kinds).
+TOOLS = {
+    "sys_os_read": ("file", "path"),
+    "sys_os_write": ("write", "path"),
+    "sys_os_edit": ("write", "path"),
+    "sys_os_shell": ("shell", "command"),
+    "testbed_shell": ("shell", "command"),
+}
+OUTPUT_FIELDS = ("content", "stdout", "result", "output")  # where a tool's dict result keeps its text
+
+
+def _tool_text(content) -> tuple[str, bool]:
+    """A tool message's text, and whether it is an error. Omnigent's tools answer with a
+    dict, sent as its Python repr ("{'path': ..., 'content': '...'}"): its text fields
+    are read back, so line-numbered output keeps its lines."""
+    text = text_of({"content": content})
+    try:
+        value = ast.literal_eval(text) if text.startswith("{") else None
+    except (ValueError, SyntaxError):
+        value = None
+    if not isinstance(value, dict):
+        return text, False
+    parts = [str(value[k]) for k in OUTPUT_FIELDS if isinstance(value.get(k), str)]
+    return "\n".join(parts), "error" in value
+
+
+def tool_results(body: dict) -> list[dict]:
+    """The tool results new in this request (after the last assistant message), each
+    with its call's name and arguments: observe.py's shape."""
+    msgs = body.get("messages") or []
+    last = max((i for i, m in enumerate(msgs) if m.get("role") == "assistant"), default=None)
+    if last is None:
+        return []
+    calls = {c.get("id"): c.get("function") or {} for c in msgs[last].get("tool_calls") or []}
+    out = []
+    for m in msgs[last + 1:]:
+        if m.get("role") != "tool" or m.get("tool_call_id") not in calls:
+            continue
+        fn = calls[m["tool_call_id"]]
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except ValueError:
+            args = {}
+        text, error = _tool_text(m.get("content"))
+        out.append({"name": fn.get("name"), "args": args if isinstance(args, dict) else {},
+                    "text": text, "error": error})
+    return out
 
 
 def first_user_text(body: dict) -> str:

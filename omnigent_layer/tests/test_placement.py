@@ -92,6 +92,25 @@ def test_autopilot_never_resumes_a_worker_whose_cache_expired(tmp_path):
     assert row["chosen"] == "FRESH"
 
 
+def test_autopilot_hands_off_the_lines_an_idle_worker_read(tmp_path):
+    from econocontext.evidence import EvidenceEvent, make_ref
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("".join(f"line {i}\n" for i in range(1, 101)))
+    register_run("m6", "econo", "autopilot", workdir=str(tmp_path), overrides={
+        "allowlist": {"HANDOFF": True}, "constraints": {"max_quality_risk": 0.2},
+        "placement": {"force": "HANDOFF"}})
+    db = AgentDB(omnigent_layer.DB_PATH)
+    worker = worker_history(db, "m6", idle_seconds=3600)  # cold: no RESUME, a handoff is fine
+    ref = make_ref("file", "src/a.py", "sha256:old", "line 10", "L10-12")
+    db.add_evidence_events("m6", worker, 1, [EvidenceEvent("acquired", "sys_os_read", "k", "src/a.py", ref)])
+    reply = econocontext("m6", str(tmp_path))(dispatch("new-helper"))
+    given = reply["data"]["args"]
+    assert reply["data"]["title"] == "new-helper" and given.startswith("Now also check src/a.py tests")
+    assert "src/a.py lines 10-12:" in given and "line 11" in given and "line 13" not in given
+    row = db.rows("SELECT chosen, applied FROM decisions WHERE run_id='m6' AND intercept='plan_dispatch'")[0]
+    assert (row["chosen"], row["applied"]) == ("HANDOFF", 1)
+
+
 def test_pointer_files_land_in_the_workspace(tmp_path):
     register_run("m4", "econo", "observe", workdir=str(tmp_path))
     engine, _ = engine_for("m4")

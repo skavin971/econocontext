@@ -76,20 +76,29 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
     open_dispatches: list[tuple[str, float]] = []
 
     def on_dispatch(engine, args: dict) -> dict | None:
-        """Time the dispatch, and choose the worker: a new one, or one that already holds
-        the files (RESUME). In autopilot RESUME rewrites the title, and Omnigent continues
-        that worker."""
-        task, title = str(args.get("args") or ""), str(args.get("title") or "")
+        """Time the dispatch, and choose where it runs: the new worker the root asked for,
+        an idle worker that already holds the files (RESUME: the title is rewritten, and
+        Omnigent continues that worker), or a new worker given the lines an idle worker
+        read (HANDOFF: they are added to the task). Only workers of the agent the root
+        named are considered."""
+        inner = args.get("args")
+        task = str(inner.get("input") if isinstance(inner, dict) else inner or "")
+        title, kind = str(args.get("title") or ""), str(args.get("agent") or "worker")
         span_id = f"{run_id}:dispatch:{next(counter)}"
         engine.start_span(span_id, me, "dispatch", title or "dispatch",
-                          metadata={"title": title, "task": task, "worker": args.get("agent")})
+                          metadata={"title": title, "task": task, "worker": kind})
         open_dispatches.append((span_id, time.monotonic()))
-        workers = context_map.workers(engine.db, run_id, engine.cfg["cache"]["ttl_seconds"])
-        _, resume_title = engine.plan_placement(me, task, str(args.get("agent") or "worker"),
-                                                workers, context_map.file_tokens(engine.db, run_id))
-        if resume_title and resume_title != title:
-            return {"result": "ALLOW", "data": {**args, "title": resume_title}}
-        return None
+        workers = [w for w in context_map.workers(engine.db, run_id, engine.cfg["cache"]["ttl_seconds"])
+                   if w["type"] in (kind, None) and w["title"] != title]
+        _, placement = engine.plan_placement(me, task, kind, workers,
+                                             context_map.file_tokens(engine.db, run_id), handoff=True)
+        if placement is None:
+            return None
+        if placement.arm == "RESUME":
+            return {"result": "ALLOW", "data": {**args, "title": placement.title}}
+        given = f"{task}\n\n{placement.brief}"
+        return {"result": "ALLOW", "data": {
+            **args, "args": {**inner, "input": given} if isinstance(inner, dict) else given}}
 
     def on_claude_agent(engine, args: dict) -> dict | None:
         """Claude Code decided to delegate `prompt` to a new sub-agent. EconoContext may only
@@ -104,10 +113,11 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
         workers = [w for w in claude_workers.workers(engine.db, run_id, engine.cfg["cache"]["ttl_seconds"])
                    if w["type"] == kind]
         sizes = {f: t for w in workers for f, t in w["file_tokens"].items()}
-        _, resume = engine.plan_placement(me, args["prompt"], kind, workers, sizes,
-                                          need_named_files=False)
-        if not resume:
+        _, placement = engine.plan_placement(me, args["prompt"], kind, workers, sizes,
+                                             need_named_files=False)
+        if placement is None:  # HANDOFF is not offered here: a policy cannot change the prompt
             return None
+        resume = placement.worker_id
         worker = next(w for w in workers if w["worker_id"] == resume)
         held = ", ".join(worker["files"][:8]) or "its earlier findings"
         return {"result": "DENY", "reason": (

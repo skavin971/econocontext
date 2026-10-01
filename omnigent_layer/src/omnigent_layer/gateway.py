@@ -141,6 +141,7 @@ class Gateway(common.Handler):
 
         decision_id = None
         if arm == "econo":
+            self.chat_evidence(engine, agent, run_id, body)
             body, decision_id = self.plan(engine, run_id, agent, body)
             raw = json.dumps(body).encode()
         stream = bool(body.get("stream"))
@@ -315,6 +316,18 @@ class Gateway(common.Handler):
         except Exception:
             log.exception("could not read the request")
             return {}
+
+    def chat_evidence(self, engine, agent: str, run_id: str, body: dict) -> None:
+        """The evidence a Chat Completions request brought in (openai-agents workers'
+        holdings). Never blocks the call."""
+        try:
+            call_no = self.db.rows("SELECT COUNT(*) n FROM runtime_spans WHERE run_id=? AND "
+                                   "kind='model'", (run_id,))[0]["n"]
+            engine.observe_evidence(agent, call_no, observe.evidence_events(
+                wire.tool_results(body), wire.TOOLS, engine.workdir, self.db.mutations(run_id)))
+        except Exception as exc:
+            self.write_log({"at": datetime.now(timezone.utc).isoformat(), "run": run_id,
+                            "evidence_error": str(exc)[:300]})
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
         """plan_prompt on the full request. Observe mode logs; autopilot may reorder, and

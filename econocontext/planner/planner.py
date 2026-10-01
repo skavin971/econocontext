@@ -132,9 +132,11 @@ def for_tool_result(ctx: PlanContext, cfg: dict, segment: Segment,
 
 def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
                   calls_hat: float, file_tokens: dict[str, int], shape: Shape, cache,
-                  need_named_files: bool = True) -> list[Candidate]:
-    """Before a sub-task is delegated: a new worker (FRESH), or the idle worker that
-    already holds the most of the files the task names (RESUME). With
+                  need_named_files: bool = True,
+                  briefs: dict[str, float] | None = None) -> list[Candidate]:
+    """Before a sub-task is delegated: a new worker (FRESH), the idle worker that
+    already holds the most of the files the task names (RESUME), or a new worker given
+    the lines an idle worker read (HANDOFF; `briefs`: worker id -> brief tokens). With
     need_named_files=False (Claude Code, whose sub-agent prompts rarely name files) any
     idle worker is a candidate; the price still decides.
 
@@ -162,6 +164,10 @@ def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
             "RESUME", options.resume(shape, best["resident_tokens"], True, task_tokens, calls_hat),
             title=best["title"], worker_id=best["worker_id"],
             held_tokens=sum(file_tokens[p] for p in set(best["files"]) & named)))
+    if briefs:
+        source = max(briefs, key=briefs.get)
+        candidates.append(priced("HANDOFF", options.handoff(shape, task_tokens, briefs[source], calls_hat),
+                                 worker_id=source, brief_tokens=briefs[source]))
     return candidates
 
 

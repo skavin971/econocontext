@@ -22,6 +22,7 @@ import json
 import re
 from datetime import datetime, timezone
 
+from econocontext.monitor import context_map
 from econocontext.store.db import AgentDB, now
 
 TABLE = ("CREATE TABLE IF NOT EXISTS claude_workers (run_id TEXT, agent_id TEXT, "
@@ -30,7 +31,6 @@ TABLE = ("CREATE TABLE IF NOT EXISTS claude_workers (run_id TEXT, agent_id TEXT,
          "PRIMARY KEY (run_id, agent_id))")
 AGENT_ID = re.compile(r"agentId:\s*([A-Za-z0-9_-]+)")
 HANDBACK = "SubagentHandback"
-LINES = re.compile(r"^L(\d+)-(\d+)$")  # an evidence range: lines first..last
 
 
 def _hash(text: str) -> str:
@@ -98,21 +98,14 @@ def holdings(db: AgentDB, run_id: str, context_key: str) -> dict:
         "SELECT json_extract(metadata, '$.call_no') FROM runtime_spans WHERE run_id=? AND "
         "kind='model' AND json_extract(metadata, '$.context_key')=?", (run_id, context_key))]
     files: dict[str, int] = {}
-    lines: dict[str, list[tuple[int, int, str]]] = {}
     if calls:
         marks = ",".join("?" * len(calls))
-        for r in db.rows(f"SELECT v.source_key, v.source_kind, v.token_size, v.range, v.source_version "
-                         f"FROM evidence_events e JOIN evidence v ON v.run_id=e.run_id AND "
-                         f"v.evidence_id=e.evidence_id WHERE e.run_id=? AND e.event='acquired' "
-                         f"AND e.call_no IN ({marks})", (run_id, *calls)):
-            if r["source_kind"] != "file":
-                continue
+        for r in db.rows(f"SELECT v.source_key, v.token_size FROM evidence_events e JOIN evidence v "
+                         f"ON v.run_id=e.run_id AND v.evidence_id=e.evidence_id WHERE e.run_id=? AND "
+                         f"e.event='acquired' AND v.source_kind='file' AND e.call_no IN ({marks})",
+                         (run_id, *calls)):
             files[r["source_key"]] = max(files.get(r["source_key"], 0), r["token_size"])
-            span = LINES.match(r["range"] or "")
-            if span:
-                held = (int(span.group(1)), int(span.group(2)), r["source_version"])
-                if held not in lines.setdefault(r["source_key"], []):
-                    lines[r["source_key"]].append(held)
+    lines = context_map.held_lines(db, run_id, call_nos=calls)
     last = db.rows("SELECT COALESCE(o.uncached_input,0)+COALESCE(o.cache_read,0)+COALESCE(o.cache_write,0) p "
                    "FROM runtime_spans s JOIN outcomes o ON o.outcome_id=s.native_id WHERE s.run_id=? AND "
                    "json_extract(s.metadata, '$.context_key')=? ORDER BY s.started_at DESC LIMIT 1",

@@ -10,12 +10,14 @@ applied.
 
 import hashlib
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from . import config as config_module
 from .assembler.assembler import pointer_text, render
 from .costmodel.meter import ExplicitCache, ImplicitCache
 from .costmodel.options import Shape
+from .planner.handoff import brief as handoff_brief
 from .guard.fail_open import guarded
 from .guard.validate import problems
 from .host import Host, HostCapabilities
@@ -33,6 +35,15 @@ from .types import (AdmitResult, Candidate, CostBreakdown, Decision, DispatchInt
                     DispatchOutcome, DispatchResult, HostRequest, Intercept, Mode, OperatorType,
                     PlanContext, ProviderUsage, RenderedRequest, Segment, SegmentKind, ToolAction,
                     ToolCallEvent, ToolResultEvent)
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Where delegated work runs instead of the host's own new worker."""
+    arm: str              # RESUME | HANDOFF
+    title: str | None     # RESUME: the worker to continue
+    worker_id: str        # the idle worker it continues, or whose lines it hands off
+    brief: str            # HANDOFF: the text to add to the task
 
 
 class EconoContext:
@@ -290,30 +301,42 @@ class EconoContext:
                         prior=prior)
 
     def plan_placement(self, agent_id: str, task: str, worker_type: str, workers: list[dict],
-                       file_tokens: dict[str, int],
-                       need_named_files: bool = True) -> tuple[str, str | None]:
-        """Before a sub-task is delegated: a new worker, or an existing one (RESUME).
-        Returns (decision id, the title of the worker to continue, or None)."""
+                       file_tokens: dict[str, int], need_named_files: bool = True,
+                       handoff: bool = False) -> tuple[str, Placement | None]:
+        """Before a sub-task is delegated: a new worker, an existing one (RESUME), or a new
+        one given an idle worker's lines (HANDOFF, when the host can carry it out).
+        Returns (decision id, what to do instead of the host's own new worker, or None)."""
         box: dict = {}
 
-        def decide() -> str | None:
+        def decide() -> Placement | None:
             ctx = self._context(agent_id, Intercept.PLAN_DISPATCH, self.registry.window(agent_id))
             calls_hat = (self.history.h_hat(f"{self.run_id}:{worker_type}:new", 0) if self.history
                          else self.cfg["cost_model"]["fresh_expected_calls"])
             shape, cache = self._worker_model()
+            briefs = {}
+            if handoff and self.workdir:
+                limit = self.cfg.get("placement", {}).get("handoff_max_tokens", 4000)
+                for w in workers:
+                    text = handoff_brief(self.workdir, w.get("lines") or {}, task, limit) \
+                        if not w["busy"] else ""
+                    if text:
+                        briefs[w["worker_id"]] = text
             decision = select(planner.for_placement(ctx, self.cfg, task, workers, calls_hat,
-                                                    file_tokens, shape, cache, need_named_files),
+                                                    file_tokens, shape, cache, need_named_files,
+                                                    {k: count_tokens(v) for k, v in briefs.items()}),
                               ctx, self.config.constraints, self.cfg,
                               force=self.cfg.get("placement", {}).get("force"))
             decision.subject_id = hashlib.sha256(f"{worker_type}|{task}".encode()).hexdigest()
             box["decision"] = decision
-            if decision.chosen.name == "RESUME" and self._apply(decision):
+            chosen = decision.chosen
+            if chosen.name in ("RESUME", "HANDOFF") and self._apply(decision):
                 decision.applied = True
-                return decision.chosen.payload["title"]
+                return Placement(chosen.name, chosen.payload.get("title"), chosen.payload["worker_id"],
+                                 briefs.get(chosen.payload["worker_id"], ""))
             return None
 
-        title, error, ms = guarded(decide, lambda: None, self.deadline)
-        return self._log(agent_id, box.get("decision"), Intercept.PLAN_DISPATCH, ms, error), title
+        placement, error, ms = guarded(decide, lambda: None, self.deadline)
+        return self._log(agent_id, box.get("decision"), Intercept.PLAN_DISPATCH, ms, error), placement
 
     def _worker_model(self) -> tuple[Shape, object]:
         """This harness's worker loops, and its provider's cache (Anthropic: explicit)."""

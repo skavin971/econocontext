@@ -34,10 +34,12 @@ allowlist:
   FRESH: true
   REUSE_RESULT: true                # exact: same task key, unchanged read-set, no side effects
   RESUME: false                     # send a sub-task to an idle worker that holds its files
+  HANDOFF: false                    # a new worker, given the lines an idle worker already read
 
 # PLACEHOLDER: judgement values for approximate operators. Exact operators are 0.0.
 quality_risk:
   RESUME: 0.1                       # the worker also sees its earlier history (more, not less)
+  HANDOFF: 0.1                      # the worker also sees a brief it did not ask for
   POINTER: 0.2
   COMMIT_PENDING: 0.2
   RETRIEVE_FROM_STORE: 0.5
@@ -82,6 +84,9 @@ placement:
   # An experiment arm: FRESH, RESUME or HANDOFF is chosen whenever it is a candidate (it
   # must still be allowed). null: the price decides.
   force: null
+  # HANDOFF's brief: at most this many tokens of an idle worker's lines, files the task
+  # names first.
+  handoff_max_tokens: 4000
 
 predictor:
   # PLACEHOLDER: half the median model calls (36) of the v0 pilot's solved Gemini runs.

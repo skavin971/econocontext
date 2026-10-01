@@ -51,6 +51,10 @@ CATALOG = {op.name: op for op in (
     # dispatch's title is rewritten to that worker's, and Omnigent continues it).
     Operator("RESUME", Intercept.PLAN_DISPATCH, EXACT, False, True,
              "send delegated work to an existing worker that already holds the relevant context"),
+    # Generated when an idle worker read lines of files (Omnigent: the dispatch's task is
+    # extended with those lines, re-read now; a new worker runs it).
+    Operator("HANDOFF", Intercept.PLAN_DISPATCH, APPROX, False, True,
+             "start a new worker with the lines an idle worker already read"),
     # Named, not generated yet.
     # PLACEHOLDER: FORK needs the host's fork mode (inherits the parent's history) and a
     # price for the inherited prefix.

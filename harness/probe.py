@@ -12,6 +12,9 @@ harness's source. This runs ONE task and collects, side by side:
 Gemini CLI gets a natural question (it delegated on its own: docs/omnigent-findings.md).
 Claude Code is asked to use a sub-agent and then continue that same one (SendMessage),
 because the question for it is whether continuing works, not whether it delegates.
+openai-controlled (our openai-agents harness on Gemini, explore and general workers)
+gets a natural question and a follow-up; with --force RESUME or HANDOFF in autopilot,
+the follow-up's delegation shows whether EconoContext's placement reaches the worker.
 
 It prints the evidence as JSON; the answers are written up in docs/omnigent-findings.md.
 One run on purpose: the API is rate limited.
@@ -34,20 +37,30 @@ from harness.session import (check_measured, check_settings, latest_call, run_se
                              session_view, write_spec)
 
 from econocontext.config import merge  # noqa: E402
+from econocontext.monitor import context_map  # noqa: E402
 from omnigent_layer import HOME, claude_workers, engine_for, register_run  # noqa: E402
 
 TASKS = {
     "gemini-omnigent": ("How does this project decide which files, classes and functions to "
                         "collect as tests? Trace the path through the code and name the functions "
                         "involved, with file paths. Do not change any files."),
+    "openai-controlled": ("How does this project decide which files, and which functions inside "
+                          "them, to collect as tests? Trace the path through the code and name the "
+                          "functions involved, with file paths. Do not change any files."),
     "claude-code": ("Use a sub-agent (the Agent tool) to find where this project decides which "
                     "test files to collect, with file paths and function names. Then continue "
                     "that same sub-agent with SendMessage (not a new Agent call) and ask it how "
                     "test functions inside a collected file are found. Reply with both answers. "
                     "Do not change any files."),
 }
+FOLLOWUPS = {
+    "openai-controlled": ("Now: how does a collected test function get its fixtures resolved? Trace "
+                          "that path the same way, with file paths and function names. Do not "
+                          "change any files."),
+}
 # Per harness: host name, per-run overrides (caps; Claude Code's price card and budget).
 PROBES = {
+    "openai-controlled": ("omnigent", {"limits": {"max_model_calls": 40}}),
     "gemini-omnigent": ("omnigent:gemini", {"limits": {"max_model_calls": 30}}),
     "claude-code": ("omnigent:claude-code",
                     {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},
@@ -72,6 +85,8 @@ def gateway_view(engine, run_id: str) -> dict:
 
 def files_view(harness: str, home: Path, workdir: Path) -> list[dict]:
     """The harness's own session files: names and sizes only."""
+    if harness == "openai-controlled":  # its sessions live in Omnigent (see omnigent above)
+        return []
     if harness == "claude-code":  # Claude Code keeps transcripts per workspace path
         root = Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(workdir))
         files = sorted(root.rglob("*.jsonl")) if root.exists() else []
@@ -91,6 +106,8 @@ def main() -> None:
     p.add_argument("--mode", choices=["observe", "autopilot"], default="observe",
                    help="with --resume: observe logs placement, autopilot carries it out")
     p.add_argument("--resume", action="store_true", help="allow RESUME (worker placement)")
+    p.add_argument("--force", choices=["FRESH", "RESUME", "HANDOFF"],
+                   help="an experiment arm: placement chooses it whenever it is a candidate")
     p.add_argument("--max-minutes", type=float, default=10)
     p.add_argument("--server", default="http://127.0.0.1:6767")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
@@ -106,15 +123,20 @@ def main() -> None:
         overrides = merge(overrides, {"allowlist": {"RESUME": True},
                                       "constraints": {"max_quality_risk": 0.2},
                                       "limits": {"max_model_calls": 80, "per_instance_budget_usd": 1.20}})
+    if a.force:
+        overrides = merge(overrides, {"allowlist": {a.force: True}, "placement": {"force": a.force},
+                                      "constraints": {"max_quality_risk": 0.2}})
+    # openai-agents workers call the gateway's /current route: this run must be current
     register_run(run_id, "econo", a.mode, f"{a.harness}-probe", workdir=str(workdir),
-                 host=host, overrides=overrides)
+                 host=host, overrides=overrides, current=a.harness == "openai-controlled")
     spec = write_spec(a.harness, run_id, workdir, a.gateway, True)
     check_settings(a.harness, workdir)
     print(f"== {run_id}", flush=True)
 
     status, reply, session_id = "done", "", None
     try:
-        messages = [a.task or TASKS[a.harness]] + ([a.followup] if a.followup else [])
+        followup = a.followup or (FOLLOWUPS.get(a.harness) if not a.task else None)
+        messages = [a.task or TASKS[a.harness]] + ([followup] if followup else [])
         reply, session_id = asyncio.run(run_session(a.server, spec, workdir, messages,
                                                     a.max_minutes * 60, approve=True,
                                                     native=a.harness == "claude-code",
@@ -131,7 +153,11 @@ def main() -> None:
     evidence = {"run_id": run_id, "status": status, "reply": reply[:500],
                 "omnigent": asyncio.run(session_view(a.server, session_id)) if session_id else None,
                 "gateway_loops": gateway_view(engine, run_id),
-                "workers": claude_workers.report(engine.db, run_id),
+                "workers": (claude_workers.report(engine.db, run_id) if a.harness == "claude-code"
+                            else context_map.workers(engine.db, run_id, 300)),
+                "placements": [dict(r) for r in engine.db.rows(
+                    "SELECT created_at, chosen, applied, payloads FROM decisions WHERE run_id=? "
+                    "AND intercept='plan_dispatch' ORDER BY created_at", (run_id,))],
                 "harness_files": files_view(a.harness, HOME / "data" / "work" / f"{safe}.home",
                                             workdir)}
     out = HOME / "data" / "runs" / "probe" / f"{safe}.json"
