@@ -60,7 +60,7 @@ FOLLOWUPS = {
 }
 # Per harness: host name, per-run overrides (caps; Claude Code's price card and budget).
 PROBES = {
-    "openai-controlled": ("omnigent", {"limits": {"max_model_calls": 40}}),
+    "openai-controlled": ("omnigent", {"limits": {"max_model_calls": 80}}),  # root and worker both work
     "gemini-omnigent": ("omnigent:gemini", {"limits": {"max_model_calls": 30}}),
     "claude-code": ("omnigent:claude-code",
                     {"model": {"provider": "anthropic", "name": "claude-sonnet-5"},

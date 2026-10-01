@@ -34,6 +34,7 @@ import json
 import logging
 import os
 import time
+import uuid
 
 from econocontext.monitor import context_map
 from econocontext.types import ToolCallEvent, ToolResultEvent
@@ -84,7 +85,8 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
         inner = args.get("args")
         task = str(inner.get("input") if isinstance(inner, dict) else inner or "")
         title, kind = str(args.get("title") or ""), str(args.get("agent") or "worker")
-        span_id = f"{run_id}:dispatch:{next(counter)}"
+        # unique across evaluators: Omnigent may build a new one mid-run (counter restarts)
+        span_id = f"{run_id}:dispatch:{uuid.uuid4().hex[:12]}"
         engine.start_span(span_id, me, "dispatch", title or "dispatch",
                           metadata={"title": title, "task": task, "worker": kind})
         open_dispatches.append((span_id, time.monotonic()))

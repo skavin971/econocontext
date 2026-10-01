@@ -316,9 +316,8 @@ class EconoContext:
             briefs = {}
             if handoff and self.workdir:
                 limit = self.cfg.get("placement", {}).get("handoff_max_tokens", 4000)
-                for w in workers:
-                    text = handoff_brief(self.workdir, w.get("lines") or {}, task, limit) \
-                        if not w["busy"] else ""
+                for w in workers:  # a busy worker's lines so far can be handed off too
+                    text = handoff_brief(self.workdir, w.get("lines") or {}, task, limit)
                     if text:
                         briefs[w["worker_id"]] = text
             decision = select(planner.for_placement(ctx, self.cfg, task, workers, calls_hat,
