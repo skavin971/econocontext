@@ -453,3 +453,60 @@ results are in `docs/results/2026-09-30-cost-model-explains-placement.md`.
   and took 4 more. Only 8% of the lines it read for the follow-up were lines it already
   held.
 - **Still missing: a forecast of how many calls each option takes** (plan step 6).
+
+## Worker placement live on Gemini: openai-agents with explore + general workers (2026-10-01)
+
+**Setup:**
+- **Harness:** our openai-agents harness on Gemini 3.6 Flash, with a read-only `explore`
+  worker and a general `worker`.
+- **Runs:** `harness/probe.py --harness openai-controlled --mode autopilot --force HANDOFF|RESUME`,
+  one question and a follow-up each.
+- **Attachment:** EconoContext attaches only through the spec's `policies:` block and the
+  model URL.
+  - Omnigent 0.15.0's installed files match their published hashes: 842 + 27 Python
+    files, none changed.
+  - A policy's ALLOW with `data` replaces a tool call's arguments; this is Omnigent's
+    documented contract (`omnigent/runner/policy.py`).
+- **Spend:** 8 runs, **$2.86** of Gemini.
+
+| Run | What happened | Placement |
+|---|---|---|
+| hand1 | The root delegated question 1 to `explore` on its own and answered the follow-up itself | FRESH (no worker yet) |
+| hand2 | The run's 40-call cap was hit in question 1: the root kept researching in parallel with its worker | FRESH |
+| hand3 | The follow-up was delegated while worker 1 was still running; the second dispatch span was dropped (bug) | FRESH |
+| hand4 | **HANDOFF chosen and applied**, but the handed-off worker was refused by the gateway's daily token guard | HANDOFF, applied |
+| hand5 | **HANDOFF end to end:** the new worker's first request (seen at the gateway) carried the brief: lines another worker had read, as they are now | HANDOFF, applied |
+| res1 | The root did question 1 itself; the follow-up's dispatch had no earlier worker | FRESH (no candidate) |
+| res2 | The follow-up was dispatched while worker 1 was still busy (the runner sent it too early) | FRESH (no idle worker) |
+| res3 | The runner now waits for idle workers; the root answered the follow-up without delegating | none |
+
+**Verified live:**
+- the root picks the new `explore` worker by itself;
+- the gateway records workers' line holdings from `sys_os_read` ranges and `grep -n` hits;
+- HANDOFF reaches the new worker.
+
+**Not yet live on this harness:** a RESUME redirect, because the root never made a second
+delegation while a worker was idle. The mechanism itself was checked on 2026-09-29: a
+title rewrite continues the worker. Its policy path is unit-tested.
+
+**Fixed along the way:**
+- **Dispatch spans had colliding ids.** Omnigent may build a new policy evaluator
+  mid-run, and the counter restarted.
+- **Workers outlived their run** and were counted in the next one through `/current`.
+  The runner now interrupts busy workers when a run ends.
+- **The runner sent follow-ups while a worker was busy.** It now waits for the session's
+  workers first.
+
+**Findings for the cost model:**
+- **The brief is badly chosen.** hand5's brief was mostly one-line grep hits from the
+  question 1 research, while the follow-up was about fixtures. Choosing which held lines
+  to hand off needs relevance, which E4 measures.
+- **On this harness, the root does not wait for its worker.** It researches the same
+  files in parallel and re-reads lines the worker holds (hand1: `main.py` 537,
+  `python.py` 359/442/637/715/801). That is duplicate acquisition across agents, a
+  saving no placement option captures.
+- **Delegating twice is rare.** The root delegated the follow-up in 3 of 7 runs where the
+  follow-up was reached. Forced-arm experiments need a driver that dispatches directly
+  (plan step 6, `worker_pairs.py`), not a root's choice.
+- **Still to do:** the gateway's daily token guard (3M, set with
+  `ECONO_MAX_INPUT_TOKENS_PER_DAY`) must give way to the $50 dollar budget (plan step 3).

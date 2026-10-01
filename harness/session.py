@@ -183,11 +183,38 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str | list
                 result = await asyncio.wait_for(chat.query(message), timeout=seconds)
                 if native:
                     await wait_until_done(client, bound.id, seconds, activity)
+                else:
+                    await wait_for_workers(client, bound.id, seconds)
             if native:
                 return await last_reply(client, bound.id), bound.id
         finally:
+            await stop_children(client, bound.id)
             _stop_headless_session(base_url=server, session_id=bound.id)
         return getattr(result, "text", "") or "", bound.id
+
+
+async def wait_for_workers(client, session_id: str, seconds: float) -> None:
+    """Until none of the session's workers is busy. An openai-agents root can end its
+    turn while a worker it started is still running (sys_session_send does not wait), so
+    a follow-up sent at once would meet a busy worker, never an idle one (res2)."""
+    deadline = asyncio.get_running_loop().time() + seconds
+    while asyncio.get_running_loop().time() < deadline:
+        if not any(c.get("busy") for c in await client.sessions.child_sessions(session_id)):
+            return
+        await asyncio.sleep(3)
+    raise TimeoutError(f"workers of {session_id} still busy after {seconds:.0f} s")
+
+
+async def stop_children(client, session_id: str) -> None:
+    """Interrupt the session's workers that are still busy. Workers call the gateway's
+    /current route, so one that outlives its run is counted in the next run (hand4's
+    workers ran on into hand5)."""
+    try:
+        for child in await client.sessions.child_sessions(session_id):
+            if child.get("busy"):
+                await client.sessions.interrupt(child["id"])
+    except Exception as exc:  # never hide the run's own result
+        print(f"could not stop the workers of {session_id}: {exc}", flush=True)
 
 
 async def session_view(server: str, session_id: str) -> dict:
