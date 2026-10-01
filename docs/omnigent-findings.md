@@ -433,3 +433,23 @@ written; its first step is this safety fix, which needs no model calls.
 - **Still open**, in the next steps:
   - no worker placement run on openai-agents has had a real decision yet
   - no option moves only the relevant held evidence to a new worker (HANDOFF)
+
+## Cost model v2, step 1: the model explains FRESH vs RESUME (2026-09-30)
+
+The known errors are fixed, and the recorded runs are reproduced offline. The full
+results are in `docs/results/2026-09-30-cost-model-explains-placement.md`.
+
+- **What was fixed:**
+  - a resumed worker now pays for its history on every call;
+  - FRESH starts from Claude Code's real cached prefix (8,011 tokens);
+  - calls are per option, not a fixed 5;
+  - Bash reads (`sed -n`, `cat`, `grep -n`, …) are held as line ranges of a version;
+  - holdings are kept per file, line range and version.
+- **The meter** equals the ledger on 440 calls. Its cache split is within 0.5% per Claude
+  Code run, and within 1.9% summed over Gemini runs; Gemini's random misses make single
+  runs noisy.
+- **wctl4/wres4 are reproduced** at their observed call counts: −0.8% and +3.4%.
+- **Before the decision, the model chooses FRESH.** RESUME needed 2.1 fewer calls to win,
+  and took 4 more. Only 8% of the lines it read for the follow-up were lines it already
+  held.
+- **Still missing: a forecast of how many calls each option takes** (plan step 6).

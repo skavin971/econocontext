@@ -9,8 +9,10 @@ import json
 from datetime import date, datetime, timezone
 
 from ..config import PriceCard
+from ..costmodel.meter import price_call
 from ..store.db import AgentDB
 from ..types import ProviderUsage
+from .rates import from_tier
 
 
 def _period_name(period: dict) -> str:
@@ -25,6 +27,7 @@ def cost(usage: ProviderUsage, card: PriceCard, day: date) -> tuple[float | None
 
     Missing billed counters remain unknown. Gemini's implicit cache has no
     separately billed write counter, represented by ``cache_write_applicable=False``.
+    The price itself is costmodel.meter.price_call: the same formula the planner uses.
     """
     period, tier = card.period_and_tier(day, usage.prompt_tokens)
     period_name = _period_name(period)
@@ -37,25 +40,9 @@ def cost(usage: ProviderUsage, card: PriceCard, day: date) -> tuple[float | None
     if any(value is None for value in required):
         return None, None, False, period_name
 
-    uncached = usage.uncached_input or 0
-    cache_read = usage.cache_read or 0
-    cache_write = (usage.cache_write or 0) if usage.cache_write_applicable else 0
-    cache_write_1h = (usage.cache_write_1h or 0) if usage.cache_write_applicable else 0
-    output = usage.output or 0
-    input_rate = tier.input_per_mtok
-    read_rate = (input_rate if tier.cache_read_per_mtok is None
-                 else tier.cache_read_per_mtok)
-    write_rate = (input_rate if tier.cache_write_per_mtok is None
-                  else tier.cache_write_per_mtok)
-    write_1h_rate = (input_rate if tier.cache_write_1h_per_mtok is None
-                     else tier.cache_write_1h_per_mtok)
-
-    nu = (uncached + cache_read * read_rate / input_rate
-          + cache_write * write_rate / input_rate
-          + cache_write_1h * write_1h_rate / input_rate
-          + output * tier.output_per_mtok / input_rate)
-    usd = (uncached * input_rate + cache_read * read_rate + cache_write * write_rate
-           + cache_write_1h * write_1h_rate + output * tier.output_per_mtok) / 1_000_000
+    rates = from_tier(card.model, tier)
+    nu = price_call(usage, rates)
+    usd = nu * rates.usd_per_nu
     return float(nu), float(usd), True, period_name
 
 

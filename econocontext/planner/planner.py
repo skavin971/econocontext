@@ -13,8 +13,11 @@ out now (stale_edits); RESUME when an idle worker already holds files a task nee
 """
 
 from copy import copy
+from dataclasses import asdict
 
 from ..assembler.zones import assign
+from ..costmodel import options
+from ..costmodel.options import Shape
 from ..pricing.predictor import future_use_score, p_need_again
 from ..tokens import count_tokens
 from ..types import (Candidate, DispatchIntent, PlanContext, Representation, Segment, SegmentKind,
@@ -128,34 +131,37 @@ def for_tool_result(ctx: PlanContext, cfg: dict, segment: Segment,
 
 
 def for_placement(ctx: PlanContext, cfg: dict, task: str, workers: list[dict],
-                  calls_hat: int, file_tokens: dict[str, int],
+                  calls_hat: float, file_tokens: dict[str, int], shape: Shape, cache,
                   need_named_files: bool = True) -> list[Candidate]:
     """Before a sub-task is delegated: a new worker (FRESH), or the idle worker that
     already holds the most of the files the task names (RESUME). With
     need_named_files=False (Claude Code, whose sub-agent prompts rarely name files) any
     idle worker is a candidate; the price still decides.
 
-    Per worker call, a new worker sends its base context plus the files it must read;
-    a resumed worker sends its cached resident context plus the task and only the files it
-    does not hold yet. A worker idle past the cache lifetime is never a candidate: its
-    whole history would be written again (1.25x) on the first call, which alone cost more
-    than a new worker's whole run in every case observed (wres4, docs/omnigent-findings.md)."""
-    base = cfg["cost_model"]["fresh_expected_input_tokens_per_call"]  # PLACEHOLDER: a new worker's base context
+    Each option is priced by the meter as a loop of `calls_hat` calls of the harness's
+    worker shape (costmodel/options.py): a new worker starts from the shared cached
+    prefix, a resumed one from its whole history, which it then sends on every call.
+    A worker idle past the cache lifetime is never a candidate: its whole history would
+    be written again (1.25x) on the first call, which alone cost more than a new worker's
+    whole run in every case observed (wres4, docs/omnigent-findings.md).
+    Until a forecast predicts that a resumed worker needs fewer calls, both options get
+    the same count, and RESUME wins only if its history is smaller than the new
+    worker's first prompt."""
     task_tokens = count_tokens(task)
     named = {p for p in file_tokens if p in task or p.rsplit("/", 1)[-1] in task}
-    need = sum(file_tokens[p] for p in named)
-    candidates = [_candidate("FRESH", cfg, extra_calls=calls_hat,
-                             extra_call_input_tokens=base + task_tokens + need)]
+
+    def priced(name: str, loop, **payload) -> Candidate:
+        return _candidate(name, cfg, meter_nu=cache.price(loop, ctx.rates), loop=asdict(loop), **payload)
+
+    candidates = [priced("FRESH", options.fresh(shape, task_tokens, calls_hat))]
     free = [w for w in workers if not w["busy"] and w["warm"] and w["title"]
             and (set(w["files"]) & named or not need_named_files)]
     if free:
         best = max(free, key=lambda w: sum(file_tokens[p] for p in set(w["files"]) & named))
-        held = sum(file_tokens[p] for p in set(best["files"]) & named)
-        candidates.append(_candidate(
-            "RESUME", cfg, extra_calls=calls_hat,
-            extra_call_input_tokens=(best["resident_tokens"] * ctx.rates.cache_read_ratio
-                                     + task_tokens + need - held),
-            title=best["title"], worker_id=best["worker_id"], held_tokens=held))
+        candidates.append(priced(
+            "RESUME", options.resume(shape, best["resident_tokens"], True, task_tokens, calls_hat),
+            title=best["title"], worker_id=best["worker_id"],
+            held_tokens=sum(file_tokens[p] for p in set(best["files"]) & named)))
     return candidates
 
 

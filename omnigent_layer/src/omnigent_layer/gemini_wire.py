@@ -78,7 +78,7 @@ def to_usage(usage: dict | None, latency_ms: float | None = None) -> ProviderUsa
 #   other   everything else, including sub-agents (invoke_agent), web and planning.
 # A tool missing here is 'other': never treated as a safe read.
 TOOLS = {
-    "read_file": ("file", "file_path"),
+    "read_file": ("file", "file_path", 0),       # offset counts lines from 0
     "read_many_files": ("file", "paths"),
     "list_directory": ("search", "dir_path"),
     "glob": ("search", None),
@@ -86,7 +86,7 @@ TOOLS = {
     "search_file_content": ("search", None),
     "replace": ("write", "file_path"),
     "write_file": ("write", "file_path"),
-    "run_shell_command": ("write", None),
+    "run_shell_command": ("shell", "command"),
     "update_topic": ("meta", None),
 }
 

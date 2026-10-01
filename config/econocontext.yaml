@@ -54,6 +54,34 @@ cost_model:
   # delegation (median of four runs ~5) with a median 8,950 input tokens per call.
   fresh_expected_calls: 5
   fresh_expected_input_tokens_per_call: 8950
+  # Worker loops per harness (runs.host), measured from recorded runs by
+  # harness/explain_placement.py. A placement option is priced as such a loop
+  # (econocontext/costmodel/options.py); its call count is fresh_expected_calls (or the
+  # learned history) until a forecast is learned. "default": a harness not measured yet.
+  worker_shapes:
+    default:                  # PLACEHOLDER until Gemini/openai-agents workers are measured
+      shared_prefix: 0        # tokens a new worker finds cached
+      first_tail: 8950        # its other first-call tokens, besides the task
+      growth: 1500            # tokens each later call adds
+      output: 345             # output tokens per call
+      resume_tail: 500        # a resumed worker's first-call tokens besides the task
+    omnigent:claude-code:     # Explore workers of wctl4/wres4 (2026-09-30)
+      shared_prefix: 8011
+      first_tail: 3520
+      growth: 2073
+      output: 567
+      resume_tail: 2900
+  # Gemini's implicit cache: a call misses it entirely with probability `miss`, else
+  # reads the previous prompt minus `lag` tokens. Fitted on 243 consecutive calls of 16
+  # Gemini runs (2026-09-30); within 1.9% of the billed cost over all of them.
+  implicit_cache:
+    miss: 0.19
+    lag: 2539
+
+placement:
+  # An experiment arm: FRESH, RESUME or HANDOFF is chosen whenever it is a candidate (it
+  # must still be allowed). null: the price decides.
+  force: null
 
 predictor:
   # PLACEHOLDER: half the median model calls (36) of the v0 pilot's solved Gemini runs.

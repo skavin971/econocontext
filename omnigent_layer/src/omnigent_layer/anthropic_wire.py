@@ -32,6 +32,7 @@ from . import observe
 MESSAGES = "/v1/messages"  # the only model call; count_tokens and the rest pass through
 
 # Claude Code's own tools, by what they do to the workspace (observe.py's kinds).
+# Read's offset is a line number from 1; its result numbers its lines.
 # testbed_shell is ours, reached through Omnigent's MCP relay.
 TOOLS = {
     "Read": ("file", "file_path"),
@@ -42,8 +43,8 @@ TOOLS = {
     "MultiEdit": ("write", "file_path"),
     "Write": ("write", "file_path"),
     "NotebookEdit": ("write", "notebook_path"),
-    "Bash": ("write", None),
-    "mcp__omnigent__testbed_shell": ("write", None),
+    "Bash": ("shell", "command"),
+    "mcp__omnigent__testbed_shell": ("shell", "command"),
     "TodoWrite": ("meta", None),
 }
 

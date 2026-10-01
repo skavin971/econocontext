@@ -10,7 +10,8 @@ with SubagentHandback. All of that passes the gateway, so it is read there:
   its loop        the conversation whose first user message is the Agent call's prompt
                   (context_key, as for every call)
   idle            its latest reply was a SubagentHandback (no tool calls after it)
-  what it holds   the evidence its loop acquired (files, searches), and its context size
+  what it holds   the evidence its loop acquired: files, and the lines of each at the
+                  version it read (Read, and shell reads such as `sed -n`); its context size
 
 Nothing here decides anything: policy.py asks for the workers when an Agent call comes.
 Prompt text is not stored; only its hash (to match the sub-agent's loop).
@@ -29,6 +30,7 @@ TABLE = ("CREATE TABLE IF NOT EXISTS claude_workers (run_id TEXT, agent_id TEXT,
          "PRIMARY KEY (run_id, agent_id))")
 AGENT_ID = re.compile(r"agentId:\s*([A-Za-z0-9_-]+)")
 HANDBACK = "SubagentHandback"
+LINES = re.compile(r"^L(\d+)-(\d+)$")  # an evidence range: lines first..last
 
 
 def _hash(text: str) -> str:
@@ -89,25 +91,34 @@ def track_reply(db: AgentDB, run_id: str, context_key: str, response_calls: list
 
 
 def holdings(db: AgentDB, run_id: str, context_key: str) -> dict:
-    """What a worker's loop already has: files and searches acquired (with tokens), its
-    calls, and the context it last sent (the prefix a continuation would read)."""
+    """What a worker's loop already has: the files it read (largest read, in tokens), the
+    lines it read of each (file -> [(first, last, version)], from Read and from shell reads
+    such as `sed -n`), its calls, and the context it last sent (what a continuation reads)."""
     calls = [n for (n,) in db.rows(
         "SELECT json_extract(metadata, '$.call_no') FROM runtime_spans WHERE run_id=? AND "
         "kind='model' AND json_extract(metadata, '$.context_key')=?", (run_id, context_key))]
     files: dict[str, int] = {}
+    lines: dict[str, list[tuple[int, int, str]]] = {}
     if calls:
         marks = ",".join("?" * len(calls))
-        for r in db.rows(f"SELECT v.source_key, v.source_kind, v.token_size FROM evidence_events e "
-                         f"JOIN evidence v ON v.run_id=e.run_id AND v.evidence_id=e.evidence_id "
-                         f"WHERE e.run_id=? AND e.event='acquired' AND e.call_no IN ({marks})",
-                         (run_id, *calls)):
-            if r["source_kind"] == "file":
-                files[r["source_key"]] = max(files.get(r["source_key"], 0), r["token_size"])
+        for r in db.rows(f"SELECT v.source_key, v.source_kind, v.token_size, v.range, v.source_version "
+                         f"FROM evidence_events e JOIN evidence v ON v.run_id=e.run_id AND "
+                         f"v.evidence_id=e.evidence_id WHERE e.run_id=? AND e.event='acquired' "
+                         f"AND e.call_no IN ({marks})", (run_id, *calls)):
+            if r["source_kind"] != "file":
+                continue
+            files[r["source_key"]] = max(files.get(r["source_key"], 0), r["token_size"])
+            span = LINES.match(r["range"] or "")
+            if span:
+                held = (int(span.group(1)), int(span.group(2)), r["source_version"])
+                if held not in lines.setdefault(r["source_key"], []):
+                    lines[r["source_key"]].append(held)
     last = db.rows("SELECT COALESCE(o.uncached_input,0)+COALESCE(o.cache_read,0)+COALESCE(o.cache_write,0) p "
                    "FROM runtime_spans s JOIN outcomes o ON o.outcome_id=s.native_id WHERE s.run_id=? AND "
                    "json_extract(s.metadata, '$.context_key')=? ORDER BY s.started_at DESC LIMIT 1",
                    (run_id, context_key))
-    return {"files": files, "calls": len(calls), "context_tokens": last[0]["p"] if last else 0}
+    return {"files": files, "lines": lines, "calls": len(calls),
+            "context_tokens": last[0]["p"] if last else 0}
 
 
 def workers(db: AgentDB, run_id: str, ttl_seconds: float) -> list[dict]:
@@ -121,7 +132,8 @@ def workers(db: AgentDB, run_id: str, ttl_seconds: float) -> list[dict]:
                     if w["last_call_at"] else None)
         out.append(dict(worker_id=w["agent_id"], title=w["agent_id"], type=w["subagent_type"],
                         description=w["description"], files=sorted(held["files"]),
-                        file_tokens=held["files"], resident_tokens=held["context_tokens"],
+                        file_tokens=held["files"], lines=held["lines"],
+                        resident_tokens=held["context_tokens"],
                         calls=held["calls"], busy=w["status"] != "idle",
                         warm=idle_for is not None and idle_for < ttl_seconds))
     return out

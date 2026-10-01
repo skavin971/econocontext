@@ -106,7 +106,8 @@ def test_a_reply_is_read_for_its_calls_and_text_but_thoughts_are_not_text():
 
 def test_tools_are_classified_and_unknown_tools_are_never_safe_reads():
     assert gemini_wire.tool_kind("grep_search") == "search"
-    assert gemini_wire.tool_kind("run_shell_command") == "write"
+    assert gemini_wire.tool_kind("run_shell_command") == "shell"  # a read only when parsed as one
+    assert gemini_wire.tool_path("run_shell_command", {"command": "make"}) is None
     assert gemini_wire.tool_kind("invoke_agent") == gemini_wire.tool_kind("new_tool") == "other"
     assert gemini_wire.tool_path("replace", {"file_path": "a.py"}) == "a.py"
     assert gemini_wire.tool_path("glob", {"pattern": "*"}) is None
@@ -148,6 +149,19 @@ def test_tool_results_become_versioned_evidence(tmp_path):
     assert whole.ref.evidence_id != part.ref.evidence_id        # ...different range
     assert whole.ref.recoverable and whole.ref.source_version.startswith("sha256:")
     assert grep.ref.source_version == "epoch:4" and glob.ref.source_version == "epoch:5"
+    assert (whole.ref.range, part.ref.range) == ("L1-1", "L11-15")  # offset counts from 0
+
+
+def test_a_shell_read_is_held_as_lines_and_anything_else_is_a_change(tmp_path):
+    (tmp_path / "a.py").write_text("".join(f"v = {i}\n" for i in range(1, 101)))
+    sed = {"name": "run_shell_command", "args": {"command": "sed -n '10,20p' a.py && grep -n 'v = 5' a.py"},
+           "response": {"output": "...\n5:v = 5\n50:v = 50\n"}}
+    make = {"name": "run_shell_command", "args": {"command": "python -m pytest"}, "response": {"output": ""}}
+    events = gemini_wire.evidence_events([sed, make], str(tmp_path), epoch=0)
+    assert [(e.event, e.source_key, e.ref and e.ref.range) for e in events] == [
+        ("acquired", "a.py", "L5-5"), ("acquired", "a.py", "L10-20"), ("acquired", "a.py", "L50-50"),
+        ("mutated", "*", None)]
+    assert events[1].ref.source_version.startswith("sha256:") and events[1].ref.token_size > 0
 
 
 def test_without_a_workspace_the_version_is_the_text_and_not_recoverable():

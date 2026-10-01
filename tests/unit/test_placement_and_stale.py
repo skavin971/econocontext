@@ -7,6 +7,8 @@ from datetime import date
 
 from econocontext import config
 from econocontext.assembler.assembler import pointer_text
+from econocontext.costmodel.meter import ExplicitCache
+from econocontext.costmodel.options import Shape
 from econocontext.engine import make_segment
 from econocontext.optimizer.optimizer import select
 from econocontext.planner import planner
@@ -74,24 +76,46 @@ WORKERS = [dict(worker_id="r:worker:aa", title="finder", files=["src/a.py"],
 FILES = {"src/a.py": 3000, "src/b.py": 3000}
 
 
-def test_resume_goes_to_the_idle_worker_that_holds_the_file():
+# Claude Code's Explore worker (config worker_shapes), on its explicit cache.
+SHAPE = Shape(**CFG.raw["cost_model"]["worker_shapes"]["omnigent:claude-code"])
+
+
+def place(task, workers, history_tokens=None, force=None):
     c = ctx([], h=10)
-    candidates = planner.for_placement(c, CFG.raw, "check how src/a.py parses flags", WORKERS, 5, FILES)
+    if history_tokens is not None:
+        workers = [{**w, "resident_tokens": history_tokens} for w in workers]
+    candidates = planner.for_placement(c, CFG.raw, task, workers, 5, FILES, SHAPE, ExplicitCache())
+    return candidates, select(candidates, c, CFG.constraints, CFG.raw, force=force)
+
+
+def test_resume_goes_to_the_idle_worker_that_holds_the_file():
+    candidates, decision = place("check how src/a.py parses flags", WORKERS)
     resume = next(x for x in candidates if x.name == "RESUME")
     assert resume.payload["title"] == "finder" and resume.payload["held_tokens"] == 3000
-    assert select(candidates, c, CFG.constraints, CFG.raw).chosen.name == "RESUME"
+    costs = {x.name: x.payload["meter_nu"] for x in candidates}
+    assert decision.chosen.name == min(costs, key=costs.get)  # the meter's price decides
+
+
+def test_a_long_warm_history_loses_to_a_new_worker_at_the_same_call_count():
+    candidates, decision = place("check how src/a.py parses flags", WORKERS, history_tokens=30256)
+    assert [x.name for x in candidates] == ["FRESH", "RESUME"] and decision.chosen.name == "FRESH"
+    resume = candidates[1].payload["loop"]
+    assert resume["cached"] == 30256 and resume["calls"] == 5  # the history, on every call
+
+
+def test_a_forced_arm_is_chosen_when_it_is_a_candidate():
+    _, decision = place("check how src/a.py parses flags", WORKERS, history_tokens=30256, force="RESUME")
+    assert decision.chosen.name == "RESUME"
+    _, decision = place("summarize the README", WORKERS, force="RESUME")
+    assert decision.chosen.name == "FRESH"  # no candidate to force
 
 
 def test_no_resume_for_a_busy_worker_or_unrelated_task():
-    c = ctx([], h=10)
-    names = lambda task: [x.name for x in planner.for_placement(c, CFG.raw, task, WORKERS, 5, FILES)]
+    names = lambda task: [x.name for x in place(task, WORKERS)[0]]
     assert names("run the tests in src/b.py") == ["FRESH"]  # its holder is busy
     assert names("summarize the README") == ["FRESH"]
 
 
 def test_no_resume_for_a_worker_whose_cache_expired():
-    c = ctx([], h=10)
     cold = [{**WORKERS[0], "warm": False}]
-    names = [x.name for x in planner.for_placement(c, CFG.raw, "check how src/a.py parses flags",
-                                                    cold, 5, FILES)]
-    assert names == ["FRESH"]
+    assert [x.name for x in place("check how src/a.py parses flags", cold)[0]] == ["FRESH"]

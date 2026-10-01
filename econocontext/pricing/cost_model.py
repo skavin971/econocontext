@@ -33,6 +33,10 @@ from ..types import Candidate, CostBreakdown, PlanContext
 # PLACEHOLDER: token-length pricing, no cache discount; the cache-aware version is listed above.
 def price(candidate: Candidate, context: PlanContext, cfg: dict) -> CostBreakdown:
     p = candidate.payload
+    if "meter_nu" in p:  # priced by costmodel/meter.py (worker placement): its whole cost
+        return CostBreakdown(work=float(p["meter_nu"]),
+                             latency_ms=latency(candidate, cfg, int(p["loop"]["calls"]),
+                                                int(p["loop"]["output"])))
     r = context.rates
     output = cfg["cost_model"]["expected_output_tokens"]
     calls = p.get("model_calls", 0)            # model calls this plan causes

@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 
 from . import config as config_module
 from .assembler.assembler import pointer_text, render
+from .costmodel.meter import ExplicitCache, ImplicitCache
+from .costmodel.options import Shape
 from .guard.fail_open import guarded
 from .guard.validate import problems
 from .host import Host, HostCapabilities
@@ -46,6 +48,7 @@ class EconoContext:
         self.cfg = self.config.raw
         self.mode = Mode(mode) if mode in ("observe", "autopilot") else self.config.mode
         self.host = host
+        self.host_name = host_name
         self.workdir = workdir
         self.caps = host.capabilities if host else HostCapabilities()
         self.run_id = run_id
@@ -297,9 +300,11 @@ class EconoContext:
             ctx = self._context(agent_id, Intercept.PLAN_DISPATCH, self.registry.window(agent_id))
             calls_hat = (self.history.h_hat(f"{self.run_id}:{worker_type}:new", 0) if self.history
                          else self.cfg["cost_model"]["fresh_expected_calls"])
+            shape, cache = self._worker_model()
             decision = select(planner.for_placement(ctx, self.cfg, task, workers, calls_hat,
-                                                    file_tokens, need_named_files),
-                              ctx, self.config.constraints, self.cfg)
+                                                    file_tokens, shape, cache, need_named_files),
+                              ctx, self.config.constraints, self.cfg,
+                              force=self.cfg.get("placement", {}).get("force"))
             decision.subject_id = hashlib.sha256(f"{worker_type}|{task}".encode()).hexdigest()
             box["decision"] = decision
             if decision.chosen.name == "RESUME" and self._apply(decision):
@@ -309,6 +314,14 @@ class EconoContext:
 
         title, error, ms = guarded(decide, lambda: None, self.deadline)
         return self._log(agent_id, box.get("decision"), Intercept.PLAN_DISPATCH, ms, error), title
+
+    def _worker_model(self) -> tuple[Shape, object]:
+        """This harness's worker loops, and its provider's cache (Anthropic: explicit)."""
+        shapes = self.cfg["cost_model"]["worker_shapes"]
+        shape = Shape(**shapes.get(self.host_name, shapes["default"]))
+        cache = (ExplicitCache() if self.config.card.provider == "anthropic"
+                 else ImplicitCache(**self.cfg["cost_model"]["implicit_cache"]))
+        return shape, cache
 
     def plan_dispatch(self, intent: DispatchIntent,
                       run_default: Callable[[], DispatchResult]) -> DispatchOutcome:

@@ -10,8 +10,10 @@ from omnigent_layer import claude_workers as cw, register_run
 from omnigent_layer.policy import econocontext
 
 CLAUDE = {"model": {"provider": "anthropic", "name": "claude-sonnet-5"}, "allowlist": {"ZONED": False}}
+# The redirect itself, with RESUME forced (at the same call count the meter prefers a
+# new worker to this 23K history: tests/unit/test_placement_and_stale.py).
 RESUME = {**CLAUDE, "allowlist": {"ZONED": False, "RESUME": True},
-          "constraints": {"max_quality_risk": 0.2}}
+          "constraints": {"max_quality_risk": 0.2}, "placement": {"force": "RESUME"}}
 PROMPT = "Find where the autodoc member filter decides whether a variable is public."
 
 
@@ -39,9 +41,10 @@ def worker_loop(db, run_id, context_key="ctx-w1", prompt=PROMPT):
     db.execute("INSERT INTO outcomes (outcome_id, run_id, agent_id, phase, uncached_input, cache_read, "
                "cache_write, output, cost_usd, cost_complete, raw, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                ("o1", run_id, f"{run_id}:root", "agent", 2, 20000, 3000, 100, 0.01, 1, "{}", "2026-09-30"))
-    ref = make_ref("file", "sphinx/ext/autodoc/__init__.py", "sha256:1", "x " * 400)
-    db.add_evidence_events(run_id, f"{run_id}:root", 1, [EvidenceEvent("acquired", "Read", "k",
-                                                                       ref.source_key, ref)])
+    refs = [make_ref("file", "sphinx/ext/autodoc/__init__.py", "sha256:1", "x " * 400, "L600-700"),
+            make_ref("file", "sphinx/ext/autodoc/__init__.py", "sha256:1", "x " * 100, "L1046-1130")]
+    db.add_evidence_events(run_id, f"{run_id}:root", 1, [EvidenceEvent("acquired", "Bash", "k",
+                                                                       r.source_key, r) for r in refs])
     cw.track_reply(db, run_id, context_key, [{"name": "SubagentHandback"}])
 
 
@@ -53,6 +56,8 @@ def test_a_worker_is_registered_tied_to_its_loop_and_idle_after_handback(tmp_pat
     [w] = cw.workers(db, "w1", ttl_seconds=300)
     assert (w["worker_id"], w["type"], w["busy"], w["warm"]) == ("a1b2c3", "general-purpose", False, True)
     assert w["files"] == ["sphinx/ext/autodoc/__init__.py"] and w["resident_tokens"] == 23002
+    assert sorted(w["lines"]["sphinx/ext/autodoc/__init__.py"]) == [(600, 700, "sha256:1"),
+                                                                      (1046, 1130, "sha256:1")]
     # the root continues it: running again, counted once however often history repeats it
     cont = {"messages": [{"role": "user", "content": "fix the issue"},
                          {"role": "assistant", "content": [{"type": "tool_use", "id": "u2",

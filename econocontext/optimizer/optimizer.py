@@ -32,7 +32,8 @@ def _key(c: Candidate, cost: CostBreakdown, k: Constraints):
 
 
 def select(candidates: list[Candidate], context: PlanContext, constraints: Constraints,
-           cfg: dict) -> Decision:
+           cfg: dict, force: str | None = None) -> Decision:
+    """`force` names an experiment arm: chosen whenever it is a feasible candidate."""
     rejected: list[Rejection] = []
     costs: dict[str, CostBreakdown] = {}
     feasible: list[Candidate] = []
@@ -55,6 +56,7 @@ def select(candidates: list[Candidate], context: PlanContext, constraints: Const
     default = next(c for c in candidates if c.is_host_default)
     if feasible:
         chosen = min(feasible, key=lambda c: _key(c, costs[c.name], constraints))
+        chosen = next((c for c in feasible if c.name == force), chosen)
     else:
         chosen = default  # nothing qualified: the host proceeds exactly as it would alone
     for c in feasible:
