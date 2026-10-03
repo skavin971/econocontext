@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -64,6 +65,17 @@ def servers(tmp_path):
     up.shutdown()
 
 
+def rows(cfg, run_id, n=1, wait_s=3.0):
+    """The run's ledger rows. The gateway writes a row just AFTER relaying the reply
+    (the agent waits for it the same way), so poll briefly."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        got = cfg.ledger.calls(run_id)
+        if len(got) >= n or time.monotonic() > deadline:
+            return got
+        time.sleep(0.02)
+
+
 def post(url, raw: bytes, auth="Bearer placeholder"):
     req = urllib.request.Request(url, raw, {"Content-Type": "application/json",
                                             "Authorization": auth})
@@ -92,7 +104,7 @@ def test_forwards_bytes_and_records_usage(servers):
     headers = {k.lower(): v for k, v in seen["headers"].items()}
     assert headers.get("x-goog-api-key") == "SECRET-KEY"
     assert "placeholder" not in json.dumps(seen["headers"])  # the agent's key is not passed on
-    row = cfg.ledger.calls("r1")[0]
+    row = rows(cfg, "r1")[0]
     assert (row["prompt_tokens"], row["cached_tokens"], row["uncached_tokens"]) == (1000, 600, 400)
     assert row["output_tokens"] == 150  # reasoning reported outside completion_tokens
     assert row["reasoning_tokens"] == 50
@@ -107,7 +119,7 @@ def test_missing_prompt_details_means_zero_cached(servers):
     gw, cfg = servers
     Upstream.script = [reply({"prompt_tokens": 500, "completion_tokens": 10, "total_tokens": 510})]
     post(f"{gw}/run/r2/v1/chat/completions", BODY)
-    row = cfg.ledger.calls("r2")[0]
+    row = rows(cfg, "r2")[0]
     assert row["cached_tokens"] == 0 and row["uncached_tokens"] == 500
     assert row["cached_reported"] == 0
     assert row["cost_usd"] > 0
@@ -127,7 +139,7 @@ def test_streaming_asks_for_usage_and_relays_lines(servers):
     assert status == 200 and got == b"".join(chunks)
     sent = json.loads(Upstream.seen[0]["body"])
     assert sent["stream_options"] == {"include_usage": True}
-    row = cfg.ledger.calls("r3")[0]
+    row = rows(cfg, "r3")[0]
     assert row["prompt_tokens"] == 40 and row["finish_reason"] == "length" and row["stream"] == 1
 
 
@@ -139,9 +151,9 @@ def test_rate_limited_calls_are_retried_with_same_bytes(servers):
     status, _ = post(f"{gw}/run/r4/v1/chat/completions", BODY)
     assert status == 200
     assert [s["body"] for s in Upstream.seen] == [BODY] * 3
-    rows = cfg.ledger.calls("r4")
-    assert len(rows) == 1  # the agent saw one call
-    assert rows[0]["upstream_attempts"] == 3 and rows[0]["ratelimit_wait_ms"] > 0
+    got = rows(cfg, "r4")
+    assert len(got) == 1  # the agent saw one call
+    assert got[0]["upstream_attempts"] == 3 and got[0]["ratelimit_wait_ms"] > 0
 
 
 def test_rate_limit_retry_gives_up_after_budget(servers):
@@ -151,7 +163,7 @@ def test_rate_limit_retry_gives_up_after_budget(servers):
     Upstream.script = [quota] * 50
     status, body = post(f"{gw}/run/r5/v1/chat/completions", BODY)
     assert status == 429 and b"quota" in body
-    assert cfg.ledger.calls("r5")[0]["http_status"] == 429
+    assert rows(cfg, "r5")[0]["http_status"] == 429
 
 
 def test_spend_cap_refuses_new_calls(servers):

@@ -116,17 +116,18 @@ class EconoHooks:
         self.k = (c.prompt / ours) if (c.prompt and ours) else 1.0
         self.agent_cost_usd += price_call_usd(to_usage(usage), prices.RATES) if usage else 0.0
 
-    async def ledger_row(self, call_no: int) -> dict | None:
-        """The gateway's row for this run's call `call_no`. The gateway writes it just
-        after replying, so wait up to LEDGER_WAIT_S for it."""
+    async def ledger_row(self, n: int) -> dict | None:
+        """The gateway's row for this run's n-th successful call (0-based; failed
+        attempts are rows too, so call_no alone could be off). The gateway writes it
+        just after replying, so wait up to LEDGER_WAIT_S for it."""
         if not self.gateway_db or not self.gateway_db.exists():
             return None
         deadline = time.monotonic() + LEDGER_WAIT_S
         ledger = Ledger(self.gateway_db)
         try:
             while True:
-                rows = ledger.rows("SELECT * FROM calls WHERE run_id=? AND call_no=?",
-                                   (self.run_id, call_no))
+                rows = ledger.rows("SELECT * FROM calls WHERE run_id=? AND http_status=200 "
+                                   "ORDER BY call_no LIMIT 1 OFFSET ?", (self.run_id, n))
                 if rows or time.monotonic() >= deadline:
                     return rows[0] if rows else None
                 await asyncio.sleep(0.05)
@@ -205,7 +206,8 @@ class EconoHooks:
                     prefix_tokens_p=q.prefix_tokens_p, cached_c=q.cached_c,
                     predicted_reprocess_R=q.R, predicted_cost_usd=q.extra_usd,
                     saving_per_call_usd=q.saving_usd, payoff_calls=q.payoff_calls,
-                    removed_obs=json.dumps(q.removed), calibration=q.calibration, text=q.line)
+                    removed_obs=json.dumps(q.removed), calibration=q.calibration, text=q.line,
+                    next_call=self.n_calls)
                 out.notes = sr.notes + "\n" + q.line
 
         # 5. Status line.

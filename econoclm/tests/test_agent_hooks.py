@@ -196,7 +196,7 @@ def test_stale_flag_drops_when_output_left_context(tmp_path):
 def test_usage_falls_back_to_gateway_ledger(tmp_path):
     db = tmp_path / "gateway.sqlite"
     Ledger(db).insert("econo-t-r1", prompt_tokens=1000, cached_tokens=700, uncached_tokens=300,
-                      output_tokens=50, reasoning_tokens=0, cost_usd=0.001)
+                      output_tokens=50, reasoning_tokens=0, cost_usd=0.001, http_status=200)
     h = hooks(tmp_path, gateway_db=db)
 
     class Usage:  # litellm usage without prompt_tokens_details

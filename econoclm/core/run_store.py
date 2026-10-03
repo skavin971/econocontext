@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS edits (
   turn INTEGER, before_tokens INTEGER, after_tokens INTEGER, first_change_msg INTEGER,
   prefix_tokens_p INTEGER, cached_c INTEGER, predicted_reprocess_R INTEGER,
   predicted_cost_usd REAL, saving_per_call_usd REAL, payoff_calls REAL, removed_obs TEXT,
-  calibration REAL, text TEXT, ts REAL
+  calibration REAL, text TEXT, ts REAL,
+  next_call INTEGER   -- 0-based index of the model call right after this edit
 );
 CREATE TABLE IF NOT EXISTS status_lines (
   turn INTEGER, text TEXT, stale_paths TEXT, ts REAL

@@ -80,8 +80,22 @@ def build_command(arm: str, task: str, rep: int, *, tblite: Path, out_dir: Path,
     return run_id, argv
 
 
+def tiktoken_cache() -> str | None:
+    """litellm ships tiktoken's vocab files (o200k_base included, hash-checked by
+    tiktoken). Without them, CLM's token counter falls back to chars/4 when the
+    vocab download is blocked, as it is in our sandbox."""
+    try:
+        import litellm
+    except ImportError:
+        return None
+    d = Path(litellm.__file__).parent / "litellm_core_utils" / "tokenizers"
+    return str(d) if d.is_dir() else None
+
+
 def agent_env(clm_repo: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV}
+    if not env.get("TIKTOKEN_CACHE_DIR") and tiktoken_cache():
+        env["TIKTOKEN_CACHE_DIR"] = tiktoken_cache()  # same for both arms
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(clm_repo / "clm"), str(REPO), os.environ.get("PYTHONPATH")) if p)
     env["OPENAI_API_KEY"] = "placeholder"
