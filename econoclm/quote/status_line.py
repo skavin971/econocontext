@@ -1,0 +1,96 @@
+"""The [econo] line shown after every command. Pure: no I/O.
+
+It reports, without repeating CLM's own context size readout:
+  - the last call's cached vs new (uncached) input tokens
+  - the run's cost so far
+  - the price of an edit at three depths: at 25%, 50% and 75% of the editable
+    region by token position. For each depth: the turn there, and
+        re-read = max(0, c - change position)   and its extra cost
+                  re-read * (price_in - price_cached)
+    where the change position is min(that turn, the first turn CLM would rewrite
+    anyway), see messages.py.
+  - how many outputs are stored
+  - stale files (at most 3 names, then "+k more")
+
+Example:
+[econo] last call 14.2K cached / 1.1K new | run $0.021 | edit at turn ≤2: ~0.3K re-read ($0.0002), ≤5: ~9K ($0.0061), ≤8: ~15K ($0.010) | stored: 3 | stale: parser.py
+"""
+
+import bisect
+import os
+from dataclasses import dataclass, field
+from typing import Callable
+
+from ..core import prices
+from .messages import default_count, first_structured, fmt_tokens, fmt_usd, positions
+
+DEPTHS = (0.25, 0.5, 0.75)
+
+
+@dataclass
+class Depth:
+    fraction: float
+    turn: int
+    reread: int | None
+    cost_usd: float | None
+
+
+@dataclass
+class Status:
+    depths: list[Depth] = field(default_factory=list)
+    line: str = ""
+
+
+def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
+                k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
+                price_in: float = prices.PRICE_IN,
+                price_cached: float = prices.PRICE_CACHED) -> list[Depth]:
+    if len(messages) <= protect:
+        return []
+    pos = positions(messages, count)
+    start, end = pos[protect], pos[-1]
+    struct = first_structured(messages, protect)
+    out = []
+    for f in DEPTHS:
+        target = start + f * (end - start)
+        # The editable message that contains the target position.
+        idx = max(protect, min(len(messages) - 1, bisect.bisect_right(pos, target) - 1))
+        change = idx if struct is None else min(idx, struct)
+        if cached_c is None:
+            reread = cost = None
+        else:
+            reread = max(0, cached_c - round(pos[change] * k))
+            cost = reread * (price_in - price_cached)
+        out.append(Depth(fraction=f, turn=idx - protect + 1, reread=reread, cost_usd=cost))
+    return out
+
+
+def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | None,
+                run_cost_usd: float, n_stored: int, stale: list[str], protect: int = 2,
+                k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
+                price_in: float = prices.PRICE_IN,
+                price_cached: float = prices.PRICE_CACHED) -> Status:
+    depths = edit_depths(messages, cached_c, protect=protect, k=k, count=count,
+                         price_in=price_in, price_cached=price_cached)
+    parts = []
+    if cached_c is None:
+        parts.append("last call cache unknown")
+    else:
+        new = "?" if uncached is None else fmt_tokens(uncached)
+        parts.append(f"last call {fmt_tokens(cached_c)} cached / {new} new")
+    parts.append(f"run {fmt_usd(run_cost_usd)}")
+    if not depths:
+        parts.append("edit: nothing editable yet")
+    elif cached_c is None:
+        turns = ", ".join(f"≤{d.turn}" for d in depths)
+        parts.append(f"edit at turn {turns}: cache unknown")
+    else:
+        parts.append("edit at turn " + ", ".join(
+            f"≤{d.turn}: ~{fmt_tokens(d.reread)} re-read ({fmt_usd(d.cost_usd)})"
+            for d in depths))
+    parts.append(f"stored: {n_stored}")
+    if stale:
+        names = [os.path.basename(p.rstrip("/")) or p for p in stale]
+        more = f" +{len(names) - 3} more" if len(names) > 3 else ""
+        parts.append("stale: " + ", ".join(names[:3]) + more)
+    return Status(depths=depths, line="[econo] " + " | ".join(parts))
