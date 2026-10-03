@@ -30,6 +30,13 @@ Sections 2–7 are filled in at Gate 6.
    - Gemini reports cached tokens in its own tokenizer's units; our positions use CLM's tokenizer.
    - The quote and status line scale our counts by `k` = the last call's reported prompt tokens ÷ our count of the same messages.
    - `quote_check.py` measures the resulting error.
+4. **Billed output when Vertex omits `completion_tokens`** (found at Gate 2, 2026-10-03).
+   - Vertex leaves `completion_tokens` out when a reply has no visible text (thinking only, cut by `max_tokens`). The usage logic copied from the frozen `omnigent_layer/wire.py` (`feature/claude-code` @ `ae9fd5a`) then recorded output as empty and billed none of the thinking: the first smoke call was charged for its 6 prompt tokens only, not its 13 thinking tokens.
+   - `core/usage.py` now bills output = `completion_tokens` + `reasoning_tokens` (a missing one counts as 0), and uses `total_tokens − prompt_tokens` when a component is missing and the total is there.
+   - The ledger marks `usage_anomaly = 1` when prompt + completion + reasoning ≠ total, or a 200 reply has no usable output count. `gate_check` fails on any, and `results.md` counts them per arm (section 6).
+   - The frozen code is left untouched. Frozen `wire.py` likely has the same gap, so the v0 bills may undercount thinking on replies with no visible text.
+   - Gate 2's smoke request now asks for `max_tokens 256` (was 16) and passes only with `finish_reason = stop`, non-empty visible text, and a cost that includes the output tokens.
+   - Both arms keep `max_tokens 2048` for parity with CLM. Thinking counts against it, so Gate 3's length check decides the 8192 fallback (both arms).
 
 ### Other implementation notes
 
@@ -57,7 +64,7 @@ _Median absolute error of predicted R vs the actual extra uncached tokens on the
 
 ## 6. Anomalies
 
-_Hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._
+_Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._
 
 ## 7. Plain reading and next step
 

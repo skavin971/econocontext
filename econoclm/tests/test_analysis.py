@@ -138,3 +138,13 @@ def test_gate_check(tmp_path, capsys):
     assert "[FAIL] econo get byte-identical in sandbox" in out
     assert "[PASS] hook errors = 0" in out
     assert "econo use by the model: {'get': 1, 'sql_write': 1}" in out
+
+
+def test_gate_check_counts_usage_anomalies(tmp_path, capsys):
+    from econoclm.analysis import gate_check
+    day = make_day(tmp_path)
+    Ledger(day / "gateway.sqlite").insert("raw-task-a-r1", http_status=502, usage_anomaly=1)
+    assert gate_check.main([str(day), "--gate", "3"]) == 1
+    out = capsys.readouterr().out
+    assert "[PASS] gateway calls = CLM LM calls" in out
+    assert "[FAIL] usage anomalies = 0: 1 ledger row(s) with usage_anomaly" in out

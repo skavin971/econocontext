@@ -53,7 +53,7 @@ from pathlib import Path
 from . import prices
 from .gateway_ledger import Ledger
 from .meter import price_call_usd
-from .usage import to_usage
+from .usage import billed_output, to_usage
 
 log = logging.getLogger("econoclm.gateway")
 
@@ -219,6 +219,8 @@ class Gateway(BaseHTTPRequestHandler):
                 for ch in p.get("choices") or []:
                     finish = ch.get("finish_reason") or finish
             u = to_usage(usage)
+            _, inconsistent = billed_output(usage)
+            anomaly = inconsistent or (status == 200 and u.output is None)
             self.cfg.ledger.insert(
                 run_id,
                 prompt_tokens=u.prompt_tokens, cached_tokens=u.cache_read,
@@ -229,7 +231,10 @@ class Gateway(BaseHTTPRequestHandler):
                 upstream_attempts=attempts, ratelimit_wait_ms=round(wait_ms, 1),
                 queue_ms=round(queue_ms, 1), model=body.get("model"), stream=int(stream),
                 cached_reported=int(isinstance((usage or {}).get("prompt_tokens_details"), dict)),
+                usage_anomaly=int(anomaly),
             )
+            if anomaly:
+                log.warning("usage anomaly in %s: %s", run_id, usage)
         except Exception:
             log.exception("could not record the call (the reply was still relayed)")
 

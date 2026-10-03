@@ -105,6 +105,7 @@ def test_forwards_bytes_and_records_usage(servers):
     assert headers.get("x-goog-api-key") == "SECRET-KEY"
     assert "placeholder" not in json.dumps(seen["headers"])  # the agent's key is not passed on
     row = rows(cfg, "r1")[0]
+    assert row["usage_anomaly"] == 0
     assert (row["prompt_tokens"], row["cached_tokens"], row["uncached_tokens"]) == (1000, 600, 400)
     assert row["output_tokens"] == 150  # reasoning reported outside completion_tokens
     assert row["reasoning_tokens"] == 50
@@ -199,7 +200,8 @@ def test_smoke_tool_against_fake_upstream(servers, tmp_path, capsys):
     code = smoke.main(["--port", port, "--ledger", ledger_path])
     out = capsys.readouterr().out
     assert code == 0 and "GATE 2: PASS" in out
-    assert json.loads(Upstream.seen[0]["body"])["model"] == "google/gemini-3.6-flash"
+    sent = json.loads(Upstream.seen[0]["body"])
+    assert sent["model"] == "google/gemini-3.6-flash" and sent["max_tokens"] == 256
     assert "SECRET-KEY" not in out
     assert "prompt_tokens_details present: False" in out
 
@@ -207,9 +209,46 @@ def test_smoke_tool_against_fake_upstream(servers, tmp_path, capsys):
 def test_smoke_check_flags_problems():
     from econoclm.bench.smoke import check
     assert check(500, {"error": "x"}, None) == ["HTTP 500: x", "no ledger row"]
+    ok_reply = {"choices": [{"message": {"content": "OK"}}]}
     row = {c: 1 for c in ("prompt_tokens", "cached_tokens", "uncached_tokens", "output_tokens",
-                          "reasoning_tokens", "latency_ms", "finish_reason", "http_status")}
-    assert check(200, {}, {**row, "cost_usd": 0.0}) == ["cost_usd is not > 0"]
+                          "reasoning_tokens", "latency_ms", "http_status")}
+    row.update(finish_reason="stop", usage_anomaly=0,
+               cost_usd=prices.PRICE_IN + prices.PRICE_CACHED + prices.PRICE_OUT)
+    assert check(200, ok_reply, row) == []
+    assert check(200, ok_reply, {**row, "cost_usd": 0.0}) == ["cost_usd is not > 0"]
+    assert check(200, {"choices": [{"message": {"content": ""}}]}, row) == \
+        ["the reply has no visible text"]
+    assert check(200, ok_reply, {**row, "finish_reason": "length"}) == \
+        ["finish_reason is 'length', not 'stop'"]
+    assert check(200, ok_reply, {**row, "usage_anomaly": 1}) == \
+        ["usage_anomaly = 1 (the usage numbers don't add up)"]
+    # Today's Gate 2 failure: the thinking was not in the bill.
+    unbilled = {**row, "output_tokens": 13, "cost_usd": prices.PRICE_IN + prices.PRICE_CACHED}
+    assert check(200, ok_reply, unbilled)[0].startswith("cost_usd ")
+
+
+def test_thinking_only_reply_is_billed_and_ok(servers):
+    gw, cfg = servers
+    Upstream.script = [reply({"prompt_tokens": 6, "total_tokens": 19,
+                              "completion_tokens_details": {"reasoning_tokens": 13}},
+                             finish="length")]
+    post(f"{gw}/run/r8/v1/chat/completions", BODY)
+    row = rows(cfg, "r8")[0]
+    assert (row["output_tokens"], row["reasoning_tokens"], row["usage_anomaly"]) == (13, 13, 0)
+    assert row["cost_usd"] == pytest.approx(6 * prices.PRICE_IN + 13 * prices.PRICE_OUT)
+
+
+def test_usage_anomalies_are_flagged(servers):
+    gw, cfg = servers
+    Upstream.script = [
+        reply({"prompt_tokens": 1000, "completion_tokens": 150, "total_tokens": 1150,
+               "completion_tokens_details": {"reasoning_tokens": 50}}),  # totals mismatch
+        reply({"prompt_tokens": 6}),  # a 200 reply with no output count
+        reply(None),                  # a 200 reply with no usage at all
+    ]
+    for _ in range(3):
+        post(f"{gw}/run/r9/v1/chat/completions", BODY)
+    assert [r["usage_anomaly"] for r in rows(cfg, "r9", n=3)] == [1, 1, 1]
 
 
 def test_spend_cap_counts_other_phases(tmp_path):

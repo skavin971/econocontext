@@ -8,7 +8,9 @@ Gate 3, per raw run:
   - a Harbor reward exists
   - no call ended with finish_reason = length (else: the one allowed fallback,
     max_tokens 8192 in BOTH configs, then rerun the pilot)
-Gate 5, per econo run: the same three, plus
+  - usage anomalies = 0 (ledger usage_anomaly: usage numbers that don't add up, or a
+    200 reply with no output count; see core/usage.py)
+Gate 5, per econo run: the same four, plus
   - saved outputs = commands run (CLM's timing.json)
   - `econo get` in the sandbox was byte-identical to the host copy (sha1, up to 3
     random IDs, checked at the end of the run: table get_checks)
@@ -31,12 +33,14 @@ from .results_table import commands
 def base_checks(run: Run) -> list[tuple[str, bool, str]]:
     lm_calls = run.usage.get("n_lm_calls")
     length = sum(r["finish_reason"] == "length" for r in run.calls)
+    anomalies = sum(bool(r.get("usage_anomaly")) for r in run.all_rows)
     return [
         ("gateway calls = CLM LM calls", lm_calls == len(run.calls),
          f"gateway {len(run.calls)} (all rows {len(run.all_rows)}), CLM {lm_calls}"),
         ("Harbor reward exists", run.reward is not None,
          f"reward {run.reward}" + (f", exception {run.exception}" if run.exception else "")),
         ("no finish_reason = length", length == 0, f"{length} call(s) cut by length"),
+        ("usage anomalies = 0", anomalies == 0, f"{anomalies} ledger row(s) with usage_anomaly"),
     ]
 
 

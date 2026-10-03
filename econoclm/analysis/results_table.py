@@ -104,6 +104,7 @@ def row_for(run: Run) -> dict:
         "reasoning_tokens": s("reasoning_tokens"), "model_calls": len(c),
         "clm_lm_calls": run.usage.get("n_lm_calls"),
         "finish_length": sum(r["finish_reason"] == "length" for r in c),
+        "usage_anomalies": sum(bool(r.get("usage_anomaly")) for r in run.all_rows),
         "context_edits": run.usage.get("n_ctx_syncs"),
         "context_edits_real": run.usage.get("n_ctx_syncs_real"),
         "edits_rejected": run.usage.get("n_ctx_rejected"),
@@ -123,7 +124,7 @@ def row_for(run: Run) -> dict:
 
 
 SUM_KEYS = ["passed", "infra_fail", "cost_usd", "input_tokens", "cached_input", "uncached_input",
-            "output_tokens", "model_calls", "finish_length", "context_edits", "rollbacks",
+            "output_tokens", "model_calls", "finish_length", "usage_anomalies", "context_edits", "rollbacks",
             "upstream_retries", "ratelimit_wait_s", "commands", "repeated_commands", "db_reads",
             "db_writes", "econo_get", "econo_get_on_cut", "cut_outputs", "stale_flags",
             "stale_flags_reread", "hook_errors"]
@@ -167,6 +168,7 @@ METRICS = [("Runs", "runs"), ("Tasks passed", "passed"), ("Infra failures (rate 
            ("Input tokens", "input_tokens"), ("Cached input", "cached_input"),
            ("Uncached input", "uncached_input"), ("Output + thinking tokens", "output_tokens"),
            ("Model calls", "model_calls"), ("Calls cut by length", "finish_length"),
+           ("Usage anomalies (ledger)", "usage_anomalies"),
            ("Context edits", "context_edits"), ("Mean peak context (tokens)", "mean_peak_context"),
            ("Rollbacks / overflow retries", "rollbacks"), ("Mean wall time / task (s)", "mean_wall_s"),
            ("Mean wall time net of rate-limit waits (s)", "mean_wall_s_net_of_ratelimit"),
