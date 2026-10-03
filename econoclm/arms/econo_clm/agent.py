@@ -42,6 +42,7 @@ class EconoClmAgent(ClmAgent):
             protect=lambda: self._protect,
             state_dir=self._ctx.paths.state_dir,
             gateway_db=gateway_db,
+            econo_path=f"{self._skills.mount_dir}/econo_db/econo",
         )
 
     async def setup(self, environment: Any) -> None:

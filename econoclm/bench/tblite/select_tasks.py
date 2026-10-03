@@ -3,7 +3,8 @@
   python -m econoclm.bench.tblite.select_tasks --tblite ../OpenThoughts-TBLite
 
 A task is a folder with task.toml. Writes tasks.txt (one task name per line) next
-to this file.
+to this file. bench/tblite/health_check.py may later swap a task whose reference
+solution fails for the next task in the same seeded order.
 """
 
 import argparse
@@ -19,8 +20,16 @@ def all_tasks(tblite: Path) -> list[str]:
     return sorted(p.parent.name for p in tblite.glob("*/task.toml"))
 
 
+def seeded_order(tasks: list[str], seed: int = SEED) -> list[str]:
+    """Every task in the fixed seeded order. Its first N_TASKS are the experiment's
+    tasks; the ones after are the replacements, in order (health_check.py)."""
+    return random.Random(seed).sample(sorted(tasks), len(tasks))
+
+
 def select(tasks: list[str], n: int = N_TASKS, seed: int = SEED) -> list[str]:
-    return random.Random(seed).sample(sorted(tasks), n)
+    # Same as random.Random(seed).sample(sorted(tasks), n): a full-length sample
+    # starts with the same n tasks (checked in tests/test_health_check.py).
+    return seeded_order(tasks, seed)[:n]
 
 
 def main() -> None:

@@ -20,6 +20,9 @@ from pathlib import Path
 
 from ..core.gateway_ledger import Ledger
 from ..core.run_store import RunStore
+from ..core.tokenizer import use_bundled_tokenizer
+
+use_bundled_tokenizer()  # count tokens exactly as the runs did, on any machine
 
 
 @dataclass

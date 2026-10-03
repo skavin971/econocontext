@@ -179,7 +179,8 @@ METRICS = [("Runs", "runs"), ("Tasks passed", "passed"), ("Infra failures (rate 
            ("Hook errors", "hook_errors"),
            ("Avg tokens our text added / turn", "mean_avg_added_tokens_per_turn")]
 
-TASK_COLS = ["run_id", "passed", "exception", "infra_fail", "cost_usd", "model_calls", "cached_input",
+TASK_COLS = ["run_id", "passed", "exception", "infra_fail", "cost_usd", "model_calls", "clm_lm_calls",
+             "finish_length", "cached_input",
              "uncached_input", "output_tokens", "context_edits", "rollbacks", "peak_context",
              "wall_s", "ratelimit_wait_s", "repeated_commands", "econo_get", "stale_flags",
              "hook_errors"]

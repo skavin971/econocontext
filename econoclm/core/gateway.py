@@ -30,7 +30,9 @@ without rate-limit waits. RETRY_BUDGET_S (240 s) + one attempt stays below CLM's
 What it must never do: listen beyond 127.0.0.1, log or echo the key, change a
 prompt, or fail a call because measuring failed.
 
-Run:  python -m econoclm.core.gateway --ledger runs/<date>/gateway.sqlite [--port 8787]
+Run:  python -m econoclm.core.gateway --ledger runs/<phase>/gateway.sqlite [--port 8787]
+One ledger per phase folder (smoke, pilots, main run). The spend cap counts every
+sibling runs/*/gateway.sqlite too (read at startup), so it caps the whole experiment.
 Secrets: read from the process environment, else from ECONOCLM_SECRETS
 (default ~/.econoclm/secrets.env): AGENT_PLATFORM_API_KEY, ECONOCONTEXT_BASE_URL.
 """
@@ -83,6 +85,7 @@ class Config:
     key: str = ""
     ledger: Ledger
     max_spend_usd: float = 40.0
+    prior_spend_usd: float = 0.0   # spend in the other runs/*/gateway.sqlite (earlier phases)
     slots: threading.BoundedSemaphore
     retry_budget_s: float = RETRY_BUDGET_S
     backoff_base_s: float = 2.0
@@ -118,7 +121,7 @@ class Gateway(BaseHTTPRequestHandler):
         run_id = match["run"] + (f"/agent/{match['agent']}" if match["agent"] else "")
         cfg = self.cfg
 
-        spent = cfg.ledger.total_spend()
+        spent = cfg.ledger.total_spend() + cfg.prior_spend_usd
         if spent > cfg.max_spend_usd:
             return self.reply_error(429, f"SPEND CAP: total spend ${spent:.4f} exceeds "
                                          f"MAX_SPEND_USD=${cfg.max_spend_usd:.2f}; no new calls")
@@ -231,9 +234,25 @@ class Gateway(BaseHTTPRequestHandler):
             log.exception("could not record the call (the reply was still relayed)")
 
 
+def prior_spend(ledger_path: str | Path) -> float:
+    """Spend already recorded by the other phases' ledgers (sibling runs/*/gateway.sqlite),
+    so MAX_SPEND_USD caps the whole experiment, not one phase."""
+    me = Path(ledger_path).resolve()
+    total = 0.0
+    for other in me.parent.parent.glob("*/gateway.sqlite"):
+        if other.resolve() != me:
+            ledger = Ledger(other)
+            try:
+                total += ledger.total_spend()
+            finally:
+                ledger.close()
+    return total
+
+
 def make_server(ledger_path: str, port: int = 8787, upstream: str | None = None,
                 key: str | None = None, max_spend_usd: float | None = None,
-                max_inflight: int | None = None) -> ThreadingHTTPServer:
+                max_inflight: int | None = None,
+                prior_spend_usd: float | None = None) -> ThreadingHTTPServer:
     secrets = load_secrets()
     cfg = Config()
     cfg.upstream = (upstream or secrets.get("ECONOCONTEXT_BASE_URL") or "").rstrip("/")
@@ -241,6 +260,8 @@ def make_server(ledger_path: str, port: int = 8787, upstream: str | None = None,
     if not cfg.upstream or not cfg.key:
         raise SystemExit("ECONOCONTEXT_BASE_URL and AGENT_PLATFORM_API_KEY must be set")
     cfg.ledger = Ledger(ledger_path)
+    cfg.prior_spend_usd = (prior_spend(ledger_path) if prior_spend_usd is None
+                           else float(prior_spend_usd))
     cfg.max_spend_usd = float(max_spend_usd if max_spend_usd is not None
                               else os.environ.get("MAX_SPEND_USD", "40"))
     cfg.slots = threading.BoundedSemaphore(
@@ -260,7 +281,8 @@ def main() -> None:
     server = make_server(args.ledger, args.port)
     cfg = server.RequestHandlerClass.cfg
     print(f"econoclm gateway on http://127.0.0.1:{args.port} -> {cfg.upstream} "
-          f"(spend cap ${cfg.max_spend_usd:.2f}, max in flight {cfg.slots._initial_value})",
+          f"(spend cap ${cfg.max_spend_usd:.2f}, already spent in other phases "
+          f"${cfg.prior_spend_usd:.4f}, max in flight {cfg.slots._initial_value})",
           flush=True)
     server.serve_forever()
 

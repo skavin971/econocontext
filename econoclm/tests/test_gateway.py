@@ -56,7 +56,7 @@ def servers(tmp_path):
     threading.Thread(target=up.serve_forever, daemon=True).start()
     gw = make_server(str(tmp_path / "gateway.sqlite"), port=0,
                      upstream=f"http://127.0.0.1:{up.server_address[1]}/openapi",
-                     key="SECRET-KEY", max_spend_usd=40, max_inflight=4)
+                     key="SECRET-KEY", max_spend_usd=40, max_inflight=4, prior_spend_usd=0)
     cfg = gw.RequestHandlerClass.cfg
     cfg.backoff_base_s = 0.01
     threading.Thread(target=gw.serve_forever, daemon=True).start()
@@ -184,5 +184,38 @@ def test_listens_on_localhost_only(tmp_path):
     gw = make_server(str(tmp_path / "g.sqlite"), port=0, upstream="http://x", key="k")
     try:
         assert gw.server_address[0] == "127.0.0.1"
+    finally:
+        gw.server_close()
+
+
+def test_smoke_tool_against_fake_upstream(servers, tmp_path, capsys):
+    from econoclm.bench import smoke
+    gw, cfg = servers
+    usage = {"prompt_tokens": 12, "completion_tokens": 2, "total_tokens": 20,
+             "completion_tokens_details": {"reasoning_tokens": 6}}
+    Upstream.script = [reply(usage)]
+    port = gw.rsplit(":", 1)[1]
+    ledger_path = cfg.ledger.conn.execute("PRAGMA database_list").fetchone()[2]
+    code = smoke.main(["--port", port, "--ledger", ledger_path])
+    out = capsys.readouterr().out
+    assert code == 0 and "GATE 2: PASS" in out
+    assert json.loads(Upstream.seen[0]["body"])["model"] == "google/gemini-3.6-flash"
+    assert "SECRET-KEY" not in out
+    assert "prompt_tokens_details present: False" in out
+
+
+def test_smoke_check_flags_problems():
+    from econoclm.bench.smoke import check
+    assert check(500, {"error": "x"}, None) == ["HTTP 500: x", "no ledger row"]
+    row = {c: 1 for c in ("prompt_tokens", "cached_tokens", "uncached_tokens", "output_tokens",
+                          "reasoning_tokens", "latency_ms", "finish_reason", "http_status")}
+    assert check(200, {}, {**row, "cost_usd": 0.0}) == ["cost_usd is not > 0"]
+
+
+def test_spend_cap_counts_other_phases(tmp_path):
+    Ledger(tmp_path / "pilot" / "gateway.sqlite").insert("p", cost_usd=39.5)
+    gw = make_server(str(tmp_path / "main" / "gateway.sqlite"), port=0, upstream="http://x", key="k")
+    try:
+        assert gw.RequestHandlerClass.cfg.prior_spend_usd == pytest.approx(39.5)
     finally:
         gw.server_close()

@@ -10,6 +10,7 @@ in the run (1, 2, 3, ...).
   status_lines   the [econo] line shown after each command
   hook_errors    anything our hooks raised (the original result was used instead)
   econo_ops      the model's own `econo` calls, loaded from the container log at the end
+  get_checks     end-of-run check: `econo get N | sha1sum` in the sandbox vs the host copy
 
 ts columns (epoch seconds) let analysis order econo calls against commands and edits.
 """
@@ -42,6 +43,9 @@ CREATE TABLE IF NOT EXISTS hook_errors (
 );
 CREATE TABLE IF NOT EXISTS econo_ops (
   ts REAL, op TEXT, args TEXT
+);
+CREATE TABLE IF NOT EXISTS get_checks (
+  obs_id INTEGER, host_sha1 TEXT, container_sha1 TEXT, match INTEGER
 );
 """
 

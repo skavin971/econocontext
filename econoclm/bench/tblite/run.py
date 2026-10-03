@@ -37,7 +37,9 @@ from pathlib import Path
 
 import yaml
 
+from ...core.gateway import prior_spend
 from ...core.gateway_ledger import Ledger
+from ...core.tokenizer import use_bundled_tokenizer
 
 ECONOCLM = Path(__file__).resolve().parents[2]          # .../econoclm
 REPO = ECONOCLM.parent                                  # our repo root
@@ -80,22 +82,9 @@ def build_command(arm: str, task: str, rep: int, *, tblite: Path, out_dir: Path,
     return run_id, argv
 
 
-def tiktoken_cache() -> str | None:
-    """litellm ships tiktoken's vocab files (o200k_base included, hash-checked by
-    tiktoken). Without them, CLM's token counter falls back to chars/4 when the
-    vocab download is blocked, as it is in our sandbox."""
-    try:
-        import litellm
-    except ImportError:
-        return None
-    d = Path(litellm.__file__).parent / "litellm_core_utils" / "tokenizers"
-    return str(d) if d.is_dir() else None
-
-
 def agent_env(clm_repo: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV}
-    if not env.get("TIKTOKEN_CACHE_DIR") and tiktoken_cache():
-        env["TIKTOKEN_CACHE_DIR"] = tiktoken_cache()  # same for both arms
+    use_bundled_tokenizer(env)  # same tokenizer file for both arms, on every machine
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(clm_repo / "clm"), str(REPO), os.environ.get("PYTHONPATH")) if p)
     env["OPENAI_API_KEY"] = "placeholder"
@@ -108,14 +97,17 @@ def jobs(arms: list[str], tasks: list[str], reps: int) -> list[tuple[str, str, i
 
 
 def spend(out_dir: Path) -> float:
+    """Spend so far over the whole experiment: this folder's ledger plus the other
+    runs/*/gateway.sqlite (the same total the gateway's cap uses)."""
     db = out_dir / "gateway.sqlite"
-    if not db.exists():
-        return 0.0
-    ledger = Ledger(db)
-    try:
-        return ledger.total_spend()
-    finally:
-        ledger.close()
+    total = prior_spend(db)
+    if db.exists():
+        ledger = Ledger(db)
+        try:
+            total += ledger.total_spend()
+        finally:
+            ledger.close()
+    return total
 
 
 def gateway_up(port: int) -> bool:
@@ -150,7 +142,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=None, help="only the first N tasks")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--date", default=dt.date.today().isoformat())
+    ap.add_argument("--date", default=dt.date.today().isoformat(),
+                    help="name of the runs/ folder for this phase, e.g. 2026-10-04-main")
     ap.add_argument("--runs", type=Path, default=ECONOCLM / "runs")
     ap.add_argument("--tblite", type=Path, default=REPO.parent / "OpenThoughts-TBLite")
     ap.add_argument("--clm-repo", type=Path, default=REPO.parent / "context-language-models")
@@ -176,6 +169,9 @@ def main() -> None:
 
     if not gateway_up(args.port):
         raise SystemExit(f"no gateway on 127.0.0.1:{args.port}; start econoclm.core.gateway first")
+    if not (out_dir / "gateway.sqlite").exists():
+        raise SystemExit(f"{out_dir / 'gateway.sqlite'} does not exist: start the gateway with "
+                         f"--ledger {out_dir / 'gateway.sqlite'} (one ledger per runs folder)")
     env = agent_env(args.clm_repo.resolve())
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         codes = list(pool.map(lambda p: run_one(p[1], out_dir / p[0], env, max_spend, out_dir),

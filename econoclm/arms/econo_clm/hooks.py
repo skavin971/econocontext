@@ -26,6 +26,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import random
 import shlex
 import time
 import traceback
@@ -62,7 +63,7 @@ def usage_dict(response: Any) -> dict | None:
 class EconoHooks:
     def __init__(self, run_dir: str | Path, run_id: str, *, observation_max_chars: int,
                  protect: Callable[[], int], state_dir: str,
-                 gateway_db: str | Path | None = None,
+                 gateway_db: str | Path | None = None, econo_path: str | None = None,
                  count: Callable[[list[dict]], int] = default_count):
         self.run_dir = Path(run_dir)
         self.obs_dir = self.run_dir / "obs"
@@ -74,6 +75,7 @@ class EconoHooks:
         self.state_dir = state_dir       # CLM's persistent-shell state (holds the cwd)
         self.gateway_db = Path(gateway_db) if gateway_db else None
         self.count = count
+        self.econo_path = econo_path     # the econo tool inside the sandbox (for verify_gets)
 
         self.turn = 0                    # commands run so far
         self.n_obs = 0
@@ -247,6 +249,27 @@ class EconoHooks:
                 if p in now and now[p] != h and oid in in_context]
 
     # ------------------------------------------------------------------ end of run
+    async def verify_gets(self, environment: Any, n: int = 3) -> None:
+        """Gate 5 check, while the sandbox still exists: `econo get N | sha1sum` in the
+        sandbox vs the host copy's sha1, for up to n random saved outputs. Runs AFTER
+        log.tsv was downloaded, so these calls never count as the model's econo use."""
+        if not self.n_obs or not self.econo_path:
+            return
+        ids = sorted(random.Random(self.run_id).sample(range(1, self.n_obs + 1),
+                                                       min(n, self.n_obs)))
+        script = "; ".join(f"echo {i} $(sh {shlex.quote(self.econo_path)} get {i} | sha1sum)"
+                           for i in ids)
+        res = await environment.exec(command=script, timeout_sec=60)
+        got = {}
+        for ln in (getattr(res, "stdout", None) or "").splitlines():
+            parts = ln.split()
+            if len(parts) >= 2 and parts[0].isdigit():
+                got[int(parts[0])] = parts[1]
+        host = {r["obs_id"]: r["sha1"] for r in self.store.rows("SELECT obs_id, sha1 FROM observations")}
+        for i in ids:
+            self.store.insert("get_checks", obs_id=i, host_sha1=host.get(i),
+                              container_sha1=got.get(i), match=int(got.get(i) == host.get(i)))
+
     async def finish(self, environment: Any) -> None:
         """Bring the sandbox's econo log (and the model's notes.db) home; load the log."""
         for name in ("log.tsv", "notes.db"):
@@ -266,6 +289,10 @@ class EconoHooks:
                         ts = None
                     self.store.insert("econo_ops", ts=ts, op=parts[1],
                                       args=parts[2] if len(parts) > 2 else "")
+        try:
+            await self.verify_gets(environment)
+        except Exception as exc:
+            self.error("verify_gets", exc)
         (self.run_dir / "summary.json").write_text(json.dumps({
             "run_id": self.run_id, "commands": self.turn, "saved_outputs": self.n_obs,
             "model_calls_seen": self.n_calls, "hook_errors": self.n_hook_errors,

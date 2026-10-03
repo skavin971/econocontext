@@ -47,6 +47,13 @@ class FakeEnv:
         self.commands.append(command)
         if command.startswith("printf"):
             return Res(stdout="/app\n")  # the `cat <state>/cwd` part
+        if command.startswith("echo "):  # verify_gets: echo N $(sh econo get N | sha1sum)
+            out = []
+            for part in command.split("; "):
+                n = part.split()[1]
+                data = self.fs.get(f"/tmp/econo/obs/{n}.txt", b"")
+                out.append(f"{n} {hashlib.sha1(data).hexdigest()} -")
+            return Res(stdout="\n".join(out) + "\n")
         if command.startswith("sha1sum"):
             out = []
             for p in shlex.split(command)[2:-1]:  # drop "sha1sum --" and "2>/dev/null"
@@ -81,7 +88,8 @@ def make_step(outputs, edits=None):
 def hooks(tmp_path, gateway_db=None):
     return EconoHooks(tmp_path / "run", "econo-t-r1", observation_max_chars=50,
                       protect=lambda: 2, state_dir="/tmp/.bash_ctx_state",
-                      gateway_db=gateway_db, count=count)
+                      gateway_db=gateway_db, econo_path="/tmp/harbor_skills/econo_db/econo",
+                      count=count)
 
 
 def base_messages():
@@ -220,3 +228,22 @@ def test_agent_subclass_reads_run_id(tmp_path):
     assert agent._econo.run_id == "econo-task-r1"
     assert agent._econo.gateway_db == tmp_path / "runs/gateway.sqlite"
     assert (tmp_path / "runs/econo-task-r1/econo.sqlite").exists()
+
+
+def test_finish_loads_log_then_verifies_gets(tmp_path):
+    h, env = hooks(tmp_path), FakeEnv()
+    step = make_step(["one\n", "two\n", "three\n", "four\n"])
+
+    async def go():
+        for cmd in ("a", "b", "c", "d"):
+            await h.step(step, cmd, base_messages(), environment=env)
+        env.fs["/tmp/econo/log.tsv"] = b"1700000000\tget\t2\n1700000001\tsql_write\tCREATE TABLE t(x)\n"
+        await h.finish(env)
+    run(go())
+    store = RunStore(tmp_path / "run/econo.sqlite")
+    assert [o["op"] for o in store.rows("SELECT * FROM econo_ops")] == ["get", "sql_write"]
+    checks = store.rows("SELECT * FROM get_checks")
+    assert len(checks) == 3 and all(c["match"] == 1 for c in checks)
+    # The verification ran after the log was read, so it is not counted as model use.
+    assert env.commands[-1].startswith("echo ")
+    assert '"saved_outputs": 4' in (tmp_path / "run/summary.json").read_text()

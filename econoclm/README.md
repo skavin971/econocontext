@@ -23,13 +23,18 @@ cost numbers.
 | `quote/` | pure functions: the edit quote and the status line |
 | `arms/raw_clm/` | config for CLM's unmodified `ClmAgent` |
 | `arms/econo_clm/` | `EconoClmAgent` (subclass of `ClmAgent`), its hooks, the `econo` tool and `SKILL.md` |
-| `bench/tblite/` | seeded task selection (`tasks.txt`) and the Harbor runner |
-| `analysis/` | results table, edit ceiling, quote accuracy |
+| `bench/` | `smoke.py` (Gate 2); `tblite/`: seeded task selection (`tasks.txt`), oracle health check, the Harbor runner |
+| `analysis/` | results table, edit ceiling (format change vs edit position), quote accuracy, gate checks |
 | `runs/` | outputs (gitignored) |
 
 CLM is CC BY-NC 4.0, so it is imported, never copied.
 
 ## Run
+
+**Gates 2–6 run locally: follow [RUN_LOCAL.md](RUN_LOCAL.md).** The report template
+and the approved deviations are in [REPORT.md](REPORT.md).
+
+Short version:
 
 ```sh
 python3.12 -m venv ~/.venv-econoclm && . ~/.venv-econoclm/bin/activate

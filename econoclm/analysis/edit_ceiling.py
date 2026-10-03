@@ -7,6 +7,15 @@ divided by the arm's total $ (rereads.py has the definitions). For comparison it
 also reports the same quantity over append-only calls (the background: Gemini's
 random cache misses), which an edit policy cannot remove.
 
+The ceiling is split in two (rereads.py has the definitions):
+  format change   re-read caused by CLM rewriting still-structured turns as plain text
+                  (from the first turn added since the previous edit up to the turn
+                  the model actually edited)
+  edit position   re-read from the edited turn onward
+Only the edit-position part responds to WHERE the model edits. The format part
+would go away with a "format-preserving rebuild" (a candidate later arm, not built:
+v1 only gives the model information).
+
 If the ceiling is about 10% of the bill or more, cache-aware commits (v2) are worth
 building; below that, they cannot save much.
 """
@@ -21,6 +30,7 @@ from .rereads import call_rereads
 
 def ceiling(runs, count=None) -> dict:
     per_arm = defaultdict(lambda: {"cost": 0.0, "edit_usd": 0.0, "background_usd": 0.0,
+                                   "format_usd": 0.0, "edit_pos_usd": 0.0,
                                    "rewrites": 0, "calls": 0, "runs": 0, "unmatched": 0})
     per_run = []
     for run in runs:
@@ -30,6 +40,10 @@ def ceiling(runs, count=None) -> dict:
         cost = sum(r["cost_usd"] or 0 for r in run.all_rows)
         edit = sum(x["extra_usd"] for x in rr if x["rewrite"])
         background = sum(x["extra_usd"] for x in rr if not x["rewrite"])
+        fmt = sum(x["format_usd"] for x in rr if x["rewrite"])
+        pos = sum(x["edit_pos_usd"] for x in rr if x["rewrite"])
+        a["format_usd"] += fmt
+        a["edit_pos_usd"] += pos
         a["cost"] += cost
         a["edit_usd"] += edit
         a["background_usd"] += background
@@ -38,6 +52,7 @@ def ceiling(runs, count=None) -> dict:
         a["runs"] += 1
         a["unmatched"] += int(len(snaps) != len(run.calls))
         per_run.append({"run_id": run.run_id, "cost": cost, "edit_usd": edit,
+                        "format_usd": fmt, "edit_pos_usd": pos,
                         "background_usd": background, "rewrites": sum(x["rewrite"] for x in rr),
                         "snapshots": len(snaps), "calls": len(run.calls)})
     return {"arms": dict(per_arm), "runs": per_run}
@@ -46,21 +61,24 @@ def ceiling(runs, count=None) -> dict:
 def report(res: dict) -> str:
     lines = ["# Edit ceiling", "",
              "| Arm | Runs | Calls | Rewrites | Total $ | Re-read $ after rewrites | "
-             "Edit ceiling | Background (append-only) | Snapshot/call mismatches |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "Edit ceiling | of which: format change | of which: edit position | "
+             "Background (append-only) | Snapshot/call mismatches |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     for arm, a in sorted(res["arms"].items()):
-        share = a["edit_usd"] / a["cost"] if a["cost"] else 0
-        bg = a["background_usd"] / a["cost"] if a["cost"] else 0
+        share = lambda x: x / a["cost"] if a["cost"] else 0  # noqa: E731
         lines.append(f"| {arm} | {a['runs']} | {a['calls']} | {a['rewrites']} | "
-                     f"${a['cost']:.4f} | ${a['edit_usd']:.4f} | {share:.1%} | {bg:.1%} | "
-                     f"{a['unmatched']} |")
+                     f"${a['cost']:.4f} | ${a['edit_usd']:.4f} | {share(a['edit_usd']):.1%} | "
+                     f"{share(a['format_usd']):.1%} | {share(a['edit_pos_usd']):.1%} | "
+                     f"{share(a['background_usd']):.1%} | {a['unmatched']} |")
     lines += ["", "## Per run", "",
-              "| Run | Calls | Snapshots | Rewrites | $ | Re-read $ after rewrites | Share |",
-              "|---|---|---|---|---|---|---|"]
+              "| Run | Calls | Snapshots | Rewrites | $ | Re-read $ after rewrites | Share | "
+              "Format change | Edit position |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for r in res["runs"]:
-        share = r["edit_usd"] / r["cost"] if r["cost"] else 0
+        share = lambda x: x / r["cost"] if r["cost"] else 0  # noqa: E731
         lines.append(f"| {r['run_id']} | {r['calls']} | {r['snapshots']} | {r['rewrites']} | "
-                     f"${r['cost']:.4f} | ${r['edit_usd']:.4f} | {share:.1%} |")
+                     f"${r['cost']:.4f} | ${r['edit_usd']:.4f} | {share(r['edit_usd']):.1%} | "
+                     f"{share(r['format_usd']):.1%} | {share(r['edit_pos_usd']):.1%} |")
     return "\n".join(lines) + "\n"
 
 

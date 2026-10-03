@@ -92,8 +92,49 @@ def test_scripts_run_on_a_synthetic_day(tmp_path):
 
     res = edit_ceiling.ceiling(runs, count=count)
     assert res["arms"]["raw"]["rewrites"] == 1
+    raw = res["arms"]["raw"]
+    assert raw["format_usd"] + raw["edit_pos_usd"] == pytest.approx(raw["edit_usd"])
+    assert "of which: format change" in edit_ceiling.report(res)
     assert res["arms"]["raw"]["edit_usd"] == pytest.approx(7 * (prices.PRICE_IN - prices.PRICE_CACHED))
 
     qc = quote_check.check(runs, count=count)
     assert qc == [{"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True}]
     assert quote_check.summary(qc)["median_abs_err_tokens"] == 3
+
+
+def test_split_format_change_vs_edit_position():
+    """Built with CLM's own render/parse_back, so the format change is the real one."""
+    from clm_harness.context_utils.context_string import parse_back, render_editable
+
+    prev = BASE + tool_turn(90) + tool_turn(60)          # messages 2..5, never edited
+    text = render_editable(prev, protect=2)
+    # The model edits turn 3 (message 4: the second assistant turn) only.
+    edited = text.replace("[[CTX_TURN 3 role=assistant]]\n" + "a" * 10,
+                          "[[CTX_TURN 3 role=assistant]]\nshort")
+    assert edited != text
+    cur = parse_back(edited, prev[:2]) + tool_turn(30)   # CLM appends the next turn
+    calls = [{"prompt_tokens": count(prev), "uncached_tokens": 0, "cached_tokens": 0},
+             {"prompt_tokens": count(cur), "uncached_tokens": 40 + 150, "cached_tokens": 0}]
+    rr = call_rereads([prev, cur], calls, count=count)[0]
+    assert rr["rewrite"] and rr["first_change"] == 2     # message 2 lost its tool_calls
+    assert rr["text_change"] == 4                        # the real edit
+    assert rr["appended"] == 40 and rr["extra_uncached"] == 150
+    assert rr["format_uncached"] == 100                  # messages 2..3: 10 + 90 tokens
+    assert rr["edit_uncached"] == 50
+    per_token = prices.PRICE_IN - prices.PRICE_CACHED
+    assert rr["format_usd"] == pytest.approx(100 * per_token)
+    assert rr["edit_pos_usd"] == pytest.approx(50 * per_token)
+
+
+def test_gate_check(tmp_path, capsys):
+    from econoclm.analysis import gate_check
+    day = make_day(tmp_path)
+    assert gate_check.main([str(day), "--gate", "3"]) == 0
+    assert "GATE 3: PASS" in capsys.readouterr().out
+    # The synthetic econo run saved 1 output for 2 commands and has no get checks.
+    assert gate_check.main([str(day), "--gate", "5"]) == 1
+    out = capsys.readouterr().out
+    assert "[FAIL] saved outputs = commands run: saved 1, commands 2" in out
+    assert "[FAIL] econo get byte-identical in sandbox" in out
+    assert "[PASS] hook errors = 0" in out
+    assert "econo use by the model: {'get': 1, 'sql_write': 1}" in out
