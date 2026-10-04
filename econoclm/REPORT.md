@@ -64,6 +64,8 @@ _Paste `runs/<D>-main/results.md` (summary and per-run tables)._
 
 _Paste `runs/<D>-main/edit_ceiling.md`: per arm, the share of the bill re-read after rewrites, split into format change vs edit position, plus the append-only background._
 
+**Background vs edit ceiling (Gate 4, Raw; `runs/2026-10-03-main/background.md`).** The background is the re-read on calls that do *not* follow a rewrite: per call, `max(0, uncached − newly appended tokens incl. their hidden thinking)`, priced at input − cached ($0.675/M). It is Gemini's own cache misses: a *tail* (the newest text the cache has not caught up with, at most the previous call's appended tokens) and *deeper* misses of older prefix. On Gate 4 Raw it was **$0.50 = 27.2% of the bill, twice the edit ceiling ($0.24 = 13.2%)**: tail $0.10, deeper misses $0.39; 59 of 200 append-only calls had no cache hit at all. Per task it ranged from 13% to 61% of the run's cost. No edit policy can remove it.
+
 ## 4. Quote accuracy
 
 _Median absolute error of predicted R vs the actual extra uncached tokens on the next call, in tokens and as % of R (`quote_check.md`)._
@@ -78,6 +80,8 @@ _Median absolute error of predicted R vs the actual extra uncached tokens on the
 
 _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._
 
+- **Rebuild rejected by Vertex** ("Trials ended by rebuild rejected by Vertex" in `results.md`, per arm). CLM's plain-text rebuild after an edit can end the message list with an assistant turn; Vertex refuses such requests (HTTP 400, "Requests ending with a model turn are not supported"), CLM retries and the trial fails. CLM is kept as released, and the trial counts as a task failure. Gate 4 Raw: 1 trial (`scan-linux-persistence-artifacts`: calls 31–35, four 400s and one gateway 502 while retrying the same request).
+
 ## 7. Plain reading and next step
 
 - Differences of 1–2 passed tasks out of 10, or cost differences under about 20%, can be noise (Gemini's caching is partly random).
@@ -86,7 +90,6 @@ _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, 
 
 ## 8. Candidate later arms (noted, not built)
 
-- **Format-preserving rebuild.** Apply the model's edits without flattening the turns it did not touch, keeping their tool-call structure. Then only text from the real edit onward changes on the wire, which removes the *format change* part of the edit ceiling.
-  - This changes CLM's mechanics, not just what the model is told, so it is a separate arm.
-  - EconoCLM v1 stays information-only: it adds facts to tool results and never changes how CLM rebuilds the context.
-  - Worth building only if the format-change share in section 3 is material.
+- **Format-preserving rebuild: dropped.** It would remove only the *format change* part of the edit ceiling, which was 0.4–0.5% of the bill at Gate 4 (Raw).
+- **Cache-aware commits (v2): decide after Gate 6.** The edit ceiling was 13% of the Raw bill at Gate 4, above the ~10% bar, but concentrated in 2 tasks (`maven-slf4j-conflict` 43% of its run, `malicious-package-forensics` 15%); the other 8 were at or under 10%.
+- **Cache-hit reliability: possible new arm.** The append-only background (section 3) is Gemini's own cache misses and was twice the edit ceiling at Gate 4. An arm that makes cache hits more reliable could save more than any edit policy. Nothing is built yet.
