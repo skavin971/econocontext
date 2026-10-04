@@ -9,13 +9,16 @@ It reports, without repeating CLM's own context size readout:
     region by token position. For each depth: the turn there, and
         re-read = max(0, c - change position)   and its extra cost
                   re-read * (price_in - price_cached)
+    an UPPER BOUND (Gemini's cache misses at random). Depths that give the same number
+    are shown once; if all do: "any edit now: up to ~N".
+  - the recent cache-hit rate ("cache hit on 7 of last 10 calls")
     where the change position is min(that turn, the first turn CLM would rewrite
     anyway), see messages.py. Positions are what Gemini reads, hidden thinking included.
   - how many outputs are stored
   - stale files (at most 3 names, then "+k more")
 
 Example:
-[econo] last call 14.2K cached / 1.1K new | Gemini read 15.3K, CLM counts 6.0K, earlier thinking 9.1K | run $0.021 | edit at turn ≤2: ~0.3K re-read ($0.0002), ≤5: ~9K ($0.0061), ≤8: ~15K ($0.010) | stored: 3 | stale: parser.py
+[econo] last call 14.2K cached / 1.1K new | cache hit on 7 of last 10 calls | Gemini read 15.3K, CLM counts 6.0K, earlier thinking 9.1K | run $0.021 | edit at turn ≤2: up to ~0.3K re-read ($0.0002), ≤5: up to ~9K ($0.0061), ≤8: up to ~15K ($0.010) | stored: 3 | stale: parser.py
 """
 
 import bisect
@@ -25,7 +28,7 @@ from typing import Callable
 
 from ..core import prices
 from .hidden import provider_positions
-from .messages import default_count, first_structured, fmt_tokens, fmt_usd
+from .messages import default_count, first_structured, fmt_hits, fmt_tokens, fmt_usd
 
 DEPTHS = (0.25, 0.5, 0.75)
 
@@ -69,11 +72,30 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
     return out
 
 
+def depth_text(depths: list[Depth]) -> str:
+    """'edit at turn ≤2: up to ~1K re-read ($x), ≤5: up to ~9K ($y)', one entry per distinct
+    number (the shallowest turn that gives it); 'any edit now: up to ~N re-read ($x)' if
+    every depth gives the same number."""
+    distinct: dict[str, Depth] = {}
+    for d in depths:
+        distinct.setdefault(fmt_tokens(d.reread), d)
+    if len(distinct) == 1:
+        d = depths[0]
+        return f"any edit now: up to ~{fmt_tokens(d.reread)} re-read ({fmt_usd(d.cost_usd)})"
+    items = list(distinct.values())
+    first, rest = items[0], items[1:]
+    return (f"edit at turn ≤{first.turn}: up to ~{fmt_tokens(first.reread)} re-read "
+            f"({fmt_usd(first.cost_usd)})"
+            + "".join(f", ≤{d.turn}: up to ~{fmt_tokens(d.reread)} ({fmt_usd(d.cost_usd)})"
+                      for d in rest))
+
+
 def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | None,
                 run_cost_usd: float, n_stored: int, stale: list[str], protect: int = 2,
                 k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
                 thinking: dict[str, int] | None = None, mode: str = "live",
                 read: tuple[int, int, int] | None = None,
+                hits: tuple[int, int] | None = None,
                 price_in: float = prices.PRICE_IN,
                 price_cached: float = prices.PRICE_CACHED) -> Status:
     """`read` = (tokens Gemini read in the last call, CLM's count of those messages,
@@ -87,6 +109,8 @@ def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | N
     else:
         new = "?" if uncached is None else fmt_tokens(uncached)
         parts.append(f"last call {fmt_tokens(cached_c)} cached / {new} new")
+    if fmt_hits(hits):
+        parts.append(fmt_hits(hits))
     if read is not None:
         gemini, clm, hidden = read
         parts.append(f"Gemini read {fmt_tokens(gemini)}, CLM counts {fmt_tokens(clm)}, "
@@ -95,12 +119,10 @@ def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | N
     if not depths:
         parts.append("edit: nothing editable yet")
     elif cached_c is None:
-        turns = ", ".join(f"≤{d.turn}" for d in depths)
+        turns = ", ".join(dict.fromkeys(f"≤{d.turn}" for d in depths))
         parts.append(f"edit at turn {turns}: cache unknown")
     else:
-        parts.append("edit at turn " + ", ".join(
-            f"≤{d.turn}: ~{fmt_tokens(d.reread)} re-read ({fmt_usd(d.cost_usd)})"
-            for d in depths))
+        parts.append(depth_text(depths))
     parts.append(f"stored: {n_stored}")
     if stale:
         names = [os.path.basename(p.rstrip("/")) or p for p in stale]

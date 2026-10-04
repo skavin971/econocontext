@@ -60,6 +60,21 @@ def first_change(before: list[dict], after: list[dict]) -> int | None:
     return None
 
 
+def shared_text(a: dict, b: dict) -> str:
+    """The text two versions of one message share from the start (empty if the roles or
+    the tool structure differ). CLM's rebuild often keeps a message's text and appends
+    the next turns to it (its _normalize merges same-role turns): Gemini's cache matches
+    token by token, so it still serves that shared text (Gate 4, malicious-package-
+    forensics calls 16 and 67)."""
+    if a.get("role") != b.get("role") or bool(a.get("tool_calls")) or bool(b.get("tool_calls")):
+        return ""
+    ta, tb = _text(a.get("content")), _text(b.get("content"))
+    n = 0
+    while n < min(len(ta), len(tb)) and ta[n] == tb[n]:
+        n += 1
+    return tb[:n]
+
+
 def is_structured(m: dict) -> bool:
     """A turn CLM's parse_back would rewrite on any edit."""
     return m.get("role") == "tool" or bool(m.get("tool_calls"))
@@ -96,6 +111,13 @@ def fmt_tokens(n: float) -> str:
     if n < 100_000:
         return f"{n / 1000:.1f}K"
     return f"{n // 1000}K"
+
+
+def fmt_hits(hits: tuple[int, int] | None) -> str | None:
+    """(cache hits, calls) over the recent window -> 'cache hit on 7 of last 10 calls'."""
+    if not hits or not hits[1]:
+        return None
+    return f"cache hit on {hits[0]} of last {hits[1]} call{'s' if hits[1] != 1 else ''}"
 
 
 def fmt_usd(x: float) -> str:

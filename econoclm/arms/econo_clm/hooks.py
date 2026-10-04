@@ -50,6 +50,7 @@ SANDBOX_DIR = "/tmp/econo"
 SETUP_COMMAND = (f"mkdir -p {SANDBOX_DIR}/obs && : > {SANDBOX_DIR}/index.tsv "
                  f"&& : > {SANDBOX_DIR}/log.tsv")
 LEDGER_WAIT_S = 0.5
+HIT_WINDOW = 10        # recent calls for the cache-hit rate shown in the quote and status line
 RETRY_REASONS = ("malformed_function_call",)  # resent below CLM's count (results_table.py)
 
 
@@ -98,6 +99,7 @@ class EconoHooks:
         self.k = 1.0                     # provider tokens per CLM-tokenizer token (visible text)
         self.thinking: dict[str, int] = {}  # thought-signature key -> that call's thinking tokens
         self.meter = HiddenMeter()
+        self.hit_log: list[bool] = []    # per model call after the first: any cached tokens?
         self.last_read: tuple[int, int, int] | None = None  # (Gemini read, CLM count, hidden)
         self.agent_cost_usd = 0.0        # fallback run cost (from litellm usage)
         self.reads: dict[str, tuple[str, int, int]] = {}  # path -> (sha1, turn, obs_id), latest read
@@ -130,6 +132,8 @@ class EconoHooks:
                            uncached=row["uncached_tokens"], output=row["output_tokens"],
                            reasoning=row["reasoning_tokens"])
         self.last = c
+        if self.n_calls > 1:
+            self.hit_log.append(bool(c.cached))
         ours = self.count(messages)
         hidden = self.meter.observe(messages, c.prompt, ours, self.thinking)
         self.k = self.meter.k
@@ -138,6 +142,12 @@ class EconoHooks:
         if sig:
             self.thinking[sig_key(sig)] = c.reasoning or 0
         self.agent_cost_usd += price_call_usd(to_usage(usage), prices.RATES) if usage else 0.0
+
+    def hits(self) -> tuple[int, int] | None:
+        """(calls with a cache hit, calls) over the last HIT_WINDOW calls (the run's first
+        call is left out: nothing can be cached yet)."""
+        recent = self.hit_log[-HIT_WINDOW:]
+        return (sum(recent), len(recent)) if recent else None
 
     async def ledger_row(self, n: int) -> dict | None:
         """The gateway's row for this run's n-th successful call (0-based; failed
@@ -223,7 +233,8 @@ class EconoHooks:
         c = self.last.cached if self.last else None
         if sr.ctx_changed:
             q = edit_quote(before, messages, c, protect=self.protect(), k=self.k,
-                           count=self.count, thinking=self.thinking, mode=self.meter.mode)
+                           count=self.count, thinking=self.thinking, mode=self.meter.mode,
+                           hits=self.hits())
             if q is not None:
                 self.store.insert(
                     "edits", turn=turn, before_tokens=q.before_tokens,
@@ -240,7 +251,8 @@ class EconoHooks:
                          uncached=self.last.uncached if self.last else None,
                          run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
                          protect=self.protect(), k=self.k, count=self.count,
-                         thinking=self.thinking, mode=self.meter.mode, read=self.last_read)
+                         thinking=self.thinking, mode=self.meter.mode, read=self.last_read,
+                         hits=self.hits())
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out
