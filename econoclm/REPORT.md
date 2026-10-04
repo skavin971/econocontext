@@ -6,8 +6,9 @@ deviation 5), **Gate 4 done** (`runs/2026-10-03-main`: Raw CLM 8/10 passed, $1.8
 made 0 context edits, under the stop rule of 6; a first attempt was voided by a network
 outage, `runs/2026-10-03-main-attempt1-network`). **Gate 5 FAIL on one check** (`runs/2026-10-03-g5-pilot-econo`:
 EconoCLM pilot, reward 1.0, $0.073; 1 call cut by length, the same call 1 and the same 8,188 output tokens as Raw on this
-task at Gate 4; all other checks pass). Waiting for a decision before Gate 6.
-Sections 2–7 are filled in at Gate 6.
+task at Gate 4; all other checks pass), **Gate 6 done** (`runs/2026-10-03-main`: EconoCLM 8/10 passed, $2.02; no
+infra failures; shared parts unchanged). Sections 2–6 filled in from Gates 4 and 6; section 7 is left for review.
+
 
 ## 1. Setup
 
@@ -70,11 +71,56 @@ Sections 2–7 are filled in at Gate 6.
 
 ## 2. Results (Raw vs EconoCLM)
 
-_Paste `runs/<D>-main/results.md` (summary and per-run tables)._
+One rep per arm per task. Raw ran on 2026-10-03 (Gate 4) and EconoCLM ran later the same evening (Gate 6). Both used the shared parts at `econoclm-shared-v1`, `--workers 2` and `max_tokens 8192`. Full tables: `runs/2026-10-03-main/results.md` and `results.csv`.
+
+| Metric | Raw | EconoCLM |
+|---|---|---|
+| Tasks passed | 8 / 10 | 8 / 10 |
+| Total $ | $1.820 | $2.023 (+11%) |
+| $ per solved task | $0.228 | $0.253 |
+| Input tokens (cached / uncached) | 3.01M (1.61M / 1.41M) | 3.09M (1.65M / 1.43M) |
+| Output + thinking tokens | 171.8K | 219.9K |
+| Model calls | 240 | 225 |
+| Context edits / rollbacks | 24 / 6 | 22 / 5 |
+| Calls cut by length (deviation 7) | 2 | 2 |
+| Mean peak context (CLM count) | 12.8K | 15.0K |
+| Mean wall time per task | 139 s | 167 s |
+| Infra failures; rate-limit retries (wait) | 0; 1 (4.7 s) | 0; 1 (6.9 s) |
+
+**Per task**
+
+| Task | Raw pass | Econo pass | Raw $ | Econo $ | Raw calls | Econo calls | Raw edits | Econo edits |
+|---|---|---|---|---|---|---|---|---|
+| acl-permissions-inheritance | 1 | 1 | 0.045 | 0.010 | 13 | 4 | 0 | 0 |
+| anomaly-detection-ranking | 1 | 1 | 0.066 | 0.108 | 14 | 17 | 0 | 0 |
+| api-endpoint-permission-canonicalizer | 1 | 1 | 0.100 | 0.388 | 8 | 27 | 0 | 2 |
+| bandit-delayed-feedback | 0 | 0 | 0.210 | 0.416 | 35 | 40 | 2 | 4 |
+| chained-forensic-extraction | 1 | **0** | 0.077 | 0.045 | 14 | 7 | 0 | 0 |
+| malicious-package-forensics | 1 | 1 | 0.634 | 0.147 | 73 | 22 | 14 | 2 |
+| maven-slf4j-conflict | 1 | 1 | 0.228 | 0.165 | 28 | 23 | 4 | 7 |
+| pandas-etl | 1 | 1 | 0.080 | 0.029 | 11 | 9 | 1 | 0 |
+| sales-data-csv-analysis | 1 | 1 | 0.085 | 0.070 | 13 | 12 | 0 | 0 |
+| scan-linux-persistence-artifacts | **0** | 1 | 0.293 | 0.646 | 31 | 64 | 3 | 7 |
+
+- **Same pass count, different tasks.** Raw failed `scan-linux` (its rebuild was rejected by Vertex, §6); EconoCLM failed `chained-forensic` (reward 0, no exception). Both failed `bandit`.
+- **Tasks solved by both (7).** EconoCLM was cheaper on 5 of 7: −$0.32 in total, median −$0.04 per task.
+- **Where the extra cost came from.** The arm total is higher because of `api-endpoint` (27 calls vs 8, two length cuts), `bandit`, and `scan-linux`, which EconoCLM finished and Raw did not.
+- With one rep per task these differences are within the noise band set in §7.
 
 ## 3. Edit ceiling
 
-_Paste `runs/<D>-main/edit_ceiling.md`: per arm, the edit-caused share of the bill (lost prefix, format change, edit position), the post-edit misses and the append-only misses._
+Shares of each arm's bill, priced at input − cached per re-read token (`runs/2026-10-03-main/edit_ceiling.md`). The edit-caused split uses exact positions for all 53 rewrites (`rewrite_positions.md`).
+
+| | Raw | EconoCLM |
+|---|---|---|
+| Rewrites (edits + rollbacks) | 27 | 26 |
+| **Edit-caused (the edit ceiling)** | **7.1%** ($0.129) | **4.0%** ($0.080) |
+| of which: lost prefix (unchanged prefix < 4,096) | 1.5% | 1.2% |
+| of which: format change | 0.4% | 0.2% |
+| of which: edit position | 5.3% | 2.6% |
+| Post-edit misses | 6.1% | 4.3% |
+| **Append-only misses** | **27.2%** | **25.7%** |
+| Rewrites whose unchanged prefix was below the cache minimum | 18 of 27 | 17 of 26 |
 
 Two kinds of re-read are not caused by edits. Both are Gemini's own cache misses, priced at input − cached ($0.675/M):
 
@@ -88,22 +134,50 @@ Two kinds of re-read are not caused by edits. Both are Gemini's own cache misses
 - The earlier 13.2% "edit ceiling" counted all re-read after a rewrite as edit-caused.
 - **Cache minimum.** Gemini's implicit cache needs a 4,096-token prefix. When an edit leaves a shorter unchanged prefix, the cache serves none of it. That prefix (39,628 tokens on Gate 4, 1.5% of the bill) therefore moves from post-edit misses to edit-caused ("lost prefix").
 
-Edit policies can't remove Gemini's misses on append-only calls; a runtime caching arm might (§8).
+Edit policies can't remove Gemini's misses on append-only calls; a runtime caching arm might (§8). At Gate 6 they were again the largest re-read in both arms (27.2% and 25.7%), 4–6× the edit-caused ceiling.
 
 ## 4. Quote accuracy
 
-_Median absolute error of predicted R vs the actual extra uncached tokens on the next call, in tokens and as % of R (`quote_check.md`)._
+EconoCLM's quotes, checked at Gate 6 (`runs/2026-10-03-main/quote_check.md`, exact positions from `rewrite_positions.json`):
+
+- **Volume:** 22 edits quoted; 21 compared with the next call, all with exact positions.
+- **Bound violations:** 0 (edit-caused re-read > R). Across all 53 rewrites in both arms: also 0.
+- **Re-read after the 21 edits:** 98,596 tokens edit-caused, 41,178 post-edit misses.
+- **Healthy-cache edits (10, both neighbouring calls hit):** median |R − edit-caused| = 7,241 tokens, 74% of R.
+  - R is a loose upper bound, as designed. The analysis-only `R_likely` was off by a median 362 tokens there, but it was exceeded in 24 of 53 rewrites, so it is still not shown.
+- **First-change position:** the live estimate p was off from the exact P by a median 34 tokens over the 53 rewrites.
+- **Hidden-thinking accounting (deviation 3):** validated offline on Gate 4. On every call with no hidden part, the billed prompt = countTokens + 11.
 
 ## 5. Behavior
 
-- `econo` usage (get, search, sql); fetches of cut outputs
-- stale flags, and whether the model re-read those files
-- repeated commands; rollbacks; edit counts and where edits happened
+- **`econo` use: none.** The model ran no `econo` command in any of the 10 EconoCLM runs (no get, search or sql; DB reads and writes 0).
+- **Cut outputs:** CLM cut 19 outputs in context. The tag said `(cut in context; full: econo get <id>)`; 0 were fetched back.
+- **Stale flags:** 3 shown; none was followed by a re-read of that file.
+- **What EconoCLM added:** on average 95 tokens of `[econo]` text per turn (tags plus status line).
+- **Edits:** 22 in EconoCLM (24 in Raw), in 5 tasks: `scan-linux` 7, `maven` 7, `bandit` 4, `api-endpoint` 2, `malicious` 2.
+  - Most edits removed long runs of earlier outputs (for example `bandit` turn 19 removed obs 6–18).
+  - In `maven`, 5 of the 7 edits removed no tagged output.
+- **Where edits happened** (exact first change P):
+  - EconoCLM: median 3,904 tokens, 45% of the context the edit rewrote. Raw: median 3,463 tokens, 34%.
+  - In both arms about two thirds of rewrites changed something inside the first 4,096 tokens (EconoCLM 17 of 26, Raw 18 of 27), so the cache served nothing afterwards.
+  - Nothing in the data shows that the quotes moved edits deeper. The model never referred to them.
+- **Rollbacks:** 5 (Raw 6).
+- **Repeated identical commands:** 23 (Raw 17).
 
 ## 6. Anomalies
 
 _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._
 
+- **Gate 6 summary (both arms).**
+  - Usage anomalies 0 / 0. Hook errors (EconoCLM) 0. Infra failures 0 / 0.
+  - Provider-side retries (`malformed_function_call`) 3 / 3. Rate-limit retries 1 / 1.
+  - Calls cut by length 2 / 2: Raw in `api-endpoint` and `scan-linux`; EconoCLM twice in `api-endpoint` (deviation 7).
+  - Trials ended by rebuild rejected by Vertex: 1 / 0.
+- **Failed trials.**
+  - Raw: `bandit` (reward 0), `scan-linux` (rebuild rejected).
+  - EconoCLM: `bandit` and `chained-forensic` (reward 0, no exception).
+- **Network outage at Gate 4.** It voided the first Raw attempt (`runs/2026-10-03-main-attempt1-network`), which was rerun in full.
+- **Unexplained cache behaviour.** `malicious-package-forensics` call 16 (Gate 4) was served 16,289 cached tokens although the request differed from the previous one after about 10,108. The cause is not found; Gemini's implicit cache may not be strictly prefix-based.
 - **Rebuild rejected by Vertex** ("Trials ended by rebuild rejected by Vertex" in `results.md`, per arm). CLM's plain-text rebuild after an edit can end the message list with an assistant turn; Vertex refuses such requests (HTTP 400, "Requests ending with a model turn are not supported"), CLM retries and the trial fails. CLM is kept as released, and the trial counts as a task failure. Gate 4 Raw: 1 trial (`scan-linux-persistence-artifacts`: calls 31–35, four 400s and one gateway 502 while retrying the same request).
 
 ## 7. Plain reading and next step
