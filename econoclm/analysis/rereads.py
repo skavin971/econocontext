@@ -19,7 +19,7 @@ tokens per CLM-tokenizer token of visible text) calibrated; `appended` includes 
 hidden thinking of the appended turns in the measured state. Append-only calls also
 show some extra_uncached (Gemini's implicit cache misses at random, about 1 call in 5;
 and Gemini drops earlier thinking when a user message is answered): that is reported
-apart, as the background.
+apart, as the append-only misses.
 
 Provider-side retries (finish_reason in RETRY_REASONS) are left out, so call i lines
 up with CLM's i-th model call and snapshot i.

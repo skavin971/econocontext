@@ -94,14 +94,14 @@ def test_scripts_run_on_a_synthetic_day(tmp_path):
     assert res["arms"]["raw"]["rewrites"] == 1
     raw = res["arms"]["raw"]
     assert raw["format_usd"] + raw["edit_pos_usd"] == pytest.approx(raw["edit_usd"])
-    assert "of which: format change" in edit_ceiling.report(res)
+    assert "format change" in edit_ceiling.report(res)
     assert res["arms"]["raw"]["edit_usd"] == pytest.approx(7 * (prices.PRICE_IN - prices.PRICE_CACHED))
 
     qc = quote_check.check(runs, count=count)
     keys = ("run_id", "turn", "R", "actual", "rewrite_seen", "gap_s")
     assert [{k: r[k] for k in keys} for r in qc] == [
         {"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True, "gap_s": 0.0}]
-    assert qc[0]["edit_caused"] + qc[0]["background"] == qc[0]["actual"]
+    assert qc[0]["edit_caused"] + qc[0]["post_edit_miss"] == qc[0]["actual"]
     assert quote_check.summary(qc)["violations"] == 0
     assert quote_check.summary(qc)["median_abs_err_tokens"] == 10   # |R - edit-caused|, edit-caused 0
 

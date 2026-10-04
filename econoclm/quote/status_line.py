@@ -13,7 +13,8 @@ It reports, without repeating CLM's own context size readout:
     are shown once; if all do: "any edit now: up to ~N".
   - the recent cache-hit rate ("cache hit on 7 of last 10 calls")
     where the change position is min(that turn, the first turn CLM would rewrite
-    anyway), see messages.py. Positions are what Gemini reads, hidden thinking included.
+    anyway), see messages.py, and counts as 0 when it is below Gemini's cache minimum
+    (edit_quote.CACHE_MIN_TOKENS). Positions are what Gemini reads, hidden thinking included.
   - how many outputs are stored
   - stale files (at most 3 names, then "+k more")
 
@@ -27,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..core import prices
+from .edit_quote import reachable_prefix
 from .hidden import provider_positions
 from .messages import default_count, first_structured, fmt_hits, fmt_tokens, fmt_usd
 
@@ -66,7 +68,7 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
         if cached_c is None:
             reread = cost = None
         else:
-            reread = max(0, cached_c - round(pos[change]))
+            reread = max(0, cached_c - round(reachable_prefix(pos[change])))
             cost = reread * (price_in - price_cached)
         out.append(Depth(fraction=f, turn=idx - protect + 1, reread=reread, cost_usd=cost))
     return out

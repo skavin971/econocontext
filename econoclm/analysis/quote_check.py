@@ -6,10 +6,11 @@ For each applied edit in an EconoCLM run (econo.sqlite, table edits), on the mod
 right after it (rereads.py, with the measured hidden-thinking accounting of
 quote/hidden.py), the actual extra uncached tokens are split in two:
 
-  edit-caused = max(0, min(A, c_before) - max(c_after, P))
-                rewritten tokens that were cached before the edit and are not now
-  background  = extra uncached - edit-caused
-                misses the edit cannot explain (Gemini's own cache misses)
+  edit-caused      = max(0, min(A, c_before) - max(c_after, P'))
+                     cached tokens the edit put out of reach and that are not cached now
+                     (P' = P, or 0 below Gemini's cache minimum: edit_quote.CACHE_MIN_TOKENS)
+  post-edit misses = extra uncached - edit-caused
+                     misses the edit cannot explain (Gemini's own cache misses)
 
 P is the first changed position and A the start of the newly appended turns, in Gemini
 tokens: exact when rewrite_positions.json exists (rewrite_positions.py: logged bodies +
@@ -25,6 +26,7 @@ import json
 import statistics
 from pathlib import Path
 
+from ..quote.edit_quote import reachable_prefix
 from .common import RETRY_REASONS, load_runs
 from .rereads import call_rereads
 
@@ -50,8 +52,9 @@ def check(runs, count=None, exact: dict | None = None) -> list[dict]:
                 c_before, c_after = calls[n - 1]["cached_tokens"] or 0, calls[n]["cached_tokens"] or 0
                 P = x["P_exact"] if x else e["prefix_tokens_p"]
                 A = x["A_exact"] if x else actual["prompt"] - actual["appended"]
-                edit_caused = max(0, min(A, c_before) - max(c_after, P or 0))
-                row.update(edit_caused=edit_caused, background=actual["extra_uncached"] - edit_caused,
+                edit_caused = max(0, min(A, c_before) - max(c_after, reachable_prefix(P or 0)))
+                row.update(edit_caused=edit_caused,
+                           post_edit_miss=actual["extra_uncached"] - edit_caused,
                            violation=row["R"] is not None and edit_caused > row["R"],
                            healthy=c_before > 0 and c_after > 0, exact=x is not None)
             rows.append(row)
@@ -69,7 +72,7 @@ def summary(rows: list[dict]) -> dict:
             "median_abs_err_tokens": statistics.median(errs) if errs else None,
             "median_abs_err_pct_of_R": statistics.median(pct) if pct else None,
             "edit_caused": sum(r["edit_caused"] for r in split),
-            "background": sum(r["background"] for r in split),
+            "post_edit_miss": sum(r["post_edit_miss"] for r in split),
             "exact": sum(r["exact"] for r in split)}
 
 
@@ -80,16 +83,16 @@ def report(rows: list[dict]) -> str:
              f"Edits: {s['edits']}, compared with the next call: {s['compared']} "
              f"({s['exact']} with exact positions)",
              f"Bound violations (edit-caused re-read > R): {s['violations']}",
-             f"Actual re-read split: edit-caused {s['edit_caused']:,} tokens, background "
-             f"{s['background']:,}",
+             f"Actual re-read split: edit-caused {s['edit_caused']:,} tokens, post-edit misses "
+             f"{s['post_edit_miss']:,}",
              f"Healthy cache on both neighbouring calls: {s['healthy']}; there median "
              f"|R - edit-caused| {s['median_abs_err_tokens']} tokens ({pct} of R)", "",
-             "| Run | Turn | R (bound) | Edit-caused | Background | Violation | Healthy | "
+             "| Run | Turn | R (bound) | Edit-caused | Post-edit misses | Violation | Healthy | "
              "Seconds since previous call |",
              "|---|---|---|---|---|---|---|---|"]
     for r in rows:
         lines.append(f"| {r['run_id']} | {r['turn']} | {r['R']} | {r.get('edit_caused')} | "
-                     f"{r.get('background')} | {'YES' if r.get('violation') else ''} | "
+                     f"{r.get('post_edit_miss')} | {'YES' if r.get('violation') else ''} | "
                      f"{'yes' if r.get('healthy') else ''} | {r['gap_s']} |")
     return "\n".join(lines) + "\n"
 

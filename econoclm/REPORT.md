@@ -11,7 +11,7 @@ Sections 2–7 are filled in at Gate 6.
 
 | Item | Value |
 |---|---|
-| Model | `google/gemini-3.6-flash` on Vertex's OpenAI-compatible endpoint (global); litellm id `openai/google/gemini-3.6-flash`. Exact served version: from Gate 2 (`reply model`) |
+| Model | `google/gemini-3.6-flash` on Vertex's OpenAI-compatible endpoint (global); litellm id `openai/google/gemini-3.6-flash`. Exact served model: `google/gemini-3.6-flash` (the reply's `model` field in the Gate 2 rerun, 2026-10-03) |
 | Prices (per 1M tokens) | $0.75 input, $0.075 cached input (90% implicit-cache discount), $3.75 output incl. thinking. From `config/billing_rates.yaml` on `feature/claude-code` (read 2026-09-27, promotional period until 2026-12-31) |
 | Price mismatch noted | An older local `.env` (2026-09-21) listed `gemini-3.5-flash` at $1.50 / $0.15 / $9.00. Not used |
 | Agent settings (both arms) | `context_budget_tokens 32000`, `max_tokens 8192` (the pre-set fallback; was 2048, see deviation 5), `max_steps 64`, `command_timeout 180`, `temperature 0.7`, `top_p 0.95`, `send_chat_template_kwargs false`, `cost_metric usd`; everything else at CLM defaults. Harbor `--agent-timeout-multiplier 4` |
@@ -42,8 +42,9 @@ Sections 2–7 are filled in at Gate 6.
    - **`k` recalibration.** `k` is Gemini tokens per CLM-tokenizer token of *visible* text. It is recalibrated whenever the hidden part is known: calls with no signed turn (a run's first call, calls after the rebuild that follows an edit) and calls whose mode is clear-cut.
    - **`countTokens` validation.** It is free and was run offline on every logged request (`analysis/count_tokens.py`). The billed prompt equals countTokens + 11 on every call with no hidden part, so the exact hidden part = billed − countTokens − 11.
    - **The quote.** It shows R as an *upper bound* (`up to ~R re-read`) with the recent cache-hit rate. The first change is placed at the first differing character, since CLM's rebuild often keeps a message's text and appends to it.
-   - **Checked on Gate 4's 27 rewrites** (`analysis/rewrite_positions.py`, exact positions via `countTokens`): the live first-change estimate was off by a median 26 tokens, and R was exceeded once, by 26 tokens. A tighter `R_likely = min(c, A) − p` is recorded but not shown: it was exceeded 12 times, because CLM's tokenizer undercounts the rebuilt text.
-   - **`quote_check.py`** splits each edit's actual re-read into *edit-caused* and *background* (Gemini's own misses), reports bound violations, and compares R with the edit-caused re-read only where the cache was healthy on both neighbouring calls.
+   - **Cache minimum.** Gemini 3.6 Flash's implicit cache needs at least 4,096 tokens (ai.google.dev caching docs, updated 2026-09-02). On Gate 4, none of the 18 rewrites whose unchanged prefix was below that got any cache hit afterwards; 7 of the 9 above it did. So R = c when the unchanged prefix is below 4,096, else c − p. The status line's edit depths use the same rule.
+   - **Checked on Gate 4's 27 rewrites** (`analysis/rewrite_positions.py`, exact positions via `countTokens`): the live first-change estimate was off by a median 26 tokens, and R was exceeded in 0 of 27 rewrites (once, by 26 tokens, before the cache-minimum rule). A tighter `R_likely = min(c, A) − p` is recorded for analysis only, never shown: it is not a safe bound (exceeded 11 times, because CLM's tokenizer undercounts the rebuilt text).
+   - **`quote_check.py`** splits each edit's actual re-read into *edit-caused* and *post-edit misses* (Gemini's own misses after a rewrite), reports bound violations, and compares R with the edit-caused re-read only where the cache was healthy on both neighbouring calls.
 4. **Billed output when Vertex omits `completion_tokens`** (found at Gate 2, 2026-10-03).
    - Vertex leaves `completion_tokens` out when a reply has no visible text (thinking only, cut by `max_tokens`). The usage logic copied from the frozen `omnigent_layer/wire.py` (`feature/claude-code` @ `ae9fd5a`) then recorded output as empty and billed none of the thinking: the first smoke call was charged for its 6 prompt tokens only, not its 13 thinking tokens.
    - `core/usage.py` now bills output = `completion_tokens` + `reasoning_tokens` (a missing one counts as 0), and uses `total_tokens − prompt_tokens` when a component is missing and the total is there.
@@ -67,9 +68,21 @@ _Paste `runs/<D>-main/results.md` (summary and per-run tables)._
 
 ## 3. Edit ceiling
 
-_Paste `runs/<D>-main/edit_ceiling.md`: per arm, the share of the bill re-read after rewrites, split into format change vs edit position, plus the append-only background._
+_Paste `runs/<D>-main/edit_ceiling.md`: per arm, the edit-caused share of the bill (lost prefix, format change, edit position), the post-edit misses and the append-only misses._
 
-**Background vs edit ceiling (Gate 4, Raw; `runs/2026-10-03-main/background.md`).** The background is the re-read on calls that do *not* follow a rewrite: per call, `max(0, uncached − newly appended tokens incl. their hidden thinking)`, priced at input − cached ($0.675/M). It is Gemini's own cache misses: a *tail* (the newest text the cache has not caught up with, at most the previous call's appended tokens) and *deeper* misses of older prefix. On Gate 4 Raw it was **$0.50 = 27.2% of the bill, twice the edit ceiling ($0.24 = 13.2%)**: tail $0.10, deeper misses $0.39; 59 of 200 append-only calls had no cache hit at all. Per task it ranged from 13% to 61% of the run's cost. No edit policy can remove it.
+Two kinds of re-read are not caused by edits. Both are Gemini's own cache misses, priced at input − cached ($0.675/M):
+
+- **Append-only misses**: on calls that do *not* follow a rewrite, `max(0, uncached − newly appended tokens incl. their hidden thinking)`. This is a *tail* (the newest text the cache has not caught up with, at most the previous call's appended tokens) plus *deeper* misses of older prefix (`runs/2026-10-03-main/append_only_misses.md`).
+- **Post-edit misses**: on calls that follow a rewrite, the part of the re-read the edit did not cause (`analysis/rewrite_positions.py`).
+
+**Gate 4 (Raw).**
+- Append-only misses: **$0.50 = 27.2% of the bill** (tail $0.10, deeper $0.39). 59 of 200 append-only calls had no cache hit at all; per task 13% to 61% of the run's cost.
+- Edit ceiling (edit-caused): **7.1%**. Of that, 1.5% is lost prefix, 0.4% format change and 5.3% edit position.
+- Post-edit misses: **6.1%**.
+- The earlier 13.2% "edit ceiling" counted all re-read after a rewrite as edit-caused.
+- **Cache minimum.** Gemini's implicit cache needs a 4,096-token prefix. When an edit leaves a shorter unchanged prefix, the cache serves none of it. That prefix (39,628 tokens on Gate 4, 1.5% of the bill) therefore moves from post-edit misses to edit-caused ("lost prefix").
+
+Edit policies can't remove Gemini's misses on append-only calls; a runtime caching arm might (§8).
 
 ## 4. Quote accuracy
 
@@ -96,5 +109,12 @@ _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, 
 ## 8. Candidate later arms (noted, not built)
 
 - **Format-preserving rebuild: dropped.** It would remove only the *format change* part of the edit ceiling, which was 0.4–0.5% of the bill at Gate 4 (Raw).
-- **Cache-aware commits (v2): decide after Gate 6.** The edit ceiling was 13% of the Raw bill at Gate 4, above the ~10% bar, but concentrated in 2 tasks (`maven-slf4j-conflict` 43% of its run, `malicious-package-forensics` 15%); the other 8 were at or under 10%.
-- **Cache-hit reliability: possible new arm.** The append-only background (section 3) is Gemini's own cache misses and was twice the edit ceiling at Gate 4. An arm that makes cache hits more reliable could save more than any edit policy. Nothing is built yet.
+- **Cache-aware commits (v2): decide after Gate 6.**
+  - At Gate 4 (Raw) the edit-caused ceiling was 7.1% of the bill once post-edit misses were split out: below the ~10% bar.
+  - The earlier 13% included post-edit misses, and most of the re-read was in 2 tasks (`maven-slf4j-conflict`, `malicious-package-forensics`).
+- **Keep the unchanging prefix above the cache minimum: possible new arm.**
+  - Gemini caches nothing when an edit leaves fewer than 4,096 unchanged tokens. On Gate 4, 18 of 27 rewrites did, and lost their whole cache (lost prefix 1.5% of the bill).
+  - An arm could keep a fixed, never-edited prefix of at least 4,096 tokens (system + task + pinned context), so every edit keeps that prefix cached. Not built.
+- **Cache-hit reliability: possible new arm.**
+  - Append-only misses (§3) are Gemini's own cache misses and were 27.2% of the Gate 4 bill, almost 4× the edit-caused ceiling.
+  - A runtime caching arm (for example explicit context caching of the stable prefix) could save more than any edit policy. Not built.

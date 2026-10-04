@@ -94,7 +94,7 @@ def test_edit_quote_counts_hidden_in_position_and_saving():
     assert q.prefix_tokens_p == 200                  # system + task: no hidden before
     assert (q.before_tokens, q.after_tokens) == (3240, 220)
     assert (q.hidden_before, q.hidden_after) == (3000, 0)
-    assert q.R == 2800
+    assert q.R == 3000                           # prefix 200 < the 4,096 cache minimum: all of c
     assert q.saving_usd == pytest.approx(3020 * CACHED)  # the thinking is gone too
     assert "earlier thinking 3.0K→0" in q.line
 
@@ -112,9 +112,9 @@ def test_status_line_shows_what_gemini_reads():
     st = status_line(msgs, cached_c=3000, uncached=240, run_cost_usd=0.01, n_stored=2,
                      stale=[], count=count, thinking=THINK, read=(3240, 240, 3000))
     assert "Gemini read 3.2K, CLM counts 240, earlier thinking 3.0K" in st.line
-    # Any edit rewrites from the first structured turn (index 2, CLM's flattening), so
-    # every depth re-reads everything cached after system + task: 3000 - 200.
-    assert [d.reread for d in st.depths] == [2800, 2800, 2800]
+    # Any edit rewrites from the first structured turn (index 2, CLM's flattening); the
+    # 200-token prefix is below Gemini's 4,096 cache minimum, so all 3,000 cached are re-read.
+    assert [d.reread for d in st.depths] == [3000, 3000, 3000]
 
 
 def test_rereads_calibrates_k_on_visible_and_skips_retry_rows():

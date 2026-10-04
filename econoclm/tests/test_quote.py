@@ -13,6 +13,14 @@ from econoclm.quote.status_line import status_line
 IN, CACHED = 0.75e-6, 0.075e-6
 
 
+@pytest.fixture(autouse=True)
+def no_cache_minimum(monkeypatch):
+    """These hand-sized conversations are far below Gemini's 4,096-token cache minimum;
+    they check the c - p arithmetic, so the minimum is off unless a test turns it on."""
+    import econoclm.quote.edit_quote as eq
+    monkeypatch.setattr(eq, "CACHE_MIN_TOKENS", 0)
+
+
 def count(msgs):
     return sum(len(m.get("content") or "") for m in msgs)
 
@@ -152,3 +160,22 @@ def test_r_likely_leaves_out_deleted_text():
     after = BEFORE[:2] + [{"role": "assistant", "content": "z" * 10}]
     q = edit_quote(BEFORE, after, cached_c=480, count=count)
     assert (q.prefix_tokens_p, q.after_tokens, q.R, q.R_likely) == (200, 210, 280, 10)
+
+
+def test_prefix_below_cache_minimum_rereads_everything_cached(monkeypatch):
+    import econoclm.quote.edit_quote as eq
+    monkeypatch.setattr(eq, "CACHE_MIN_TOKENS", 4096)
+    # A 5,000-token conversation edited right after the 200-token task: the unchanged
+    # prefix is below Gemini's 4,096-token cache minimum, so all 4,800 cached are re-read.
+    big = [msg("system", 100), msg("user", 100)] + [msg("assistant", 1200), msg("user", 1200, "[obs 1]")] * 2
+    after = big[:2] + [{"role": "assistant", "content": "z" * 10}] + big[3:]
+    q = edit_quote(big, after, cached_c=4800, count=count)
+    assert q.prefix_tokens_p == 200 and q.below_min and q.R == 4800
+    assert "below Gemini's 4.1K cache minimum" in q.line
+    # Editing deep in the conversation keeps a 4,400-token prefix: R = c - p.
+    after2 = big[:5] + [{"role": "user", "content": "z" * 10}]
+    q2 = edit_quote(big, after2, cached_c=4800, count=count)
+    assert q2.prefix_tokens_p == 3800 and q2.R == 4800   # 3,800 < 4,096: still all of c
+    after3 = big[:5] + [{**big[5], "content": big[5]["content"][:500] + "z"}]
+    q3 = edit_quote(big, after3, cached_c=4800, count=count)
+    assert q3.prefix_tokens_p == 4300 and q3.R == 500 and not q3.below_min
