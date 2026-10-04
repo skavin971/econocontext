@@ -46,12 +46,12 @@ class Status:
 
 def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
                 k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
-                thinking: dict[str, int] | None = None,
+                thinking: dict[str, int] | None = None, mode: str = "live",
                 price_in: float = prices.PRICE_IN,
                 price_cached: float = prices.PRICE_CACHED) -> list[Depth]:
     if len(messages) <= protect:
         return []
-    pos = provider_positions(messages, count, k, thinking)
+    pos = provider_positions(messages, count, k, thinking, mode)
     start, end = pos[protect], pos[-1]
     struct = first_structured(messages, protect)
     out = []
@@ -72,14 +72,15 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
 def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | None,
                 run_cost_usd: float, n_stored: int, stale: list[str], protect: int = 2,
                 k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
-                thinking: dict[str, int] | None = None,
+                thinking: dict[str, int] | None = None, mode: str = "live",
                 read: tuple[int, int, int] | None = None,
                 price_in: float = prices.PRICE_IN,
                 price_cached: float = prices.PRICE_CACHED) -> Status:
     """`read` = (tokens Gemini read in the last call, CLM's count of those messages,
     earlier hidden thinking in them): shown as information only."""
     depths = edit_depths(messages, cached_c, protect=protect, k=k, count=count,
-                         thinking=thinking, price_in=price_in, price_cached=price_cached)
+                         thinking=thinking, mode=mode, price_in=price_in,
+                         price_cached=price_cached)
     parts = []
     if cached_c is None:
         parts.append("last call cache unknown")

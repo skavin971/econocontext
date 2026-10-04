@@ -185,3 +185,22 @@ def test_ledger_fallback_skips_retry_rows(tmp_path):
                       finish_reason=fin, http_status=200)
     h = hooks(tmp_path, gateway_db=db)
     assert asyncio.run(h.ledger_row(1))["cached_tokens"] == 20
+
+
+def test_meter_snaps_to_the_measured_state_and_recalibrates_k():
+    from econoclm.quote.hidden import HiddenMeter
+    m = HiddenMeter()
+    assert m.observe(TASK, 400, 200, THINK) == 0 and m.k == 2.0          # calibration call
+    nudged = TASK + [call("S1"), tool(), call("S2"), tool(), user(), call("S3"), tool()]
+    ours = count(nudged)                                                   # 270 -> visible 540
+    assert m.observe(nudged, 540 + 4000, ours, THINK) == 4000 and m.mode == "live"
+    assert m.observe(nudged, 540 + 7000, ours, THINK) == 7000 and m.mode == "all"
+    assert m.k == 2.0                    # clear-cut states keep k at (prompt - hidden) / ours
+    assert m.observe(nudged, 540 + 30, ours, THINK) == 0 and m.mode == "none"   # within noise
+    assert m.k == pytest.approx(570 / 270)   # clear-cut "none": the 30 tokens were visible
+
+
+def test_meter_waits_for_calibration():
+    from econoclm.quote.hidden import HiddenMeter
+    m = HiddenMeter()
+    assert m.observe(TASK + [call("S1"), tool()], 3000, 220, THINK) == 0 and not m.calibrated

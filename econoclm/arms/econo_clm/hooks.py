@@ -17,10 +17,9 @@ the error is recorded in hook_errors and CLM's original StepResult is returned.
 
 Usage tracking (on_response) runs after each model call: it keeps the last call's
 cached/uncached tokens (from litellm's usage, else from the gateway's ledger row), the
-reply's thinking tokens keyed by its thought signature (quote/hidden.py), and the
-calibration k = (provider prompt tokens - hidden thinking in the request) / CLM-tokenizer
-tokens for the same messages, which puts our counts of the visible text in the
-provider's units.
+reply's thinking tokens keyed by its thought signature, and a HiddenMeter
+(quote/hidden.py) that measures how much hidden thinking Gemini read in the call and
+keeps k (Gemini tokens per CLM-tokenizer token of visible text) calibrated.
 """
 
 import asyncio
@@ -41,7 +40,7 @@ from ...core.meter import price_call_usd
 from ...core.run_store import RunStore
 from ...core.usage import Counts, counts, to_usage
 from ...quote.edit_quote import edit_quote
-from ...quote.hidden import hidden_per_message, sig_key, signature
+from ...quote.hidden import HiddenMeter, sig_key, signature
 from ...quote.messages import default_count, obs_ids
 from ...quote.status_line import status_line
 
@@ -98,6 +97,7 @@ class EconoHooks:
         self.last: Counts | None = None  # the last model call's tokens
         self.k = 1.0                     # provider tokens per CLM-tokenizer token (visible text)
         self.thinking: dict[str, int] = {}  # thought-signature key -> that call's thinking tokens
+        self.meter = HiddenMeter()
         self.last_read: tuple[int, int, int] | None = None  # (Gemini read, CLM count, hidden)
         self.agent_cost_usd = 0.0        # fallback run cost (from litellm usage)
         self.reads: dict[str, tuple[str, int, int]] = {}  # path -> (sha1, turn, obs_id), latest read
@@ -130,13 +130,13 @@ class EconoHooks:
                            uncached=row["uncached_tokens"], output=row["output_tokens"],
                            reasoning=row["reasoning_tokens"])
         self.last = c
-        sig = reply_signature(response)
+        ours = self.count(messages)
+        hidden = self.meter.observe(messages, c.prompt, ours, self.thinking)
+        self.k = self.meter.k
+        self.last_read = (c.prompt, ours, hidden) if hidden is not None else None
+        sig = reply_signature(response)   # this reply's thinking: read by later calls
         if sig:
             self.thinking[sig_key(sig)] = c.reasoning or 0
-        ours = self.count(messages)
-        hidden = sum(hidden_per_message(messages, self.thinking))
-        self.k = ((c.prompt - hidden) / ours) if (c.prompt and ours and c.prompt > hidden) else 1.0
-        self.last_read = (c.prompt, ours, hidden) if c.prompt else None
         self.agent_cost_usd += price_call_usd(to_usage(usage), prices.RATES) if usage else 0.0
 
     async def ledger_row(self, n: int) -> dict | None:
@@ -223,7 +223,7 @@ class EconoHooks:
         c = self.last.cached if self.last else None
         if sr.ctx_changed:
             q = edit_quote(before, messages, c, protect=self.protect(), k=self.k,
-                           count=self.count, thinking=self.thinking)
+                           count=self.count, thinking=self.thinking, mode=self.meter.mode)
             if q is not None:
                 self.store.insert(
                     "edits", turn=turn, before_tokens=q.before_tokens,
@@ -240,7 +240,7 @@ class EconoHooks:
                          uncached=self.last.uncached if self.last else None,
                          run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
                          protect=self.protect(), k=self.k, count=self.count,
-                         thinking=self.thinking, read=self.last_read)
+                         thinking=self.thinking, mode=self.meter.mode, read=self.last_read)
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out

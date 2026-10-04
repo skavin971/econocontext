@@ -15,8 +15,8 @@
 
 B, A and p are what Gemini reads (hidden.py): the visible text counted with CLM's
 tokenizer and scaled by k (provider tokens per our token for the visible part, from the
-last call), plus the hidden thinking each signed tool-call turn carries under the
-measured rule. The rebuild after an edit drops every signature, so A has none of the
+last call), plus the hidden thinking each signed tool-call turn carries in the state
+Gemini was last measured in (hidden.py: none, live or all). The rebuild after an edit drops every signature, so A has none of the
 editable turns' thinking: the saving includes it.
 """
 
@@ -50,16 +50,16 @@ class EditQuote:
 def edit_quote(before: list[dict], after: list[dict], cached_c: int | None, *,
                protect: int = 2, k: float = 1.0,
                count: Callable[[list[dict]], int] = default_count,
-               thinking: dict[str, int] | None = None,
+               thinking: dict[str, int] | None = None, mode: str = "live",
                price_in: float = prices.PRICE_IN,
                price_cached: float = prices.PRICE_CACHED) -> EditQuote | None:
     """The quote for the edit that turned `before` into `after`; None if nothing changed."""
     idx = first_change(before, after)
     if idx is None:
         return None
-    pos_before = provider_positions(before, count, k, thinking)
+    pos_before = provider_positions(before, count, k, thinking, mode)
     B = round(pos_before[-1])
-    A = round(provider_positions(after, count, k, thinking)[-1])
+    A = round(provider_positions(after, count, k, thinking, mode)[-1])
     p = round(pos_before[idx])
     removed = sorted(obs_ids(before) - obs_ids(after))
     saving = max(0, B - A) * price_cached
@@ -74,8 +74,8 @@ def edit_quote(before: list[dict], after: list[dict], cached_c: int | None, *,
     q = EditQuote(before_tokens=B, after_tokens=A, first_change_msg=idx,
                   turn=idx - protect + 1, prefix_tokens_p=p, cached_c=cached_c, R=R,
                   extra_usd=extra, saving_usd=saving, payoff_calls=payoff, removed=removed,
-                  calibration=k, hidden_before=sum(hidden_per_message(before, thinking)),
-                  hidden_after=sum(hidden_per_message(after, thinking)))
+                  calibration=k, hidden_before=sum(hidden_per_message(before, thinking, mode)),
+                  hidden_after=sum(hidden_per_message(after, thinking, mode)))
     q.line = render(q)
     return q
 

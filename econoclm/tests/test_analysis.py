@@ -163,3 +163,19 @@ def test_gate_check_allows_provider_side_retries_only(tmp_path, capsys):
     ledger.insert("raw-task-a-r1", finish_reason="stop", **row)  # unexplained extra row
     assert gate_check.main([str(day), "--gate", "3"]) == 1
     assert "[FAIL] gateway calls = CLM LM calls + provider-side retries" in capsys.readouterr().out
+
+
+def test_rebuild_rejected_is_counted(tmp_path):
+    import json as _json
+    from econoclm.analysis.common import load_runs
+    from econoclm.analysis.results_table import row_for
+    day = make_day(tmp_path)
+    res = day / "harbor" / "raw-task-a-r1" / "result.json"
+    data = _json.loads(res.read_text())
+    data["exception_info"] = {"exception_type": "BadRequestError", "exception_message":
+        "Error code: 400 - [{'error': {'code': 400, 'message': 'Requests ending with a model "
+        "turn are not supported.', 'status': 'INVALID_ARGUMENT'}}]"}
+    res.write_text(_json.dumps(data))
+    rows = {r.run_id: row_for(r) for r in load_runs(day)}
+    assert rows["raw-task-a-r1"]["rebuild_rejected"] == 1
+    assert rows["econo-task-a-r1"]["rebuild_rejected"] == 0

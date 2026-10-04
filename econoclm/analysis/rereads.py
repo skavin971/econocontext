@@ -12,11 +12,11 @@ For call k (k >= 1) with sent messages S_k and the ledger row U_k:
   extra_usd      = extra_uncached * (price_in - price_cached)
 
 Hidden thinking (quote/hidden.py): signed tool-call turns carry their call's thinking,
-which Gemini reads as prompt tokens under the measured rule. Each call's reply is the
-new assistant turn of the next snapshot, so its thinking is that call's
-reasoning_tokens. Our counts of the visible text (CLM's tokenizer) are scaled to the
-provider's units with k = (prompt_tokens_k - hidden_k) / our count of S_k, and
-`appended` includes the hidden thinking of the appended turns. Append-only calls also
+which Gemini may read as prompt tokens. Each call's reply is the new assistant turn of
+the next snapshot, so its thinking is that call's reasoning_tokens. A HiddenMeter run
+over the calls measures how much hidden thinking each call read and keeps k (Gemini
+tokens per CLM-tokenizer token of visible text) calibrated; `appended` includes the
+hidden thinking of the appended turns in the measured state. Append-only calls also
 show some extra_uncached (Gemini's implicit cache misses at random, about 1 call in 5;
 and Gemini drops earlier thinking when a user message is answered): that is reported
 apart, as the background.
@@ -42,7 +42,7 @@ from typing import Callable
 from clm_harness.context_utils.context_string import rendered_text
 
 from ..core import prices
-from ..quote.hidden import hidden_per_message, sig_key, signature
+from ..quote.hidden import HiddenMeter, hidden_per_message, sig_key, signature
 from ..quote.messages import default_count, first_change
 from .common import RETRY_REASONS
 
@@ -86,16 +86,19 @@ def call_rereads(snaps: list[list[dict]], calls: list[dict],
     count = count or default_count
     calls = [c for c in calls if c.get("finish_reason") not in RETRY_REASONS]
     thinking = thinking_from_snapshots(snaps, calls)
+    meter = HiddenMeter()
+    if snaps and calls:
+        meter.observe(snaps[0], calls[0]["prompt_tokens"], count(snaps[0]), thinking)
     out = []
     for i in range(1, min(len(snaps), len(calls))):
         prev, cur, row = snaps[i - 1], snaps[i], calls[i]
         j = first_change(prev, cur)
         rewrite = j is not None and j < len(prev)
         ours = count(cur)
-        hidden = hidden_per_message(cur, thinking)
-        h = sum(hidden)
         p = row["prompt_tokens"]
-        k = ((p - h) / ours) if (p and ours and p > h) else 1.0
+        h = meter.observe(cur, p, ours, thinking) or 0
+        k = meter.k
+        hidden = hidden_per_message(cur, thinking, meter.mode if h else "none")
         a = appended_start(prev, cur, rewrite)
         appended = round(count(cur[a:]) * k) + sum(hidden[a:])
         uncached = row["uncached_tokens"] or 0
