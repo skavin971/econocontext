@@ -65,8 +65,13 @@ infra failures; shared parts unchanged). Sections 2–6 filled in from Gates 4 a
 
 8. **Tool-engagement arms v1.1 and v1.2: pre-set rule** (written 2026-10-03, before either arm ran).
    - **The arms.**
-     - v1.1 "facts only" (`arms/econo_clm_v11/`): an EconoCLM section in this arm's system prompt (its own `SKILL.md`; CLM's root prompt unchanged); cut-output tags that print the exact command for the missing lines; and `econo note` / `econo notes`. Everything else as in v1: status line, quote, stale flags.
-     - v1.2 "guided" (`arms/econo_clm_v12/`): v1.1 plus four sentences on how to use the tools.
+     - v1.1 "facts only" (`arms/econo_clm_v11/`):
+       - An EconoCLM section in this arm's system prompt (its own `SKILL.md`, which CLM appends; CLM's root prompt unchanged), including the fact that Gemini caches only prompts of at least 4,096 tokens and only up to the first changed character.
+       - Cut-output tags that print the exact command for the missing lines, e.g. `[obs 3] lines 120-310 not shown: econo get 3 120-310`, computed from CLM's head/tail cut. If CLM cut the output again to fit the budget, the v1 wording is kept.
+       - `econo note` / `econo notes`, logged as writes and reads.
+       - Everything else as in v1: status line, quote, stale flags.
+     - v1.2 "guided" (`arms/econo_clm_v12/`): v1.1 plus three sentences on how to use the tools. The fourth draft sentence, about edits near the start, was dropped because CLM's own prompt already says that.
+     - The two arms share one agent class (`arms/econo_clm_v11/agent.py`) and one `econo` tool, and differ only in `SKILL.md`. They run through `bench/tblite/run_arms.py`, which registers the arms `econo11` and `econo12` at runtime and leaves the frozen `run.py` unchanged.
      - Shared parts stay frozen at `econoclm-shared-v1`. Gate 4 Raw stays the baseline.
    - **Engagement rule.** An arm *engages* if the model uses `econo` (get, search, note or sql) in at least 3 of the 10 runs.
    - **Runs.** The same 10 tasks and settings as Gate 6: `--workers 2`, body logging on, and the infra-rerun rule.
@@ -209,6 +214,9 @@ _Standing guidance: differences of 1–2 passed tasks out of 10, or cost differe
 - **Keep the unchanging prefix above the cache minimum: possible new arm.**
   - Gemini caches nothing when an edit leaves fewer than 4,096 unchanged tokens. On Gate 4, 18 of 27 rewrites did, and lost their whole cache (lost prefix 1.5% of the bill).
   - An arm could keep a fixed, never-edited prefix of at least 4,096 tokens (system + task + pinned context), so every edit keeps that prefix cached. Not built.
+- **Fair control for the guided arm (only if v1.2 shows a gain): "Raw CLM + the same advice using plain files".**
+  - For example, save outputs to `/tmp/notes` before deleting them from the context.
+  - It would separate the value of the database (`econo`) from the value of the advice. Not built.
 - **Cache-hit reliability: possible new arm.**
   - Append-only misses (§3) are Gemini's own cache misses and were 27.2% of the Gate 4 bill, almost 4× the edit-caused ceiling.
   - A runtime caching arm (for example explicit context caching of the stable prefix) could save more than any edit policy. Not built.

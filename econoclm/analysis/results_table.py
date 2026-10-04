@@ -24,7 +24,8 @@ from ..quote.messages import default_count
 from .common import RETRY_REASONS, Run, load_runs
 
 GET = re.compile(r"^\s*(\d+)\b")
-READ_OPS = {"list", "get", "search", "sql_read"}
+READ_OPS = {"list", "get", "search", "sql_read", "notes"}
+WRITE_OPS = {"sql_write", "note"}
 
 
 def tokens(text: str) -> int:
@@ -73,7 +74,9 @@ def econo_metrics(run: Run) -> dict:
     n_turns = max(len(status), 1)
     return {
         "db_reads": sum(o["op"] in READ_OPS for o in ops),
-        "db_writes": sum(o["op"] == "sql_write" for o in ops),
+        "db_writes": sum(o["op"] in WRITE_OPS for o in ops),
+        "econo_note": sum(o["op"] == "note" for o in ops),
+        "econo_notes": sum(o["op"] == "notes" for o in ops),
         "econo_get": len(gets), "econo_search": sum(o["op"] == "search" for o in ops),
         "econo_sql": sum(o["op"].startswith("sql") for o in ops),
         "econo_get_on_cut": sum(1 for n in gets if obs.get(n, {}).get("cut_in_context")),

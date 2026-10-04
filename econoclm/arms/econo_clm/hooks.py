@@ -5,7 +5,10 @@ CLM runs the command and applies any context edit; then, for EconoCLM only:
   1. Archive  the full output (stdout + stderr) is written to <run_dir>/obs/<id>.txt,
               uploaded to /tmp/econo/obs/<id>.txt in the sandbox, indexed, recorded.
   2. Tag      "[obs <id>]" goes in front of the output the model sees, plus
-              "(cut in context; full: econo get <id>)" when CLM cut it.
+              "(cut in context; full: econo get <id>)" when CLM cut it. With cut_lines
+              (arms v1.1/v1.2) a cut that CLM made by keeping the head and tail is shown
+              as the exact missing lines: "[obs 3] lines 120-310 not shown: econo get 3
+              120-310" (missing_lines); any other cut keeps the v1 wording.
   3. Stale    file reads in the command are detected (bash_reads); one sha1sum in the
               sandbox checks every file read so far. A file is stale if it changed
               since the read AND that read's [obs N] tag is still in the context.
@@ -54,6 +57,35 @@ HIT_WINDOW = 10        # recent calls for the cache-hit rate shown in the quote 
 RETRY_REASONS = ("malformed_function_call",)  # resent below CLM's count (results_table.py)
 
 
+def missing_lines(stdout: str, stderr: str, max_chars: int,
+                  obs_cfg: dict | None = None) -> tuple[int, int] | None:
+    """The lines of the saved output (obs N) that CLM's head/tail cut leaves out, as
+    1-based (first, last) line numbers, boundary lines included; None if not cut.
+
+    CLM shows stdout + "\n" + stderr (just stderr if stdout is empty), rstripped; if
+    that is longer than max_chars it keeps head_chars and tail_chars (default 5000
+    each, halved to fit max_chars) and elides the middle (ContextEnv.truncate_observation).
+    The saved output is stdout + "\n" + stderr, so with an empty stdout it starts with
+    one extra empty line."""
+    output = stdout or ""
+    if stderr:
+        output += f"\n{stderr}" if output else stderr
+    output = output.rstrip()
+    if len(output) <= max_chars:
+        return None
+    cfg = obs_cfg or {}
+    head_n, tail_n = int(cfg.get("head_chars", 5000)), int(cfg.get("tail_chars", 5000))
+    if head_n + tail_n > max_chars:
+        head_n = tail_n = max_chars // 2
+    end = len(output) - tail_n                       # first char of the shown tail
+    if end <= head_n:
+        return None
+    first = output.count("\n", 0, head_n) + 1
+    last = output.count("\n", 0, end - 1) + 1
+    offset = 1 if (not stdout and stderr) else 0
+    return first + offset, last + offset
+
+
 def usage_dict(response: Any) -> dict | None:
     """litellm's usage object as a plain dict (None if absent)."""
     usage = getattr(response, "usage", None)
@@ -78,7 +110,8 @@ class EconoHooks:
     def __init__(self, run_dir: str | Path, run_id: str, *, observation_max_chars: int,
                  protect: Callable[[], int], state_dir: str,
                  gateway_db: str | Path | None = None, econo_path: str | None = None,
-                 count: Callable[[list[dict]], int] = default_count):
+                 count: Callable[[list[dict]], int] = default_count,
+                 cut_lines: bool = False, obs_cfg: dict | None = None):
         self.run_dir = Path(run_dir)
         self.obs_dir = self.run_dir / "obs"
         self.obs_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +123,8 @@ class EconoHooks:
         self.gateway_db = Path(gateway_db) if gateway_db else None
         self.count = count
         self.econo_path = econo_path     # the econo tool inside the sandbox (for verify_gets)
+        self.cut_lines = cut_lines       # v1.1/v1.2: tags name the exact missing lines
+        self.obs_cfg = obs_cfg or {}     # CLM's head_chars / tail_chars, for missing_lines
 
         self.turn = 0                    # commands run so far
         self.n_obs = 0
@@ -223,7 +258,7 @@ class EconoHooks:
                           sha1=hashlib.sha1(data).hexdigest(), cut_in_context=int(cut))
 
         # 2. Tag it.
-        tag = f"[obs {obs_id}]" + (f" (cut in context; full: econo get {obs_id})" if cut else "")
+        tag = self.cut_tag(obs_id, r, sr, cut)
         out.stdout_block = tag + "\n" + sr.stdout_block
 
         # 3. Stale files.
@@ -256,6 +291,30 @@ class EconoHooks:
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out
+
+    def cut_tag(self, obs_id: int, r: Any, sr: Any, cut: bool) -> str:
+        if not cut:
+            return f"[obs {obs_id}]"
+        rng = missing_lines(r.stdout or "", r.stderr or "", self.observation_max_chars,
+                            self.obs_cfg) if self.cut_lines else None
+        if rng and not self.head_and_tail_shown(r, sr.stdout_block):
+            rng = None                   # cut again to fit the budget: range unknown
+        if rng:
+            a, b = rng
+            return f"[obs {obs_id}] lines {a}-{b} not shown: econo get {obs_id} {a}-{b}"
+        return f"[obs {obs_id}] (cut in context; full: econo get {obs_id})"
+
+    def head_and_tail_shown(self, r: Any, block: str) -> bool:
+        """Did the model see CLM's whole head/tail cut (no second cut for the budget)?"""
+        output = r.stdout or ""
+        if r.stderr:
+            output += f"\n{r.stderr}" if output else r.stderr
+        output = output.rstrip()
+        head_n = int(self.obs_cfg.get("head_chars", 5000))
+        tail_n = int(self.obs_cfg.get("tail_chars", 5000))
+        if head_n + tail_n > self.observation_max_chars:
+            head_n = tail_n = self.observation_max_chars // 2
+        return output[:head_n] in block and output[-tail_n:] in block
 
     async def stale_check(self, command, full, cwd, obs_id, turn, messages, environment):
         """Record this command's file reads; return the paths that are stale now."""
