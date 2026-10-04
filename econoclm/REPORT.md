@@ -1,6 +1,9 @@
 # EconoCLM v1: Raw CLM vs EconoCLM on 10 TBLite tasks (Gemini 3.6 Flash, Vertex)
 
-Status: **code complete; Gates 2–6 not run yet** (they run locally, see RUN_LOCAL.md).
+Status (2026-10-03): **Gate 2 PASS** (`runs/2026-10-03-g2-smoke`), **Gate 3 PASS** at
+`max_tokens 8192` (`runs/2026-10-03-g3-pilot-raw-8192`; the 2048 pilot failed on length,
+deviation 5), **Gate 4 running** (`runs/2026-10-03-main`; a first attempt was voided by a
+network outage, `runs/2026-10-03-main-attempt1-network`). Gates 5–6 not run yet.
 Sections 2–7 are filled in at Gate 6.
 
 ## 1. Setup
