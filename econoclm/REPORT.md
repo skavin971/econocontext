@@ -4,7 +4,9 @@ Status (2026-10-03): **Gate 2 PASS** (`runs/2026-10-03-g2-smoke`), **Gate 3 PASS
 `max_tokens 8192` (`runs/2026-10-03-g3-pilot-raw-8192`; the 2048 pilot failed on length,
 deviation 5), **Gate 4 done** (`runs/2026-10-03-main`: Raw CLM 8/10 passed, $1.82; 5 of 10 tasks
 made 0 context edits, under the stop rule of 6; a first attempt was voided by a network
-outage, `runs/2026-10-03-main-attempt1-network`). Gates 5–6 not run yet.
+outage, `runs/2026-10-03-main-attempt1-network`). **Gate 5 FAIL on one check** (`runs/2026-10-03-g5-pilot-econo`:
+EconoCLM pilot, reward 1.0, $0.073; 1 call cut by length, the same call 1 and the same 8,188 output tokens as Raw on this
+task at Gate 4; all other checks pass). Waiting for a decision before Gate 6.
 Sections 2–7 are filled in at Gate 6.
 
 ## 1. Setup
