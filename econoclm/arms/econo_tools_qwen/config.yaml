@@ -1,0 +1,20 @@
+# EconoCLM-Tools (TEXT-TOOLS as its SKILL.md) on Qwen3.6-27B via vLLM. Identical to arms/clm_qwen/config.yaml except
+# `agent`, `skill_dirs` and `econo_mode: qwen` (the [econo] line in FLOPs, vLLM's cache).
+# run_qwen.py adds econo_run_dir.
+
+agent: econoclm.arms.econo_clm_v11.agent:EconoClmV11Agent
+model: openai/qwen36-27b            # vLLM --served-model-name qwen36-27b
+
+agent_kwargs:
+  context_budget_tokens: 32000
+  max_tokens: 2048
+  max_steps: 64
+  command_timeout: 180
+  temperature: 0.7                    # CLM's default (ClmAgent)
+  top_p: 0.95                         # CLM's default (ClmAgent)
+  send_chat_template_kwargs: true     # CLM's default for local servers; enable_thinking stays at CLM's default (true)
+  cost_metric: flops
+  flops_model_key: 27b                # Qwen3.6-27B in CLM's flops_metrics
+  flops_tokenizer: Qwen/Qwen3.6-27B   # CLM's own text-replay fallback uses Qwen's tokenizer
+  skill_dirs: arms/econo_tools_qwen/skill/econo_db
+  econo_mode: qwen

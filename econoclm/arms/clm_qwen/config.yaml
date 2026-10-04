@@ -1,0 +1,19 @@
+# CLM on Qwen3.6-27B, served locally by vLLM (backends/qwen/serve.sh). CLM exactly as
+# released. The settings are shared by all three Qwen arms (clm_qwen, econo_tools_qwen,
+# econo_view_qwen); only `agent` and the EconoCLM kwargs differ. No gateway: run_qwen.py
+# points api_base at the vLLM server.
+
+agent: clm_harness.clm_agent.harness:ClmAgent
+model: openai/qwen36-27b            # vLLM --served-model-name qwen36-27b
+
+agent_kwargs:
+  context_budget_tokens: 32000
+  max_tokens: 2048
+  max_steps: 64
+  command_timeout: 180
+  temperature: 0.7                    # CLM's default (ClmAgent)
+  top_p: 0.95                         # CLM's default (ClmAgent)
+  send_chat_template_kwargs: true     # CLM's default for local servers; enable_thinking stays at CLM's default (true)
+  cost_metric: flops
+  flops_model_key: 27b                # Qwen3.6-27B in CLM's flops_metrics
+  flops_tokenizer: Qwen/Qwen3.6-27B   # CLM's own text-replay fallback uses Qwen's tokenizer

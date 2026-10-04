@@ -11,7 +11,8 @@ The model sees EconoCLM only through (a) the skill's SKILL.md, which CLM itself
 appends to the system prompt (skill_dirs), and (b) the text the hooks add to each
 tool result. CLM's root prompt is unchanged.
 
-Extra kwarg: econo_run_dir (where econo.sqlite and the full outputs go; default
+Extra kwargs: econo_mode ("gemini", the default, or "qwen": FLOPs and vLLM's cache in the
+[econo] line and quote), econo_run_dir (where econo.sqlite and the full outputs go; default
 <logs_dir>/econo). The run id is read from api_base (.../run/<run_id>/v1); the
 gateway's ledger is <econo_run_dir>/../gateway.sqlite unless ECONOCLM_GATEWAY_DB is set.
 """
@@ -30,7 +31,8 @@ RUN_ID = re.compile(r"/run/([^/]+)(?:/agent/[^/]+)?/v1/?$")
 
 class EconoClmAgent(ClmAgent):
 
-    def __init__(self, *args: Any, econo_run_dir: str | None = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, econo_run_dir: str | None = None, econo_mode: str = "gemini",
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         found = RUN_ID.search(self.api_base or "")
         run_id = found.group(1) if found else "unknown"
@@ -43,6 +45,7 @@ class EconoClmAgent(ClmAgent):
             state_dir=self._ctx.paths.state_dir,
             gateway_db=gateway_db,
             econo_path=f"{self._skills.mount_dir}/econo_db/econo",
+            econo_mode=econo_mode,
         )
 
     async def setup(self, environment: Any) -> None:

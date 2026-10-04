@@ -21,7 +21,6 @@ from typing import Any
 
 from clm_harness.clm_agent import harness as clm
 
-from ...quote.costmode import mode as cost_mode
 from ...quote.view_status import view_status_line
 from ..econo_clm_v11.agent import EconoClmV11Agent
 from .env import ViewContextEnv
@@ -45,7 +44,7 @@ def swap_section(system: str, budget_str: str) -> str:
 class EconoViewAgent(EconoClmV11Agent):
 
     def __init__(self, *args: Any, econo_mode: str = "gemini", **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, econo_mode=econo_mode, **kwargs)
         old = self._ctx
         self._ctx = ViewContextEnv(
             paths=old.paths, budget=self._budget, protect=self._protect,
@@ -57,8 +56,6 @@ class EconoViewAgent(EconoClmV11Agent):
         old.host_mirror.unlink(missing_ok=True)
         self._host_mirror = self._ctx.host_mirror
         self._budget.compaction_hint = COMPACTION_HINT
-        self._econo.econo_mode = econo_mode
-        self._econo.cost = cost_mode(econo_mode)
         self._econo.build_status = self._view_status
         orig_replay = self._resume.replay
         budget_str = (f"{self._budget.strict_target or self.context_budget_tokens} tokens"

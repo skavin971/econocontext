@@ -128,6 +128,9 @@ class EconoHooks:
         if econo_mode not in ("gemini", "qwen"):
             raise ValueError(f"econo_mode must be gemini or qwen, got {econo_mode!r}")
         self.econo_mode = econo_mode     # gemini: $ and Gemini's cache rules; qwen: FLOPs
+        from ...quote.costmode import mode as cost_mode
+        self.cost = cost_mode(econo_mode)
+        self.compute_flops = 0.0         # qwen mode: compute so far (CLM's FLOPs model)
         self.obs_cfg = obs_cfg or {}     # CLM's head_chars / tail_chars, for missing_lines
 
         self.turn = 0                    # commands run so far
@@ -171,6 +174,8 @@ class EconoHooks:
                            uncached=row["uncached_tokens"], output=row["output_tokens"],
                            reasoning=row["reasoning_tokens"])
         self.last = c
+        if self.econo_mode == "qwen" and c.prompt:
+            self.compute_flops += self.cost.call_flops(c.prompt, c.cached or 0, c.output or 0)
         if self.n_calls > 1:
             self.hit_log.append(bool(c.cached))
         ours = self.count(messages)
@@ -209,7 +214,10 @@ class EconoHooks:
             ledger.close()
 
     def run_cost(self) -> float:
-        """This run's spend so far: the gateway's rows, else our own usage sum."""
+        """This run's spend so far: the gateway's rows, else our own usage sum (qwen mode:
+        FLOPs so far)."""
+        if self.econo_mode == "qwen":
+            return self.compute_flops
         if self.gateway_db and self.gateway_db.exists():
             ledger = Ledger(self.gateway_db)
             try:
@@ -274,6 +282,9 @@ class EconoHooks:
             q = edit_quote(before, messages, c, protect=self.protect(), k=self.k,
                            count=self.count, thinking=self.thinking, mode=self.meter.mode,
                            hits=self.hits())
+            if q is not None and self.econo_mode == "qwen":
+                from ...quote.costmode import qwen_quote
+                qwen_quote(q, c, self.hits(), self.cost)
             if q is not None:
                 self.store.insert(
                     "edits", turn=turn, before_tokens=q.before_tokens,
@@ -294,6 +305,13 @@ class EconoHooks:
     def build_status(self, shown: list[dict], c: int | None, stale: list[str]):
         """The [econo] status line for the context the model is about to see.
         (EconoCLM-View overrides this with its view-position version.)"""
+        if self.econo_mode == "qwen":
+            from ...quote.costmode import qwen_status_line
+            from ...quote.status_line import Status
+            return Status(line=qwen_status_line(
+                shown, cached=c, uncached=self.last.uncached if self.last else None,
+                hits=self.hits(), compute=self.compute_flops, n_stored=self.n_obs, stale=stale,
+                protect=self.protect(), k=self.k, count=self.count, cost=self.cost))
         return status_line(shown, cached_c=c,
                            uncached=self.last.uncached if self.last else None,
                            run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,

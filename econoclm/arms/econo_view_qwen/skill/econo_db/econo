@@ -1,0 +1,164 @@
+#!/bin/sh
+# econo: read the full saved output of every command (EconoCLM v1.1 / v1.2: v1 plus notes).
+# POSIX sh only (runs under busybox ash, dash, bash). Data lives in /tmp/econo:
+#   obs/<N>.txt   output N, exactly as the command printed it (stdout, then stderr)
+#   index.tsv     id <TAB> turn <TAB> bytes <TAB> command (first 100 chars)
+#   log.tsv       one line per econo call: epoch <TAB> op <TAB> args
+#   notes.db      the model's own SQLite tables (econo sql)
+#   notes.txt     the model's notes (econo note / econo notes), one per line: N <TAB> text
+
+D=${ECONO_DIR:-/tmp/econo}   # ECONO_DIR: tests only
+OBS=$D/obs
+INDEX=$D/index.tsv
+LOG=$D/log.tsv
+NOTES=$D/notes.db
+NOTEFILE=$D/notes.txt
+
+die() {
+  echo "econo: $*" >&2
+  exit 1
+}
+
+# log OP ARGS: append to the call log (tabs and newlines in ARGS become spaces).
+log() {
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$(printf '%s' "$2" | tr '\t\n' '  ')" \
+    >> "$LOG" 2>/dev/null
+}
+
+is_number() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  econo list            list saved outputs
+  econo get N [A-B]     print output N exactly (or lines A to B)
+  econo search WORDS    find lines across all saved outputs
+  econo sql "QUERY"     your own tables in a SQLite file
+  econo note "TEXT"     save a note
+  econo notes           list your notes
+EOF
+  exit 1
+}
+
+cmd_list() {
+  log list ""
+  if [ ! -s "$INDEX" ]; then
+    echo "(no saved outputs yet)"
+    return 0
+  fi
+  echo "id  turn  bytes  command"
+  awk -F '\t' '{ printf "%s  %s  %s  %s\n", $1, $2, $3, $4 }' "$INDEX"
+}
+
+cmd_get() {
+  n=$1
+  range=$2
+  log get "$n${range:+ $range}"
+  is_number "$n" || die "get: '$n' is not an output ID (see econo list)"
+  file=$OBS/$n.txt
+  [ -f "$file" ] || die "get: no saved output with ID $n (see econo list)"
+  if [ -z "$range" ]; then
+    cat "$file"
+    return 0
+  fi
+  a=${range%-*}
+  b=${range#*-}
+  case "$range" in *-*) ;; *) die "get: bad range '$range' (use A-B, e.g. 200-260)" ;; esac
+  is_number "$a" && is_number "$b" || die "get: bad range '$range' (use A-B, e.g. 200-260)"
+  [ "$a" -ge 1 ] && [ "$b" -ge "$a" ] || die "get: bad range '$range' (need 1 <= A <= B)"
+  sed -n "${a},${b}p" "$file"
+}
+
+cmd_search() {
+  words=$*
+  log search "$words"
+  [ -n "$words" ] || die "search: give the words to find"
+  ids=$(ls "$OBS" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)\.txt$/\1/p' | sort -n)
+  found=$(
+    for id in $ids; do
+      grep -n -i -F -- "$words" "$OBS/$id.txt" 2>/dev/null | sed "s/^/obs $id:/"
+    done | head -n 50
+  )
+  if [ -z "$found" ]; then
+    echo "(no matches)"
+  else
+    printf '%s\n' "$found"
+  fi
+}
+
+cmd_sql() {
+  query=$1
+  first=$(printf '%s' "$query" | sed 's/^[[:space:]]*//' | cut -c1-6 | tr '[:lower:]' '[:upper:]')
+  case "$first" in
+    CREATE|INSERT|UPDATE|DELETE) log sql_write "$query" ;;
+    *) log sql_read "$query" ;;
+  esac
+  [ -n "$query" ] || die "sql: give a query"
+  if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "$NOTES" "$query"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$NOTES" "$query" <<'PY'
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+try:
+    cur = con.execute(sys.argv[2])
+    for row in cur.fetchall():
+        print("|".join("" if v is None else str(v) for v in row))
+    con.commit()
+except sqlite3.Error as exc:
+    print(f"econo: sql: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+  else
+    echo "sql not available in this container"
+    exit 1
+  fi
+}
+
+cmd_note() {
+  text=$1
+  log note "$text"
+  [ -n "$text" ] || die 'note: give the text, e.g. econo note "tests pass after fix in app.py"'
+  n=1
+  [ -f "$NOTEFILE" ] && n=$(( $(wc -l < "$NOTEFILE") + 1 ))
+  printf '%s\t%s\n' "$n" "$(printf '%s' "$text" | tr '\t\n' '  ')" >> "$NOTEFILE"
+  echo "saved note $n"
+}
+
+cmd_notes() {
+  log notes ""
+  if [ ! -s "$NOTEFILE" ]; then
+    echo "(no notes yet)"
+    return 0
+  fi
+  awk -F '\t' '{ printf "%s. %s\n", $1, $2 }' "$NOTEFILE"
+}
+
+mkdir -p "$OBS" 2>/dev/null
+
+case "$1" in
+  list) cmd_list ;;
+  get)
+    [ $# -ge 2 ] && [ $# -le 3 ] || die "get: usage: econo get N [A-B]"
+    cmd_get "$2" "$3"
+    ;;
+  search)
+    shift
+    cmd_search "$@"
+    ;;
+  sql)
+    [ $# -eq 2 ] || die 'sql: usage: econo sql "QUERY" (one quoted argument)'
+    cmd_sql "$2"
+    ;;
+  note)
+    [ $# -eq 2 ] || die 'note: usage: econo note "TEXT" (one quoted argument)'
+    cmd_note "$2"
+    ;;
+  notes) cmd_notes ;;
+  *) usage ;;
+esac
