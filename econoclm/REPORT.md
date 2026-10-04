@@ -63,6 +63,14 @@ infra failures; shared parts unchanged). Sections 2–6 filled in from Gates 4 a
    - At Gate 5 the EconoCLM pilot had one call cut by length. It was call 1 of `api-endpoint-permission-canonicalizer`, with 8,188 output tokens, 7,861 of them thinking: the same call and the same counts as Raw on that task at Gate 4.
    - The one pre-set fallback (`max_tokens 8192`, both arms) is already in use. So length cuts are treated as a property of the task: Gate 6 reports them per arm and per task (`results.md`, "Calls cut by length") and does not fail on them. `max_tokens` stays 8192 in both arms, so Gate 4 stands.
 
+8. **Tool-engagement arms v1.1 and v1.2: pre-set rule** (written 2026-10-03, before either arm ran).
+   - **The arms.**
+     - v1.1 "facts only" (`arms/econo_clm_v11/`): an EconoCLM section in this arm's system prompt (its own `SKILL.md`; CLM's root prompt unchanged); cut-output tags that print the exact command for the missing lines; and `econo note` / `econo notes`. Everything else as in v1: status line, quote, stale flags.
+     - v1.2 "guided" (`arms/econo_clm_v12/`): v1.1 plus four sentences on how to use the tools.
+     - Shared parts stay frozen at `econoclm-shared-v1`. Gate 4 Raw stays the baseline.
+   - **Engagement rule.** An arm *engages* if the model uses `econo` (get, search, note or sql) in at least 3 of the 10 runs.
+   - **Runs.** The same 10 tasks and settings as Gate 6: `--workers 2`, body logging on, and the infra-rerun rule.
+
 ### Other implementation notes
 
 - **CLM flattens tool turns on every applied edit.** `parse_back` turns `tool_calls` into text and tool results into user turns. So an edit rewrites the request from the first turn added since the previous edit, even if the model edited later. The quote and status line price this, and `edit_ceiling.py` splits the re-read into *format change* and *edit position*.
@@ -182,9 +190,15 @@ _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, 
 
 ## 7. Plain reading and next step
 
-- Differences of 1–2 passed tasks out of 10, or cost differences under about 20%, can be noise (Gemini's caching is partly random).
-- Say which mechanisms visibly fired.
-- Recommend one: a 2nd repeat, ablations, skill evolution, BrowseComp-Plus, or cache-aware commits (v2, only if the edit ceiling is about 10% of the bill or more).
+_Draft for review._
+
+- **Accuracy:** 8/10 in both arms, with different failures. No sign of harm or help.
+- **Cost:** +11% overall, inside the ~20% noise band. Per-task swings of up to 4× show that run-to-run variation dominates at one run per task.
+- **Mechanisms:** none fired. `econo` was never used, cut outputs were never fetched, stale flags were never followed, and the quotes did not visibly change where edits happened.
+- **Main cost driver in both arms:** Gemini's own cache misses (26–27% of the bill), which v1 does not address.
+- **Next:** tool-engagement arms (v1.1 facts, v1.2 guided; deviation 8). Then either the runtime arm for the 4,096-token cache minimum, or BrowseComp-Plus once an arm engages.
+
+_Standing guidance: differences of 1–2 passed tasks out of 10, or cost differences under about 20%, can be noise (Gemini's caching is partly random)._
 
 ## 8. Candidate later arms (noted, not built)
 
