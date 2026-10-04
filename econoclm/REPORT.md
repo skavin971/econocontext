@@ -149,6 +149,17 @@ Two kinds of re-read are not caused by edits. Both are Gemini's own cache misses
 
 Edit policies can't remove Gemini's misses on append-only calls; a runtime caching arm might (§8). At Gate 6 they were again the largest re-read in both arms (27.2% and 25.7%), 4–6× the edit-caused ceiling.
 
+**Append-only misses by cause** (`runs/2026-10-03-main/append_only_breakdown.md`; share of each arm's bill):
+
+| Cause | Raw | v1 | v1.1 | v1.2 |
+|---|---|---|---|---|
+| (a) the whole prompt is under 4,096 tokens (never cacheable) | 2.3% | 2.1% | 2.0% | 1.8% |
+| (b) uncached tail (the newest text the cache has not caught up with) | 5.4% | 6.5% | 7.9% | 7.1% |
+| (c) deeper misses on prompts of at least 4,096 tokens | **19.5%** | **17.0%** | **19.1%** | **15.0%** |
+
+- Most of the misses are (c): Gemini failing to serve a prefix that was long enough to cache.
+- Of Raw's 59 append-only calls with no cache hit at all, 22 were (a).
+
 ## 4. Quote accuracy
 
 EconoCLM's quotes, checked at Gate 6 (`runs/2026-10-03-main/quote_check.md`, exact positions from `rewrite_positions.json`):
@@ -232,7 +243,7 @@ _Draft for review._
 - **Cost:** +11% overall, inside the ~20% noise band. Per-task swings of up to 4× show that run-to-run variation dominates at one run per task.
 - **Mechanisms:** none fired. `econo` was never used, cut outputs were never fetched, stale flags were never followed, and the quotes did not visibly change where edits happened.
 - **Main cost driver in both arms:** Gemini's own cache misses (26–27% of the bill), which v1 does not address.
-- **Next:** tool-engagement arms (v1.1 facts, v1.2 guided; deviation 8). Then either the runtime arm for the 4,096-token cache minimum, or BrowseComp-Plus once an arm engages.
+- **Next:** The engagement arms (v1.1, v1.2) did not engage: 0 of 30 EconoCLM runs used econo. Next: break down Gemini's own cache misses by cause, test endpoint routing, then a runtime cache arm that needs no model cooperation. BrowseComp-Plus is on hold.
 
 _Standing guidance: differences of 1–2 passed tasks out of 10, or cost differences under about 20%, can be noise (Gemini's caching is partly random)._
 
@@ -242,9 +253,17 @@ _Standing guidance: differences of 1–2 passed tasks out of 10, or cost differe
 - **Cache-aware commits (v2): decide after Gate 6.**
   - At Gate 4 (Raw) the edit-caused ceiling was 7.1% of the bill once post-edit misses were split out: below the ~10% bar.
   - The earlier 13% included post-edit misses, and most of the re-read was in 2 tasks (`maven-slf4j-conflict`, `malicious-package-forensics`).
-- **Keep the unchanging prefix above the cache minimum: possible new arm.**
-  - Gemini caches nothing when an edit leaves fewer than 4,096 unchanged tokens. On Gate 4, 18 of 27 rewrites did, and lost their whole cache (lost prefix 1.5% of the bill).
-  - An arm could keep a fixed, never-edited prefix of at least 4,096 tokens (system + task + pinned context), so every edit keeps that prefix cached. Not built.
+- **Keep the unchanging prefix above the cache minimum: estimated to lose money; not built.**
+  - Gemini caches nothing when an edit leaves fewer than 4,096 unchanged tokens. On Gate 4, 18 of 27 rewrites did, and lost their whole cache.
+  - Upper bound, padding the never-edited first request to 4,396 tokens:
+    - it saves the (a) misses plus the lost prefix after edits: 2.8–3.8% of the bill;
+    - the padding is billed on every call: 4.8–7.5%;
+    - net −1.3% to −3.7% in every arm (`append_only_breakdown.md`).
+  - The large share is (c), deeper misses on prompts that were already cacheable, which padding does not touch.
+- **Endpoint routing: not testable here.** `gemini-3.6-flash` is not served on any of 7 regional Vertex endpoints tried in this project (us-central1, us-east5, us-east4, us-west1, europe-west4, europe-west1, asia-northeast1: all 404 "publisher model not found", 2026-10-04). It is global-only, so a global-vs-regional cache comparison cannot be run.
+- **Recall-required probe: designed, not built** (`bench/recall_probe/DESIGN.md`).
+  - 3 small tasks whose needed detail is only in the cut middle of a one-shot output.
+  - Raw vs v1.1, 5 runs each. About $1.5–2.6.
 - **Fair control for the guided arm (only if v1.2 shows a gain): "Raw CLM + the same advice using plain files".**
   - For example, save outputs to `/tmp/notes` before deleting them from the context.
   - It would separate the value of the database (`econo`) from the value of the advice. Not built.

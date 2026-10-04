@@ -6,7 +6,8 @@
      shares with its new version (messages.shared_text)
   c  cached tokens reported for the last model call (the call made before this
      command; its prompt was exactly `before`)
-  R = max(0, c - p')     with p' = p, or 0 if p < CACHE_MIN_TOKENS: Gemini's implicit
+  R = max(0, c - p')     with p' = p, or 0 if p < CACHE_MIN_TOKENS + CACHE_MIN_MARGIN
+                         (p is an estimate; the margin keeps R a bound): Gemini's implicit
                          cache serves nothing when the unchanged prefix is shorter
                          than its minimum (4,096 tokens for Gemini 3.6 Flash; Gate 4:
                          0 cache hits in 18 rewrites with p below it). So R = the
@@ -42,11 +43,20 @@ from .messages import (default_count, first_change, fmt_hits, fmt_tokens, fmt_us
 
 # Gemini 3.6 Flash's minimum for implicit caching (ai.google.dev caching docs, 2026-09-02).
 CACHE_MIN_TOKENS = 4096
+# The live position estimate can be ~170-290 tokens past the exact one (v1.1/v1.2,
+# scan-linux): within this margin above the minimum the quote assumes nothing stays cached.
+CACHE_MIN_MARGIN = 300
 
 
 def reachable_prefix(p: float) -> float:
-    """How much of an unchanged prefix of p tokens Gemini's cache can still serve."""
+    """How much of an unchanged prefix of exactly p tokens Gemini's cache can still serve."""
     return p if p >= CACHE_MIN_TOKENS else 0
+
+
+def quoted_reachable_prefix(p: float) -> float:
+    """The same for a live ESTIMATE of p: a prefix within CACHE_MIN_MARGIN above the
+    minimum counts as below it, so the quote stays an upper bound."""
+    return p if p >= CACHE_MIN_TOKENS + CACHE_MIN_MARGIN else 0
 
 
 @dataclass
@@ -95,7 +105,7 @@ def edit_quote(before: list[dict], after: list[dict], cached_c: int | None, *,
     if cached_c is None:
         R = extra = payoff = None
     else:
-        R = max(0, cached_c - reachable_prefix(p))
+        R = max(0, cached_c - quoted_reachable_prefix(p))
         extra = R * (price_in - price_cached)
         payoff = extra / saving if saving > 0 else None
 
@@ -104,8 +114,8 @@ def edit_quote(before: list[dict], after: list[dict], cached_c: int | None, *,
                   extra_usd=extra, saving_usd=saving, payoff_calls=payoff, removed=removed,
                   calibration=k, hidden_before=sum(hidden_per_message(before, thinking, mode)),
                   hidden_after=sum(hidden_per_message(after, thinking, mode)), hits=hits,
-                  R_likely=None if cached_c is None else max(0, min(cached_c, A) - reachable_prefix(p)),
-                  below_min=p < CACHE_MIN_TOKENS)
+                  R_likely=None if cached_c is None else max(0, min(cached_c, A) - quoted_reachable_prefix(p)),
+                  below_min=quoted_reachable_prefix(p) == 0)
     q.line = render(q)
     return q
 
@@ -122,7 +132,7 @@ def render(q: EditQuote) -> str:
     else:
         parts.append(f"first change at turn {q.turn}: up to ~{fmt_tokens(q.R)} re-read next call "
                      f"({fmt_usd(q.extra_usd)})"
-                     + (f"; unchanged prefix {fmt_tokens(q.prefix_tokens_p)} is below Gemini's "
+                     + (f"; unchanged prefix ~{fmt_tokens(q.prefix_tokens_p)} is below or near Gemini's "
                         f"{fmt_tokens(CACHE_MIN_TOKENS)} cache minimum, so none of it stays cached"
                         if q.below_min and q.R else ""))
     if fmt_hits(q.hits):

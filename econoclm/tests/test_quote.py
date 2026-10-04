@@ -19,6 +19,7 @@ def no_cache_minimum(monkeypatch):
     they check the c - p arithmetic, so the minimum is off unless a test turns it on."""
     import econoclm.quote.edit_quote as eq
     monkeypatch.setattr(eq, "CACHE_MIN_TOKENS", 0)
+    monkeypatch.setattr(eq, "CACHE_MIN_MARGIN", 0)
 
 
 def count(msgs):
@@ -165,17 +166,24 @@ def test_r_likely_leaves_out_deleted_text():
 def test_prefix_below_cache_minimum_rereads_everything_cached(monkeypatch):
     import econoclm.quote.edit_quote as eq
     monkeypatch.setattr(eq, "CACHE_MIN_TOKENS", 4096)
+    monkeypatch.setattr(eq, "CACHE_MIN_MARGIN", 300)
     # A 5,000-token conversation edited right after the 200-token task: the unchanged
     # prefix is below Gemini's 4,096-token cache minimum, so all 4,800 cached are re-read.
     big = [msg("system", 100), msg("user", 100)] + [msg("assistant", 1200), msg("user", 1200, "[obs 1]")] * 2
     after = big[:2] + [{"role": "assistant", "content": "z" * 10}] + big[3:]
     q = edit_quote(big, after, cached_c=4800, count=count)
     assert q.prefix_tokens_p == 200 and q.below_min and q.R == 4800
-    assert "below Gemini's 4.1K cache minimum" in q.line
+    assert "below or near Gemini's 4.1K cache minimum" in q.line
     # Editing deep in the conversation keeps a 4,400-token prefix: R = c - p.
     after2 = big[:5] + [{"role": "user", "content": "z" * 10}]
     q2 = edit_quote(big, after2, cached_c=4800, count=count)
     assert q2.prefix_tokens_p == 3800 and q2.R == 4800   # 3,800 < 4,096: still all of c
+    # 4,300 is above 4,096 but within the ~300-token margin for an estimated position:
+    # the quote still assumes nothing stays cached, so R stays an upper bound.
     after3 = big[:5] + [{**big[5], "content": big[5]["content"][:500] + "z"}]
     q3 = edit_quote(big, after3, cached_c=4800, count=count)
-    assert q3.prefix_tokens_p == 4300 and q3.R == 500 and not q3.below_min
+    assert q3.prefix_tokens_p == 4300 and q3.R == 4800 and q3.below_min
+    # Past the margin (4,096 + 300): R = c - p.
+    after4 = big[:5] + [{**big[5], "content": big[5]["content"][:700] + "z"}]
+    q4 = edit_quote(big, after4, cached_c=4800, count=count)
+    assert q4.prefix_tokens_p == 4500 and q4.R == 300 and not q4.below_min

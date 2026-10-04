@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..core import prices
-from .edit_quote import reachable_prefix
+from .edit_quote import quoted_reachable_prefix
 from .hidden import provider_positions
 from .messages import default_count, first_structured, fmt_hits, fmt_tokens, fmt_usd
 
@@ -68,7 +68,7 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
         if cached_c is None:
             reread = cost = None
         else:
-            reread = max(0, cached_c - round(reachable_prefix(pos[change])))
+            reread = max(0, cached_c - round(quoted_reachable_prefix(pos[change])))
             cost = reread * (price_in - price_cached)
         out.append(Depth(fraction=f, turn=idx - protect + 1, reread=reread, cost_usd=cost))
     return out
