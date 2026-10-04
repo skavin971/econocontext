@@ -17,6 +17,9 @@ adds up every `runs/*/gateway.sqlite` when it starts.
 | Gate 4 Raw, 10 tasks + Gate 6 EconoCLM, 10 tasks | `runs/$D-main` (both arms in one folder, so one results table compares them) |
 | Gate 5 EconoCLM pilot | `runs/$D-g5-pilot-econo` |
 
+On the MacBook Air M2 used for v1, both arms run with `--workers 2` and `MAX_INFLIGHT=2`
+(recorded in REPORT.md §1). Keep the same number for both arms.
+
 ---
 
 ## 1. Requirements
@@ -93,11 +96,11 @@ chmod 600 ~/.econoclm/secrets.env
 D=$(date +%F)                 # keep the same $D for the whole experiment
 P=$D-g2-smoke                 # the phase folder (see the table at the top)
 mkdir -p econoclm/runs/$P
-MAX_SPEND_USD=40 MAX_INFLIGHT=4 \
+MAX_SPEND_USD=40 MAX_INFLIGHT=2 \
   python -m econoclm.core.gateway --ledger econoclm/runs/$P/gateway.sqlite --port 8787 \
   > econoclm/runs/$P/gateway.log 2>&1 &
 sleep 1; head -1 econoclm/runs/$P/gateway.log
-# econoclm gateway on http://127.0.0.1:8787 -> https://...  (spend cap $40.00, already spent in other phases $0.0000, max in flight 4)
+# econoclm gateway on http://127.0.0.1:8787 -> https://...  (spend cap $40.00, already spent in other phases $0.0000, max in flight 2)
 ```
 
 To stop it before the next phase: `pkill -f econoclm.core.gateway`. Always restart it
@@ -127,7 +130,7 @@ A task that fails is swapped for the next one in the seeded order.
 
 ```sh
 python -m econoclm.bench.tblite.health_check --date $D-health --dry-run   # the 10 commands
-python -m econoclm.bench.tblite.health_check --date $D-health --workers 4
+python -m econoclm.bench.tblite.health_check --date $D-health --workers 2
 ```
 
 - The summary goes to `runs/$D-health/health.md`.
@@ -182,12 +185,12 @@ sqlite3 econoclm/runs/$D-g3-pilot-raw/gateway.sqlite \
   "SELECT COUNT(*), SUM(upstream_attempts-1), ROUND(SUM(ratelimit_wait_ms)/1000,1), SUM(http_status!=200) FROM calls"
 ```
 
-## 10. Gate 4: Raw CLM, all 10 tasks (1 rep, 4 in parallel)
+## 10. Gate 4: Raw CLM, all 10 tasks (1 rep, 2 in parallel)
 
 Start the gateway with `P=$D-main`, then:
 
 ```sh
-python -m econoclm.bench.tblite.run --arms raw --reps 1 --workers 4 --date $D-main
+python -m econoclm.bench.tblite.run --arms raw --reps 1 --workers 2 --date $D-main
 python -m econoclm.analysis.results_table econoclm/runs/$D-main --arms raw
 python -m econoclm.analysis.edit_ceiling  econoclm/runs/$D-main --arms raw
 ```
@@ -230,7 +233,7 @@ It also prints how often the model used `econo` and 3 example `[econo]` lines. S
 Restart the gateway with `P=$D-main`, the **same** folder as Gate 4. Then:
 
 ```sh
-python -m econoclm.bench.tblite.run --arms econo --reps 1 --workers 4 --date $D-main
+python -m econoclm.bench.tblite.run --arms econo --reps 1 --workers 2 --date $D-main
 python -m econoclm.analysis.results_table econoclm/runs/$D-main
 python -m econoclm.analysis.edit_ceiling  econoclm/runs/$D-main
 python -m econoclm.analysis.quote_check   econoclm/runs/$D-main

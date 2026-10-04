@@ -13,7 +13,11 @@ Sections 2–7 are filled in at Gate 6.
 | Agent settings (both arms) | `context_budget_tokens 32000`, `max_tokens 2048`, `max_steps 64`, `command_timeout 180`, `temperature 0.7`, `top_p 0.95`, `send_chat_template_kwargs false`, `cost_metric usd`; everything else at CLM defaults. Harbor `--agent-timeout-multiplier 4` |
 | Only differences between arms | Agent class (`ClmAgent` vs `EconoClmAgent`), `skill_dirs`, and `econo_run_dir` (log location only). Checked by `tests/test_run_dry.py` |
 | Commits | ours: `econoclm` @ _fill in_; frozen baselines: `frozen/econocontext-v0` = `2d62c2f`, `frozen/econocontext-v0-claude-code` = `ae9fd5a`; CLM `18dc111`; TBLite `5c37b41`; Harbor 0.16.1 |
-| Tasks | seed 20261003 over the sorted TBLite list (`bench/tblite/tasks.txt`), after the oracle health check: _fill in, with any swaps_ |
+| Tasks (frozen 2026-10-03) | seed 20261003 over the sorted TBLite list, then the oracle health check (`bench/tblite/health.md`; run twice with identical results, so no flaky tasks). The 10: `api-endpoint-permission-canonicalizer`, `sales-data-csv-analysis`, `acl-permissions-inheritance`, `maven-slf4j-conflict`, `chained-forensic-extraction_20260101_011957`, `pandas-etl`, `malicious-package-forensics`, `bandit-delayed-feedback`, `anomaly-detection-ranking`, `scan-linux-persistence-artifacts`. Changing the list means rerunning both arms |
+| Swaps (7) | Placeholder reference solution (`solve.sh` only prints "no solution written"): `iris-dataset-classification` → `maven-slf4j-conflict`, `grid-pathfinding` → `html-index-analysis` → `malicious-package-forensics`, `prediction-model-evaluation` → `bandit-delayed-feedback`, `playing-card-recognition` (the replacement for `pdf-table-parsing`) → `pandas-etl`. Task image lacks a module its solution imports (`camelot`): `pdf-table-parsing` → `playing-card-recognition`. MLflow server on 127.0.0.1:5000 unreachable when the solution runs (same failure both times; cause not established, possibly specific to this arm64 host): `breast-cancer-mlflow` → `anomaly-detection-ranking` |
+| Machine | MacBook Air (Mac14,15), Apple M2, 8 cores (4 performance + 4 efficiency), 16 GB RAM, macOS 26.6.2. Docker Desktop 28.3.2; its VM has 8 CPUs and 7.65 GiB RAM (kernel 6.10.14-linuxkit) |
+| Task architecture | Harbor builds each task image for the Docker daemon's platform, here `linux/arm64`, and the containers run natively (`uname -m` = `aarch64`). No x86 emulation was used, and `DOCKER_DEFAULT_PLATFORM` was not set. A Linux x86_64 host would run the same tasks on amd64, so pass/fail on a task can differ between hosts; both arms here use the same host |
+| Parallelism (both arms) | `--workers 2` trials at a time, gateway `MAX_INFLIGHT=2`. Lower than the planned 4, to keep 2 containers plus the agents inside the 7.65 GiB Docker VM and avoid command timeouts from overload |
 | `enable_thinking` | No effect here: CLM sends it only inside `chat_template_kwargs`, which is off. Gemini thinks by default; thinking is billed as output |
 
 ### Deviations from the prompt (approved, the same for both arms)
@@ -21,7 +25,7 @@ Sections 2–7 are filled in at Gate 6.
 1. **Gateway retries of upstream 429/503.**
    - The gateway resends the same bytes, with backoff, for at most 240 s. That stays under CLM's 600 s call timeout, so CLM never resends a call.
    - Why: CLM gives up after 5 failed attempts and the trial would crash, which counts as a task failure caused by quota, not by the agent.
-   - The ledger records `upstream_attempts`, `ratelimit_wait_ms` and `queue_ms` (at most 4 calls in flight). Latency is the final attempt only, and wall time is reported both raw and net of these waits.
+   - The ledger records `upstream_attempts`, `ratelimit_wait_ms` and `queue_ms` (at most 2 calls in flight, `MAX_INFLIGHT=2`). Latency is the final attempt only, and wall time is reported both raw and net of these waits.
    - A trial that still dies on rate limits is marked `infra_fail`.
 2. **The bundled tokenizer file.**
    - CLM counts with tiktoken `o200k_base`. Its download was blocked in the cloud sandbox, and CLM then silently falls back to chars/4.
