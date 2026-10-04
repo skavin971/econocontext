@@ -58,6 +58,10 @@ Sections 2–7 are filled in at Gate 6.
 5. **`max_tokens` 8192 in both arms** (the pre-set fallback, 2026-10-03). The Gate 3 raw pilot at 2048 had 2 of 22 calls cut by length, and most calls spent about 1,960 thinking tokens. Pilot reruns in `runs/2026-10-03-g3-pilot-raw-8192`.
 6. **Provider-side retries.** When Gemini answers `finish_reason = malformed_function_call`, the call is resent with the same prompt below CLM's step counter, so the gateway sees one more call than CLM counts. `gate_check` allows one extra gateway row per such reply (any other extra row fails), and `results.md` counts them per arm ("Provider-side retries"). They are billed and included in cost.
 
+7. **Length cuts reported, not gated** (pre-set before Gate 6, 2026-10-03).
+   - At Gate 5 the EconoCLM pilot had one call cut by length. It was call 1 of `api-endpoint-permission-canonicalizer`, with 8,188 output tokens, 7,861 of them thinking: the same call and the same counts as Raw on that task at Gate 4.
+   - The one pre-set fallback (`max_tokens 8192`, both arms) is already in use. So length cuts are treated as a property of the task: Gate 6 reports them per arm and per task (`results.md`, "Calls cut by length") and does not fail on them. `max_tokens` stays 8192 in both arms, so Gate 4 stands.
+
 ### Other implementation notes
 
 - **CLM flattens tool turns on every applied edit.** `parse_back` turns `tool_calls` into text and tool results into user turns. So an edit rewrites the request from the first turn added since the previous edit, even if the model edited later. The quote and status line price this, and `edit_ceiling.py` splits the re-read into *format change* and *edit position*.

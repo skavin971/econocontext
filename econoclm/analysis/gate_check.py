@@ -104,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
             ok &= passed
             print(f"  [{'PASS' if passed else 'FAIL'}] {name}: {note}")
         if not checks[2][1]:
-            print("  -> allowed fallback: set max_tokens: 8192 in BOTH arm configs, rerun the pilot")
+            print("  -> max_tokens is already 8192 in both arms (the one pre-set fallback, used at "
+                  "Gate 3). Since Gate 5, length cuts are reported per arm in results.md, not a fail "
+                  "(REPORT.md deviation 7).")
         for line in econo_usage(run) if arm == "econo" else []:
             print(f"  {line}")
     print(f"GATE {args.gate}: {'PASS' if ok else 'FAIL'}")
