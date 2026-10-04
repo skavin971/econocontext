@@ -30,6 +30,10 @@ without rate-limit waits. RETRY_BUDGET_S (240 s) + one attempt stays below CLM's
 What it must never do: listen beyond 127.0.0.1, log or echo the key, change a
 prompt, or fail a call because measuring failed.
 
+--log-bodies (off by default; the same for both arms): also save each call's request
+body as forwarded and the reply's JSON payloads to bodies/<run_id>/<call_no>.request.json
+and .response.json next to the ledger. Headers, where the key travels, are never saved.
+
 Run:  python -m econoclm.core.gateway --ledger runs/<phase>/gateway.sqlite [--port 8787]
 One ledger per phase folder (smoke, pilots, main run). The spend cap counts every
 sibling runs/*/gateway.sqlite too (read at startup), so it caps the whole experiment.
@@ -90,6 +94,7 @@ class Config:
     retry_budget_s: float = RETRY_BUDGET_S
     backoff_base_s: float = 2.0
     backoff_cap_s: float = 30.0
+    bodies_dir: Path | None = None  # --log-bodies: where request/response bodies go
 
 
 class Gateway(BaseHTTPRequestHandler):
@@ -141,7 +146,7 @@ class Gateway(BaseHTTPRequestHandler):
             queue_ms = (time.monotonic() - t_queue) * 1000
             status, payloads, attempts, wait_ms, latency_ms = self.forward(raw, stream)
         self.record(run_id, body, stream, status, payloads, attempts, wait_ms, latency_ms,
-                    queue_ms)
+                    queue_ms, raw=raw)
 
     # ------------------------------------------------------------ upstream
     def open_upstream(self, raw: bytes):
@@ -210,7 +215,7 @@ class Gateway(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ measure
     def record(self, run_id, body, stream, status, payloads, attempts, wait_ms, latency_ms,
-               queue_ms) -> None:
+               queue_ms, raw: bytes = b"") -> None:
         """Fail open: a measurement error is logged, never raised into the call."""
         try:
             usage = next((p["usage"] for p in reversed(payloads) if p.get("usage")), None)
@@ -221,7 +226,7 @@ class Gateway(BaseHTTPRequestHandler):
             u = to_usage(usage)
             _, inconsistent = billed_output(usage)
             anomaly = inconsistent or (status == 200 and u.output is None)
-            self.cfg.ledger.insert(
+            call_no = self.cfg.ledger.insert(
                 run_id,
                 prompt_tokens=u.prompt_tokens, cached_tokens=u.cache_read,
                 uncached_tokens=u.uncached_input, output_tokens=u.output,
@@ -236,8 +241,17 @@ class Gateway(BaseHTTPRequestHandler):
             )
             if anomaly:
                 log.warning("usage anomaly in %s: %s", run_id, usage)
+            if self.cfg.bodies_dir is not None:
+                self.save_bodies(run_id, call_no, raw, payloads)
         except Exception:
             log.exception("could not record the call (the reply was still relayed)")
+
+
+    def save_bodies(self, run_id: str, call_no: int, raw: bytes, payloads: list[dict]) -> None:
+        folder = self.cfg.bodies_dir / run_id.replace("/", "__")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{call_no:04d}.request.json").write_bytes(raw)
+        (folder / f"{call_no:04d}.response.json").write_text(json.dumps(payloads))
 
 
 def prior_spend(ledger_path: str | Path) -> float:
@@ -258,7 +272,8 @@ def prior_spend(ledger_path: str | Path) -> float:
 def make_server(ledger_path: str, port: int = 8787, upstream: str | None = None,
                 key: str | None = None, max_spend_usd: float | None = None,
                 max_inflight: int | None = None,
-                prior_spend_usd: float | None = None) -> ThreadingHTTPServer:
+                prior_spend_usd: float | None = None,
+                log_bodies: bool = False) -> ThreadingHTTPServer:
     secrets = load_secrets()
     cfg = Config()
     cfg.upstream = (upstream or secrets.get("ECONOCONTEXT_BASE_URL") or "").rstrip("/")
@@ -266,6 +281,7 @@ def make_server(ledger_path: str, port: int = 8787, upstream: str | None = None,
     if not cfg.upstream or not cfg.key:
         raise SystemExit("ECONOCONTEXT_BASE_URL and AGENT_PLATFORM_API_KEY must be set")
     cfg.ledger = Ledger(ledger_path)
+    cfg.bodies_dir = Path(ledger_path).parent / "bodies" if log_bodies else None
     cfg.prior_spend_usd = (prior_spend(ledger_path) if prior_spend_usd is None
                            else float(prior_spend_usd))
     cfg.max_spend_usd = float(max_spend_usd if max_spend_usd is not None
@@ -283,12 +299,15 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--ledger", required=True, help="path of gateway.sqlite")
     ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--log-bodies", action="store_true",
+                    help="save request/response bodies next to the ledger (never headers)")
     args = ap.parse_args()
-    server = make_server(args.ledger, args.port)
+    server = make_server(args.ledger, args.port, log_bodies=args.log_bodies)
     cfg = server.RequestHandlerClass.cfg
     print(f"econoclm gateway on http://127.0.0.1:{args.port} -> {cfg.upstream} "
           f"(spend cap ${cfg.max_spend_usd:.2f}, already spent in other phases "
-          f"${cfg.prior_spend_usd:.4f}, max in flight {cfg.slots._initial_value})",
+          f"${cfg.prior_spend_usd:.4f}, max in flight {cfg.slots._initial_value}"
+          f"{', logging bodies to ' + str(cfg.bodies_dir) if cfg.bodies_dir else ''})",
           flush=True)
     server.serve_forever()
 

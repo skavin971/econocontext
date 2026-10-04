@@ -148,3 +148,17 @@ def test_gate_check_counts_usage_anomalies(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "[PASS] gateway calls = CLM LM calls" in out
     assert "[FAIL] usage anomalies = 0: 1 ledger row(s) with usage_anomaly" in out
+
+
+def test_gate_check_allows_provider_side_retries_only(tmp_path, capsys):
+    from econoclm.analysis import gate_check
+    day = make_day(tmp_path)
+    ledger = Ledger(day / "gateway.sqlite")
+    row = dict(prompt_tokens=10, cached_tokens=0, uncached_tokens=10, output_tokens=10,
+               reasoning_tokens=0, cost_usd=0.01, http_status=200)
+    ledger.insert("raw-task-a-r1", finish_reason="malformed_function_call", **row)
+    assert gate_check.main([str(day), "--gate", "3"]) == 0
+    assert "CLM 3, provider-side retries 1" in capsys.readouterr().out
+    ledger.insert("raw-task-a-r1", finish_reason="stop", **row)  # unexplained extra row
+    assert gate_check.main([str(day), "--gate", "3"]) == 1
+    assert "[FAIL] gateway calls = CLM LM calls + provider-side retries" in capsys.readouterr().out

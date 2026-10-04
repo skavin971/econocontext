@@ -46,7 +46,7 @@ def test_commands_differ_only_where_allowed(tmp_path):
     assert Path(e["skill_dirs"]).is_absolute() and (Path(e["skill_dirs"]) / "SKILL.md").exists()
     # The settings the prompt fixes, in both arms.
     for arm in (r, e):
-        assert arm["context_budget_tokens"] == "32000" and arm["max_tokens"] == "2048"
+        assert arm["context_budget_tokens"] == "32000" and arm["max_tokens"] == "8192"
         assert arm["max_steps"] == "64" and arm["command_timeout"] == "180"
         assert arm["temperature"] == "0.7" and arm["top_p"] == "0.95"
         assert arm["send_chat_template_kwargs"] == "false" and arm["cost_metric"] == "usd"

@@ -4,7 +4,9 @@
   python -m econoclm.analysis.gate_check runs/<phase> --gate 5     # EconoCLM pilot
 
 Gate 3, per raw run:
-  - gateway calls (HTTP 200 rows) = LM calls in CLM's usage.json
+  - gateway calls (HTTP 200 rows) = LM calls in CLM's usage.json + provider-side retries
+    (one extra row per reply with a known retry reason, RETRY_REASONS; any other extra
+    row fails)
   - a Harbor reward exists
   - no call ended with finish_reason = length (else: the one allowed fallback,
     max_tokens 8192 in BOTH configs, then rerun the pilot)
@@ -27,16 +29,19 @@ from pathlib import Path
 
 from . import quote_check
 from .common import Run, load_runs
-from .results_table import commands
+from .results_table import RETRY_REASONS, commands
 
 
 def base_checks(run: Run) -> list[tuple[str, bool, str]]:
     lm_calls = run.usage.get("n_lm_calls")
+    retries = sum(r["finish_reason"] in RETRY_REASONS for r in run.calls)
     length = sum(r["finish_reason"] == "length" for r in run.calls)
     anomalies = sum(bool(r.get("usage_anomaly")) for r in run.all_rows)
     return [
-        ("gateway calls = CLM LM calls", lm_calls == len(run.calls),
-         f"gateway {len(run.calls)} (all rows {len(run.all_rows)}), CLM {lm_calls}"),
+        ("gateway calls = CLM LM calls + provider-side retries",
+         lm_calls is not None and len(run.calls) == lm_calls + retries,
+         f"gateway {len(run.calls)} (all rows {len(run.all_rows)}), CLM {lm_calls}, "
+         f"provider-side retries {retries}"),
         ("Harbor reward exists", run.reward is not None,
          f"reward {run.reward}" + (f", exception {run.exception}" if run.exception else "")),
         ("no finish_reason = length", length == 0, f"{length} call(s) cut by length"),

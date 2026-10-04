@@ -261,3 +261,29 @@ def test_spend_cap_counts_other_phases(tmp_path):
         assert gw.RequestHandlerClass.cfg.prior_spend_usd == pytest.approx(39.5)
     finally:
         gw.server_close()
+
+
+def test_log_bodies_saves_request_and_reply_never_headers(tmp_path):
+    Upstream.seen, Upstream.script = [], []
+    up = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    gw = make_server(str(tmp_path / "gateway.sqlite"), port=0,
+                     upstream=f"http://127.0.0.1:{up.server_address[1]}/openapi",
+                     key="SECRET-KEY", max_spend_usd=40, max_inflight=4, prior_spend_usd=0,
+                     log_bodies=True)
+    threading.Thread(target=gw.serve_forever, daemon=True).start()
+    try:
+        Upstream.script = [reply({"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6})]
+        post(f"http://127.0.0.1:{gw.server_address[1]}/run/r10/v1/chat/completions", BODY)
+        rows(gw.RequestHandlerClass.cfg, "r10")
+        folder = tmp_path / "bodies" / "r10"
+        deadline = time.monotonic() + 3
+        while not (folder / "0000.response.json").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert (folder / "0000.request.json").read_bytes() == BODY
+        assert json.loads((folder / "0000.response.json").read_text())[0]["usage"]["prompt_tokens"] == 5
+        saved = b"".join(f.read_bytes() for f in folder.iterdir())
+        assert b"SECRET-KEY" not in saved and b"placeholder" not in saved
+    finally:
+        gw.shutdown()
+        up.shutdown()

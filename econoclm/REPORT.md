@@ -10,7 +10,7 @@ Sections 2–7 are filled in at Gate 6.
 | Model | `google/gemini-3.6-flash` on Vertex's OpenAI-compatible endpoint (global); litellm id `openai/google/gemini-3.6-flash`. Exact served version: from Gate 2 (`reply model`) |
 | Prices (per 1M tokens) | $0.75 input, $0.075 cached input (90% implicit-cache discount), $3.75 output incl. thinking. From `config/billing_rates.yaml` on `feature/claude-code` (read 2026-09-27, promotional period until 2026-12-31) |
 | Price mismatch noted | An older local `.env` (2026-09-21) listed `gemini-3.5-flash` at $1.50 / $0.15 / $9.00. Not used |
-| Agent settings (both arms) | `context_budget_tokens 32000`, `max_tokens 2048`, `max_steps 64`, `command_timeout 180`, `temperature 0.7`, `top_p 0.95`, `send_chat_template_kwargs false`, `cost_metric usd`; everything else at CLM defaults. Harbor `--agent-timeout-multiplier 4` |
+| Agent settings (both arms) | `context_budget_tokens 32000`, `max_tokens 8192` (the pre-set fallback; was 2048, see deviation 5), `max_steps 64`, `command_timeout 180`, `temperature 0.7`, `top_p 0.95`, `send_chat_template_kwargs false`, `cost_metric usd`; everything else at CLM defaults. Harbor `--agent-timeout-multiplier 4` |
 | Only differences between arms | Agent class (`ClmAgent` vs `EconoClmAgent`), `skill_dirs`, and `econo_run_dir` (log location only). Checked by `tests/test_run_dry.py` |
 | Commits | ours: `econoclm` @ _fill in_; frozen baselines: `frozen/econocontext-v0` = `2d62c2f`, `frozen/econocontext-v0-claude-code` = `ae9fd5a`; CLM `18dc111`; TBLite `5c37b41`; Harbor 0.16.1 |
 | Tasks (frozen 2026-10-03) | seed 20261003 over the sorted TBLite list, then the oracle health check (`bench/tblite/health.md`; run twice with identical results, so no flaky tasks). The 10: `api-endpoint-permission-canonicalizer`, `sales-data-csv-analysis`, `acl-permissions-inheritance`, `maven-slf4j-conflict`, `chained-forensic-extraction_20260101_011957`, `pandas-etl`, `malicious-package-forensics`, `bandit-delayed-feedback`, `anomaly-detection-ranking`, `scan-linux-persistence-artifacts`. Changing the list means rerunning both arms |
@@ -41,7 +41,9 @@ Sections 2–7 are filled in at Gate 6.
    - The ledger also stores each call's usage JSON as received (`raw_usage`), so tokens and costs can be recomputed if the parsing changes again. Added after the Gate 3 pilot had started: the Gate 2 and Gate 3 pilot ledgers lack it; Gates 4–6 have it.
    - The frozen code is left untouched. Frozen `wire.py` likely has the same gap, so the v0 bills may undercount thinking on replies with no visible text.
    - Gate 2's smoke request now asks for `max_tokens 256` (was 16) and passes only with `finish_reason = stop`, non-empty visible text, and a cost that includes the output tokens.
-   - Both arms keep `max_tokens 2048` for parity with CLM. Thinking counts against it, so Gate 3's length check decides the 8192 fallback (both arms).
+   - Both arms kept `max_tokens 2048` for parity with CLM until Gate 3 (deviation 5).
+5. **`max_tokens` 8192 in both arms** (the pre-set fallback, 2026-10-03). The Gate 3 raw pilot at 2048 had 2 of 22 calls cut by length, and most calls spent about 1,960 thinking tokens. Pilot reruns in `runs/2026-10-03-g3-pilot-raw-8192`.
+6. **Provider-side retries.** When Gemini answers `finish_reason = malformed_function_call`, the call is resent with the same prompt below CLM's step counter, so the gateway sees one more call than CLM counts. `gate_check` allows one extra gateway row per such reply (any other extra row fails), and `results.md` counts them per arm ("Provider-side retries"). They are billed and included in cost.
 
 ### Other implementation notes
 
