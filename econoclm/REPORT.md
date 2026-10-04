@@ -177,6 +177,37 @@ EconoCLM's quotes, checked at Gate 6 (`runs/2026-10-03-main/quote_check.md`, exa
 - **Rollbacks:** 5 (Raw 6).
 - **Repeated identical commands:** 23 (Raw 17).
 
+### Tool-engagement arms v1.1 and v1.2 (deviation 8)
+
+Run after Gate 6 on the same 10 tasks and settings (`runs/2026-10-03-main`, `engagement_arms.md`). Shared parts unchanged; no infra failures.
+
+| | Raw (Gate 4) | v1 (Gate 6) | v1.1 facts | v1.2 guided |
+|---|---|---|---|---|
+| Tasks passed | 8 | 8 | 8 | 9 |
+| Total $ | $1.820 | $2.023 | $1.825 | $1.933 |
+| $ per solved task | $0.228 | $0.253 | $0.228 | $0.215 |
+| **Runs that used `econo` (engages if ≥ 3)** | – | 0 | **0** | **0** |
+| `econo` commands (get / search / note / sql) | – | 0 | 0 | 0 |
+| Cut outputs shown / fetched back | – | 19 / 0 | 14 / 0 | 11 / 0 |
+| Notes or tables written | – | 0 | 0 | 0 |
+| Edits / tagged outputs they deleted | 24 / – | 22 / 110 | 20 / 132 | 24 / 125 |
+| Rewrites; first change below 4,096 | 27; 18 | 26; 17 | 19; 7 | 28; 17 |
+| Stale flags shown / followed by a re-read | – | 3 / 0 | 1 / 0 | 2 / 1 |
+| Edit-caused share of the bill | 7.1% | 4.0% | 1.7% | 6.3% |
+| Append-only misses | 27.2% | 25.7% | 29.0% | 23.9% |
+
+- **Neither arm engages.** The model ran no `econo` command in any of the 30 EconoCLM-family runs.
+  - The logged requests confirm that each arm's text was in the system prompt.
+  - All 14 of v1.1's cut outputs carried the exact-range tag (for example `[obs 13] lines 81-162 not shown: econo get 13 81-162`).
+- **Edits.** The model did delete tagged outputs through CLM's edits (110–132 per arm), but never fetched one back.
+- **Failures.**
+  - v1.1: `bandit` (reward 0) and `maven`. The model started a long-running service (`mvn exec:java`) and hit the 180 s command timeout; this is a task failure, not infra.
+  - v1.2: `malicious` (reward 0).
+- **Quote bound violations.**
+  - v1.1: 1 rewrite. v1.2: 4 rewrites (1 of them a quoted edit; 3 are rollbacks).
+  - All are in `scan-linux`: the live estimate p was 170–290 tokens past the exact P, and three times that put p just above the 4,096 line while P was below it.
+- Pass and cost differences between the four arms are within the noise band (§7).
+
 ## 6. Anomalies
 
 _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._

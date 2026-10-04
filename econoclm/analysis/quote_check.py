@@ -77,6 +77,10 @@ def summary(rows: list[dict]) -> dict:
 
 
 def report(rows: list[dict]) -> str:
+    arms = sorted({r["run_id"].split("-", 1)[0] for r in rows})
+    if len(arms) > 1:
+        return "\n".join(report([r for r in rows if r["run_id"].split("-", 1)[0] == a])
+                          .replace("# Quote accuracy", f"# Quote accuracy: {a}", 1) for a in arms)
     s = summary(rows)
     pct = "n/a" if s["median_abs_err_pct_of_R"] is None else f"{s['median_abs_err_pct_of_R']:.1%}"
     lines = ["# Quote accuracy", "",
@@ -108,7 +112,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("day", type=Path)
     args = ap.parse_args()
-    text = report(check(load_runs(args.day, {"econo"}), exact=load_exact(args.day)))
+    runs = [r for r in load_runs(args.day) if r.arm != "raw"]   # every EconoCLM arm
+    text = report(check(runs, exact=load_exact(args.day)))
     (args.day / "quote_check.md").write_text(text)
     print(text)
 
