@@ -241,6 +241,11 @@ class ViewContextEnv(ContextEnv):
         (self.run_dir / "view_versions" / f"{self.n_steps:04d}.md").write_text(text)
 
         extra = f"; dropped {len(dropped)}, restored {len(restored)} line(s)"
+        notes = [x for x in parsed.lines if x.kind == "note"]
+        if notes:
+            extra += "; notes: " + ", ".join(
+                f"{x.name} ({x.text.count(chr(10)) + 1 if x.text else 0} lines, "
+                f"~{tk.count_tokens([{'role': 'user', 'content': x.text}])[0]} tokens)" for x in notes)
         if r.missing:
             extra += f"; {len(r.missing)} line(s) name nothing that exists: " + ", ".join(r.missing[:3])
         if parsed.bad:
@@ -253,5 +258,9 @@ class ViewContextEnv(ContextEnv):
         else:
             note = f"\n[{VIEW_NAME}: edit applied — prompt ~{before}->{after} tokens, {len(self.lines)} lines{extra}]"
         rec.update(dropped=dropped, restored=restored,
-                   notes=[x.name for x in parsed.lines if x.kind == "note"])
+                   notes=[x.name for x in parsed.lines if x.kind == "note"],
+                   note_lines={x.name: (x.text.count("\n") + 1 if x.text else 0)
+                               for x in parsed.lines if x.kind == "note"},
+                   first_changed_line=next((i for i, (a, b) in enumerate(zip(old, new)) if a != b),
+                                           min(len(old), len(new))))
         return note, True, rec

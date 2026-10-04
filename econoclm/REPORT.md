@@ -277,6 +277,18 @@ Run 2026-10-04 on the same 10 tasks and settings (`runs/2026-10-03-main`, `view_
 - **Unused features.** No obs lines, no `econo get` or `econo search`, and no restores were used.
 - **Stale flags.** 3 were shown and 1 was followed by a re-read.
 
+**Rerun with two fixes (pre-set, written before the rerun, 2026-10-04).**
+- **The fixes.**
+  1. Lines after a `note NAME:` line that are not view lines belong to that note, so multi-line notes are kept whole; the receipt reports each note's size.
+  2. View's system prompt drops CLM's empty skill separator, so it is exactly CLM's with only the section swapped.
+- **The rerun.** The same 10 tasks, the same settings and the **same four criteria** (deviation 9), in `runs/2026-10-04-view-gate2`, with run ids `econoview-*`. The first attempt stays in `runs/2026-10-03-main`.
+- **Diagnostics, not gates:**
+  - notes kept whole: receipts with ignored lines must be 0;
+  - edits that rewrote the view from line 1;
+  - lines restored;
+  - `econo get` / `econo search` use.
+- EconoCLM-View stays locked for Qwen until the rerun is reviewed.
+
 ## 6. Anomalies
 
 _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._

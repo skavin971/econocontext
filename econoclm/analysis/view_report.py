@@ -71,6 +71,9 @@ def view_runs(day: Path) -> list[dict]:
             rejected=sum(r.get("kind") == "rejected" for r in log),
             appends=sum(r.get("appended", 0) for r in log),
             dropped=sum(len(r.get("dropped", [])) for r in edits),
+            ignored_receipts=sum(bool(r.get("bad")) for r in log if r.get("kind") in ("edit", "same", "rejected")),
+            from_line1=sum(r.get("first_changed_line") == 0 for r in edits),
+            note_lines=max([n for r in edits for n in (r.get("note_lines") or {}).values()] or [0]),
             restored=sum(len(r.get("restored", [])) for r in edits),
             notes=notes, obs_lines=obs_lines, econo_get=ops.get("get", 0), econo_search=ops.get("search", 0),
             peak_prompt=max((c["prompt_tokens"] or 0) for c in calls) if calls else 0,
@@ -80,19 +83,23 @@ def view_runs(day: Path) -> list[dict]:
     return out
 
 
-def system_prompt_check(day: Path) -> list[str]:
-    def first_system(run_id):
-        f = day / "bodies" / run_id / "0000.request.json"
+def system_prompt_check(day: Path, baseline: Path | None = None) -> list[str]:
+    base_day = baseline or day
+
+    def first_system(run_id, d=day):
+        f = d / "bodies" / run_id / "0000.request.json"
+        if not f.exists() and d is not base_day:
+            f = base_day / "bodies" / run_id / "0000.request.json"
         return json.loads(f.read_text())["messages"][0]["content"] if f.exists() else None
-    runs = load_runs(day)
-    clm = {r.task: first_system(r.run_id) for r in runs if r.arm == "raw"}
+    runs = load_runs(day) + ([r for r in load_runs(base_day) if r.arm != "econoview"] if baseline else [])
+    clm = {r.task: first_system(r.run_id, base_day) for r in runs if r.arm == "raw"}
     lines = []
     for arm, label in (("raw", "CLM"), ("econo12", "EconoCLM-Tools"), ("econoview", "EconoCLM-View")):
         ok = n = 0
         for r in runs:
             if r.arm != arm or clm.get(r.task) is None:
                 continue
-            s, base = first_system(r.run_id), clm[r.task]
+            s, base = first_system(r.run_id, day if r.arm == "econoview" else base_day), clm[r.task]
             if s is None:
                 continue
             n += 1
@@ -103,7 +110,7 @@ def system_prompt_check(day: Path) -> list[str]:
             else:
                 budget = base.split("Your context budget is ")[1].split(";")[0]
                 ok += s == swap_section(base, budget)
-        hashes = {hashlib.sha256((first_system(r.run_id) or "").encode()).hexdigest()[:12]
+        hashes = {hashlib.sha256((first_system(r.run_id, day if arm == "econoview" else base_day) or "").encode()).hexdigest()[:12]
                   for r in runs if r.arm == arm}
         lines.append(f"- {label}: {ok}/{n} runs carry the expected system prompt "
                      f"({'CLM original' if arm == 'raw' else 'CLM original + SKILL text' if arm == 'econo12' else 'CLM with only the section swapped'}); "
@@ -111,7 +118,7 @@ def system_prompt_check(day: Path) -> list[str]:
     return lines
 
 
-def report(day: Path) -> str:
+def report(day: Path, baseline: Path | None = None) -> str:
     rs = view_runs(day)
     n = len(rs)
     edited = sum(r["model_edits"] > 0 for r in rs)
@@ -127,7 +134,13 @@ def report(day: Path) -> str:
          f"2. Model edits VIEW.md in at least 5 of 10 runs: {'PASS' if edited >= 5 else 'FAIL'} ({edited} of {n})",
          f"3. At least 6 of 10 tasks pass: {'PASS' if passed >= 6 else 'FAIL'} ({passed} of {n})",
          f"4. Same view, same bytes: {'PASS' if det_n and det_ok == det_n else 'FAIL'} ({det_ok} of {det_n} logged views re-render to the logged sha256)",
-         "", "## System prompts", "", *system_prompt_check(day), "",
+         "", "## Diagnostics (not gates)", "",
+         f"- Notes kept whole: receipts with ignored lines {sum(r['ignored_receipts'] for r in rs)} (must be 0); "
+         f"longest note {max([r['note_lines'] for r in rs] or [0])} lines",
+         f"- Edits that rewrote the view from line 1: {sum(r['from_line1'] for r in rs)} of {sum(r['model_edits'] for r in rs)}",
+         f"- Lines restored: {sum(r['restored'] for r in rs)}",
+         f"- econo get / search: {sum(r['econo_get'] for r in rs)} / {sum(r['econo_search'] for r in rs)}",
+         "", "## System prompts", "", *system_prompt_check(day, baseline), "",
          "## Per run", "",
          "| Task | Pass | $ | Calls | Model edits | Rejected | Auto appends | Dropped | Restored | Notes | obs lines | econo get / search | Peak prompt | Stale flags / followed |",
          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -149,8 +162,10 @@ def report(day: Path) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("day", type=Path)
+    ap.add_argument("--baseline", type=Path, default=None,
+                    help="runs folder with the CLM and EconoCLM-Tools runs (for the system-prompt check)")
     args = ap.parse_args()
-    text = report(args.day)
+    text = report(args.day, args.baseline)
     (args.day / "view_report.md").write_text(text)
     print(text)
 

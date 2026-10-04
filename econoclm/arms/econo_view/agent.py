@@ -26,6 +26,7 @@ from ..econo_clm_v11.agent import EconoClmV11Agent
 from .env import ViewContextEnv
 
 SECTION = "## Managing your context"
+SKILL_SEPARATOR = "\n\n---\n\n"              # CLM's run: system += separator + prompt_suffix()
 TEXT_VIEW = (Path(__file__).parent / "system_section.md").read_text().strip()
 COMPACTION_HINT = (f"Remove lines you no longer need from /tmp/.live_ctx/VIEW.md (turn K, obs N, "
                    "obs N [lines A-B], note NAME: TEXT); anything you remove stays retrievable as obs N.")
@@ -62,7 +63,12 @@ class EconoViewAgent(EconoClmV11Agent):
                       if self.context_budget_tokens else "your model's full context window")
 
         def replay(messages, **kw):
-            messages[0]["content"] = swap_section(messages[0]["content"], budget_str)
+            content = swap_section(messages[0]["content"], budget_str)
+            # CLM appends a skill separator whenever skill_dirs is set, even with no SKILL.md;
+            # this arm's skill dir carries only the econo tool, so drop the empty separator.
+            if content.endswith(SKILL_SEPARATOR):
+                content = content[:-len(SKILL_SEPARATOR)]
+            messages[0]["content"] = content
             return orig_replay(messages, **kw)
 
         self._resume.replay = replay

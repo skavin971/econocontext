@@ -1,6 +1,6 @@
 """VIEW.md: the lines that make up the model's next prompt. Pure: no I/O.
 
-Line types (one per line; blank lines and lines starting with "#" are ignored):
+Line types (blank lines and lines starting with "#" are ignored, except inside a note):
 
   turn K                 a past turn, exactly as CLM appended it: the assistant message
                          (reasoning, tool call, provider fields) and everything that
@@ -8,7 +8,9 @@ Line types (one per line; blank lines and lines starting with "#" are ignored):
                          CLM, and any runtime notices)
   obs N                  saved output N, in full
   obs N [lines A-B]      lines A to B of saved output N
-  note NAME: TEXT        the model's own note
+  note NAME: TEXT        the model's own note; every following line that is not a view
+                         line (blank and "#" lines included) belongs to it, so a note can
+                         span many lines
 
 render() turns a view into the messages after CLM's protected prefix (system + task),
 in the view's order. It is a pure function of the view and the stores, so the same view
@@ -58,22 +60,38 @@ class Parsed:
 
 def parse(text: str) -> Parsed:
     out = Parsed()
+    note: list[str] | None = None          # the text lines of the note being read
+
+    def close() -> None:
+        nonlocal note
+        if note is not None:
+            last = out.lines[-1]
+            out.lines[-1] = Line("note", name=last.name, text="\n".join(note).strip())
+            note = None
+
     for raw in text.splitlines():
         s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
         if m := TURN.match(s):
+            close()
             out.lines.append(Line("turn", int(m.group(1))))
         elif m := OBS.match(s):
+            close()
             a, b = m.group(2), m.group(3)
             if a is not None and (int(a) < 1 or int(b) < int(a)):
                 out.bad.append(s)
                 continue
             out.lines.append(Line("obs", int(m.group(1)), int(a) if a else None, int(b) if b else None))
         elif m := NOTE.match(s):
-            out.lines.append(Line("note", name=m.group(1).strip(), text=m.group(2).strip()))
+            close()
+            out.lines.append(Line("note", name=m.group(1).strip(), text=""))
+            note = [m.group(2).rstrip()]
+        elif note is not None:
+            note.append(raw.rstrip())       # continuation of the note, kept as written
+        elif not s or s.startswith("#"):
+            continue
         else:
             out.bad.append(s)
+    close()
     return out
 
 
