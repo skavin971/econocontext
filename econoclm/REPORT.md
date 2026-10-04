@@ -35,10 +35,15 @@ Sections 2–7 are filled in at Gate 6.
 2. **The bundled tokenizer file.**
    - CLM counts with tiktoken `o200k_base`. Its download was blocked in the cloud sandbox, and CLM then silently falls back to chars/4.
    - Every entry point therefore points `TIKTOKEN_CACHE_DIR` at the copy bundled with litellm (`core/tokenizer.py`). tiktoken hash-checks it, and it is used locally too, so both arms and both machines match.
-3. **Token-unit conversion `k`.**
-   - Gemini reports cached tokens in its own tokenizer's units; our positions use CLM's tokenizer.
-   - The quote and status line scale our counts by `k` = the last call's reported prompt tokens ÷ our count of the same messages.
-   - `quote_check.py` measures the resulting error.
+3. **Token units, Gemini's hidden thinking, and the quote** (EconoCLM only; reworked 2026-10-03 after Gates 3–4, `quote/hidden.py`).
+   - **Hidden part.** Every tool-call turn carries its call's thinking as an opaque `thought_signature`, and Gemini may bill that thinking as prompt tokens on later calls. CLM's own count never sees it: it was 59% of the Gate 3 pilot's prompt tokens.
+   - **Three billing modes.** Gemini handles it in one of three ways per call: *none* (no earlier thinking counted), *live* (the thinking of tool-call turns since the last answered user message), or *all* (every signed turn, no reset). This was found on Gate 4 with the exact hidden part from Vertex `countTokens`: 48 / 100 / 60 of 208 calls, each within 170 tokens of one mode. Which mode applies varies by run and by call.
+   - **Measured, not predicted.** After each call, `HiddenMeter` compares the billed prompt with `k` × CLM's count and snaps to the nearest mode. On Gate 4 it was off by a median 32 tokens, p90 128. The old single `k` was off by 303 / 3,948, and the fixed rule alone by 56 / 1,753.
+   - **`k` recalibration.** `k` is Gemini tokens per CLM-tokenizer token of *visible* text. It is recalibrated whenever the hidden part is known: calls with no signed turn (a run's first call, calls after the rebuild that follows an edit) and calls whose mode is clear-cut.
+   - **`countTokens` validation.** It is free and was run offline on every logged request (`analysis/count_tokens.py`). The billed prompt equals countTokens + 11 on every call with no hidden part, so the exact hidden part = billed − countTokens − 11.
+   - **The quote.** It shows R as an *upper bound* (`up to ~R re-read`) with the recent cache-hit rate. The first change is placed at the first differing character, since CLM's rebuild often keeps a message's text and appends to it.
+   - **Checked on Gate 4's 27 rewrites** (`analysis/rewrite_positions.py`, exact positions via `countTokens`): the live first-change estimate was off by a median 26 tokens, and R was exceeded once, by 26 tokens. A tighter `R_likely = min(c, A) − p` is recorded but not shown: it was exceeded 12 times, because CLM's tokenizer undercounts the rebuilt text.
+   - **`quote_check.py`** splits each edit's actual re-read into *edit-caused* and *background* (Gemini's own misses), reports bound violations, and compares R with the edit-caused re-read only where the cache was healthy on both neighbouring calls.
 4. **Billed output when Vertex omits `completion_tokens`** (found at Gate 2, 2026-10-03).
    - Vertex leaves `completion_tokens` out when a reply has no visible text (thinking only, cut by `max_tokens`). The usage logic copied from the frozen `omnigent_layer/wire.py` (`feature/claude-code` @ `ae9fd5a`) then recorded output as empty and billed none of the thinking: the first smoke call was charged for its 6 prompt tokens only, not its 13 thinking tokens.
    - `core/usage.py` now bills output = `completion_tokens` + `reasoning_tokens` (a missing one counts as 0), and uses `total_tokens − prompt_tokens` when a component is missing and the total is there.
