@@ -2,8 +2,9 @@
 
 Status (2026-10-03): **Gate 2 PASS** (`runs/2026-10-03-g2-smoke`), **Gate 3 PASS** at
 `max_tokens 8192` (`runs/2026-10-03-g3-pilot-raw-8192`; the 2048 pilot failed on length,
-deviation 5), **Gate 4 running** (`runs/2026-10-03-main`; a first attempt was voided by a
-network outage, `runs/2026-10-03-main-attempt1-network`). Gates 5–6 not run yet.
+deviation 5), **Gate 4 done** (`runs/2026-10-03-main`: Raw CLM 8/10 passed, $1.82; 5 of 10 tasks
+made 0 context edits, under the stop rule of 6; a first attempt was voided by a network
+outage, `runs/2026-10-03-main-attempt1-network`). Gates 5–6 not run yet.
 Sections 2–7 are filled in at Gate 6.
 
 ## 1. Setup
