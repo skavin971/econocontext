@@ -187,6 +187,14 @@ sqlite3 econoclm/runs/$D-g3-pilot-raw/gateway.sqlite \
 
 ## 10. Gate 4: Raw CLM, all 10 tasks (1 rep, 2 in parallel)
 
+Shared parts are frozen at tag `econoclm-shared-v1` (`8a95418`). From Gate 4 on, start the
+gateway with `--log-bodies` (step 6 command plus that flag). Before Gate 6, check that the
+shared parts are unchanged:
+
+```sh
+git diff --exit-code econoclm-shared-v1 -- econoclm/core/gateway.py econoclm/core/gateway_ledger.py econoclm/core/usage.py econoclm/core/prices.py econoclm/core/meter.py econoclm/core/types.py econoclm/core/sqlite_util.py econoclm/core/tokenizer.py econoclm/bench/tblite/run.py econoclm/bench/tblite/select_tasks.py econoclm/bench/tblite/tasks.txt econoclm/arms/raw_clm/config.yaml
+```
+
 Start the gateway with `P=$D-main`, then:
 
 ```sh
