@@ -76,6 +76,28 @@ infra failures; shared parts unchanged). Sections 2–6 filled in from Gates 4 a
    - **Engagement rule.** An arm *engages* if the model uses `econo` (get, search, note or sql) in at least 3 of the 10 runs.
    - **Runs.** The same 10 tasks and settings as Gate 6: `--workers 2`, body logging on, and the infra-rerun rule.
 
+9. **EconoCLM-View: Gemini gate, pre-set** (written 2026-10-04, branch `econoclm-view`, before the arm ran).
+   - **The arm** (`arms/econo_view/`, run id `econoview`). Every output is stored losslessly as obs N, and the model edits VIEW.md (`/tmp/.live_ctx/VIEW.md`), whose lines make up its next prompt in the order written.
+     - Line types: `turn K`, `obs N`, `obs N [lines A-B]`, `note NAME: TEXT`.
+     - New turns are appended automatically. Removing a line removes it from the prompt only, and re-adding it restores it exactly.
+     - The runtime only renders the prompt and reports facts; it never reorders or decides anything.
+     - CLM's code is unchanged. `ViewContextEnv` subclasses CLM's `ContextEnv`, and `EconoViewAgent` subclasses the EconoCLM-Tools agent family.
+     - Only the "Managing your context" section of CLM's system prompt is replaced (by TEXT-VIEW), per instance.
+     - Everything else is CLM's: loop, budget readout and nudges on the rendered prompt, rollback, finish policy, output cut.
+   - **Edit gate.** EconoCLM-View uses CLM's "fit" gate: an edit, including a restore, may grow the prompt if it still fits the limit. The CLM arm uses the same gate: no config sets `allow_edit_growth` and `CLM_EDIT_GATE` is unset, so CLM defaults to fit.
+   - **Structure.**
+     - View keeps each turn's tool-call structure (assistant tool call plus its tool result). It therefore avoids CLM's format change on edits and the "rebuild rejected by Vertex" crash.
+     - Crash-related outcome differences are reported separately.
+     - Consecutive same-role messages are merged at line boundaries, as CLM's `_normalize` does.
+     - `obs` and `note` lines become user messages, so they create new user-turn boundaries. On Gemini these reset hidden-thinking billing; on Qwen the chat template strips earlier reasoning. Their effect is noted in the analysis.
+   - **Equivalence** (`analysis/view_equivalence.py`). While the model never edits VIEW.md, the prompt equals CLM's exactly, apart from the replaced section. This was checked on Gate 4's CLM trajectories: in full for the 5 tasks with no edits (`acl`, `anomaly`, `api-endpoint`, `chained-forensic`, `sales-data`), and up to the first edit for the other 5. Result: PASS.
+   - **Pass criteria** (EconoCLM-View on the same 10 tasks, 1 run each; settings as Gates 4 and 6: 32K, `max_tokens 8192`, `--workers 2`, frozen shared parts, the infra-rerun rule):
+     1. no crashes or hook errors;
+     2. the model edits VIEW.md in at least 5 of 10 runs. Only the model's own edits count, not the automatic `turn K` appends. CLM edited in 5 of 10 at Gate 4;
+     3. at least 6 of 10 tasks pass;
+     4. the same view always renders the same bytes (every logged view re-rendered offline from the saved turn store).
+   - **Comparison:** CLM (Gate 4) and EconoCLM-Tools (v1.2).
+
 ### Other implementation notes
 
 - **CLM flattens tool turns on every applied edit.** `parse_back` turns `tool_calls` into text and tool results into user turns. So an edit rewrites the request from the first turn added since the previous edit, even if the model edited later. The quote and status line price this, and `edit_ceiling.py` splits the re-read into *format change* and *edit position*.

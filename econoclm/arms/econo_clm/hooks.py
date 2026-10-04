@@ -111,7 +111,8 @@ class EconoHooks:
                  protect: Callable[[], int], state_dir: str,
                  gateway_db: str | Path | None = None, econo_path: str | None = None,
                  count: Callable[[list[dict]], int] = default_count,
-                 cut_lines: bool = False, obs_cfg: dict | None = None):
+                 cut_lines: bool = False, obs_cfg: dict | None = None,
+                 econo_mode: str = "gemini"):
         self.run_dir = Path(run_dir)
         self.obs_dir = self.run_dir / "obs"
         self.obs_dir.mkdir(parents=True, exist_ok=True)
@@ -124,6 +125,9 @@ class EconoHooks:
         self.count = count
         self.econo_path = econo_path     # the econo tool inside the sandbox (for verify_gets)
         self.cut_lines = cut_lines       # v1.1/v1.2: tags name the exact missing lines
+        if econo_mode not in ("gemini", "qwen"):
+            raise ValueError(f"econo_mode must be gemini or qwen, got {econo_mode!r}")
+        self.econo_mode = econo_mode     # gemini: $ and Gemini's cache rules; qwen: FLOPs
         self.obs_cfg = obs_cfg or {}     # CLM's head_chars / tail_chars, for missing_lines
 
         self.turn = 0                    # commands run so far
@@ -282,15 +286,27 @@ class EconoHooks:
                 out.notes = sr.notes + "\n" + q.line
 
         # 5. Status line.
-        st = status_line(messages + ([pending] if pending else []), cached_c=c,
-                         uncached=self.last.uncached if self.last else None,
-                         run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
-                         protect=self.protect(), k=self.k, count=self.count,
-                         thinking=self.thinking, mode=self.meter.mode, read=self.last_read,
-                         hits=self.hits())
+        st = self.build_status(messages + ([pending] if pending else []), c, stale)
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out
+
+    def build_status(self, shown: list[dict], c: int | None, stale: list[str]):
+        """The [econo] status line for the context the model is about to see.
+        (EconoCLM-View overrides this with its view-position version.)"""
+        return status_line(shown, cached_c=c,
+                           uncached=self.last.uncached if self.last else None,
+                           run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
+                           protect=self.protect(), k=self.k, count=self.count,
+                           thinking=self.thinking, mode=self.meter.mode, read=self.last_read,
+                           hits=self.hits())
+
+    def obs_text(self, obs_id: int) -> str | None:
+        """Saved output N, exactly as stored (None if there is none)."""
+        path = self.obs_dir / f"{obs_id}.txt"
+        if not path.exists():
+            return None
+        return path.read_bytes().decode("utf-8", errors="surrogateescape")
 
     def cut_tag(self, obs_id: int, r: Any, sr: Any, cut: bool) -> str:
         if not cut:

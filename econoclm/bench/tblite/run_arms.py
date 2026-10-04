@@ -7,8 +7,9 @@ This entry point adds the arms to its ARMS table at runtime and gives them an
 econo_run_dir like `econo`'s, then runs run.main() unchanged: same queueing, spend
 check, gateway check, tokenizer and environment.
 
-  econo11  v1.1 "facts only"  arms/econo_clm_v11/config.yaml
-  econo12  v1.2 "guided"      arms/econo_clm_v12/config.yaml
+  econo11    v1.1 "facts only"                  arms/econo_clm_v11/config.yaml
+  econo12    v1.2 "guided" = EconoCLM-Tools     arms/econo_clm_v12/config.yaml
+  econoview  EconoCLM-View                      arms/econo_view/config.yaml
 
 Arm names have no hyphen: the analysis splits run ids at the first "-".
 """
@@ -18,7 +19,8 @@ from pathlib import Path
 from . import run
 
 EXTRA_ARMS = {"econo11": run.ECONOCLM / "arms/econo_clm_v11/config.yaml",
-              "econo12": run.ECONOCLM / "arms/econo_clm_v12/config.yaml"}
+              "econo12": run.ECONOCLM / "arms/econo_clm_v12/config.yaml",
+              "econoview": run.ECONOCLM / "arms/econo_view/config.yaml"}
 
 _build_command = run.build_command
 

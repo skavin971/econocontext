@@ -89,6 +89,11 @@ def econo_metrics(run: Run) -> dict:
     }
 
 
+# Display names (run ids keep the short arm ids; the analysis splits run ids at "-").
+DISPLAY = {"raw": "CLM", "econo": "EconoCLM v1", "econo11": "EconoCLM v1.1",
+           "econo12": "EconoCLM-Tools", "econoview": "EconoCLM-View"}
+
+
 def row_for(run: Run) -> dict:
     c = run.calls
     s = lambda key: sum((r[key] or 0) for r in c)  # noqa: E731
@@ -198,7 +203,7 @@ TASK_COLS = ["run_id", "passed", "exception", "infra_fail", "cost_usd", "model_c
 def markdown(rows: list[dict]) -> str:
     summ = arm_summary(rows)
     arms = sorted(summ, key=lambda a: (a != "raw", a))
-    lines = ["# Results", "", "| Metric | " + " | ".join(arms) + " |",
+    lines = ["# Results", "", "| Metric | " + " | ".join(DISPLAY.get(a, a) for a in arms) + " |",
              "|---|" + "---|" * len(arms)]
     for label, key in METRICS:
         lines.append(f"| {label} | " + " | ".join(fmt(summ[a].get(key)) for a in arms) + " |")
