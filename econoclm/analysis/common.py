@@ -22,6 +22,10 @@ from ..core.gateway_ledger import Ledger
 from ..core.run_store import RunStore
 from ..core.tokenizer import use_bundled_tokenizer
 
+# finish_reason values after which the call is resent with the same prompt below CLM's
+# step counter: the gateway sees one more call than CLM counts.
+RETRY_REASONS = {"malformed_function_call"}
+
 use_bundled_tokenizer()  # count tokens exactly as the runs did, on any machine
 
 

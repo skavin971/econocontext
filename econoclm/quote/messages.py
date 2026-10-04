@@ -13,8 +13,9 @@ Two facts about CLM decide what an edit costs on the wire:
    (it compares before vs after); the status line's depth prices use it.
 
 Token counts come from a `count` function (CLM's tiktoken by default) and are
-scaled by `k`, the ratio of the provider's reported prompt tokens to our count for
-the same prompt, so that our positions are in the provider's units like c is.
+scaled by `k`, the provider's tokens per our token for the visible text of the same
+prompt; hidden.py adds the hidden thinking Gemini also reads, so that positions are in
+the provider's units like c is.
 """
 
 import json

@@ -2,18 +2,20 @@
 
 It reports, without repeating CLM's own context size readout:
   - the last call's cached vs new (uncached) input tokens
+  - information only: how many tokens Gemini read in the last call vs CLM's count of the
+    same messages, and how much of it was earlier hidden thinking (hidden.py)
   - the run's cost so far
   - the price of an edit at three depths: at 25%, 50% and 75% of the editable
     region by token position. For each depth: the turn there, and
         re-read = max(0, c - change position)   and its extra cost
                   re-read * (price_in - price_cached)
     where the change position is min(that turn, the first turn CLM would rewrite
-    anyway), see messages.py.
+    anyway), see messages.py. Positions are what Gemini reads, hidden thinking included.
   - how many outputs are stored
   - stale files (at most 3 names, then "+k more")
 
 Example:
-[econo] last call 14.2K cached / 1.1K new | run $0.021 | edit at turn ≤2: ~0.3K re-read ($0.0002), ≤5: ~9K ($0.0061), ≤8: ~15K ($0.010) | stored: 3 | stale: parser.py
+[econo] last call 14.2K cached / 1.1K new | Gemini read 15.3K, CLM counts 6.0K, earlier thinking 9.1K | run $0.021 | edit at turn ≤2: ~0.3K re-read ($0.0002), ≤5: ~9K ($0.0061), ≤8: ~15K ($0.010) | stored: 3 | stale: parser.py
 """
 
 import bisect
@@ -22,7 +24,8 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..core import prices
-from .messages import default_count, first_structured, fmt_tokens, fmt_usd, positions
+from .hidden import provider_positions
+from .messages import default_count, first_structured, fmt_tokens, fmt_usd
 
 DEPTHS = (0.25, 0.5, 0.75)
 
@@ -43,11 +46,12 @@ class Status:
 
 def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
                 k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
+                thinking: dict[str, int] | None = None,
                 price_in: float = prices.PRICE_IN,
                 price_cached: float = prices.PRICE_CACHED) -> list[Depth]:
     if len(messages) <= protect:
         return []
-    pos = positions(messages, count)
+    pos = provider_positions(messages, count, k, thinking)
     start, end = pos[protect], pos[-1]
     struct = first_structured(messages, protect)
     out = []
@@ -59,7 +63,7 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
         if cached_c is None:
             reread = cost = None
         else:
-            reread = max(0, cached_c - round(pos[change] * k))
+            reread = max(0, cached_c - round(pos[change]))
             cost = reread * (price_in - price_cached)
         out.append(Depth(fraction=f, turn=idx - protect + 1, reread=reread, cost_usd=cost))
     return out
@@ -68,16 +72,24 @@ def edit_depths(messages: list[dict], cached_c: int | None, *, protect: int = 2,
 def status_line(messages: list[dict], *, cached_c: int | None, uncached: int | None,
                 run_cost_usd: float, n_stored: int, stale: list[str], protect: int = 2,
                 k: float = 1.0, count: Callable[[list[dict]], int] = default_count,
+                thinking: dict[str, int] | None = None,
+                read: tuple[int, int, int] | None = None,
                 price_in: float = prices.PRICE_IN,
                 price_cached: float = prices.PRICE_CACHED) -> Status:
+    """`read` = (tokens Gemini read in the last call, CLM's count of those messages,
+    earlier hidden thinking in them): shown as information only."""
     depths = edit_depths(messages, cached_c, protect=protect, k=k, count=count,
-                         price_in=price_in, price_cached=price_cached)
+                         thinking=thinking, price_in=price_in, price_cached=price_cached)
     parts = []
     if cached_c is None:
         parts.append("last call cache unknown")
     else:
         new = "?" if uncached is None else fmt_tokens(uncached)
         parts.append(f"last call {fmt_tokens(cached_c)} cached / {new} new")
+    if read is not None:
+        gemini, clm, hidden = read
+        parts.append(f"Gemini read {fmt_tokens(gemini)}, CLM counts {fmt_tokens(clm)}, "
+                     f"earlier thinking {fmt_tokens(hidden)}")
     parts.append(f"run {fmt_usd(run_cost_usd)}")
     if not depths:
         parts.append("edit: nothing editable yet")

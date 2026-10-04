@@ -98,7 +98,8 @@ def test_scripts_run_on_a_synthetic_day(tmp_path):
     assert res["arms"]["raw"]["edit_usd"] == pytest.approx(7 * (prices.PRICE_IN - prices.PRICE_CACHED))
 
     qc = quote_check.check(runs, count=count)
-    assert qc == [{"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True}]
+    assert qc == [{"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True,
+                   "gap_s": 0.0}]
     assert quote_check.summary(qc)["median_abs_err_tokens"] == 3
 
 

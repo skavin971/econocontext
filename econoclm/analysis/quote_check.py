@@ -4,7 +4,10 @@
 
 For each applied edit in an EconoCLM run (econo.sqlite, table edits): the quote's
 predicted R, and the actual extra_uncached of the model call right after the edit
-(rereads.py). Reports the median absolute error in tokens and as a % of R.
+(rereads.py, with the per-turn hidden-thinking accounting of quote/hidden.py). Reports
+the median absolute error in tokens and as a % of R, and per edit the seconds between
+the call before the edit and the call after it (Gemini's cache and the hidden thinking
+may depend on time; see quote/hidden.py).
 """
 
 import argparse
@@ -26,7 +29,9 @@ def check(runs, count=None) -> list[dict]:
             actual = rr.get(e["next_call"])
             rows.append({"run_id": run.run_id, "turn": e["turn"], "R": e["predicted_reprocess_R"],
                          "actual": actual["extra_uncached"] if actual else None,
-                         "rewrite_seen": actual["rewrite"] if actual else None})
+                         "rewrite_seen": actual["rewrite"] if actual else None,
+                         "gap_s": round(actual["gap_s"], 1) if actual and actual["gap_s"]
+                         is not None else None})
     return rows
 
 
@@ -45,9 +50,11 @@ def report(rows: list[dict]) -> str:
     lines = ["# Quote accuracy", "",
              f"Edits: {s['edits']}, compared with the next call: {s['compared']}",
              f"Median absolute error: {s['median_abs_err_tokens']} tokens ({pct} of R)", "",
-             "| Run | Turn | Predicted R | Actual extra uncached | Rewrite seen |", "|---|---|---|---|---|"]
+             "| Run | Turn | Predicted R | Actual extra uncached | Rewrite seen | Seconds since previous call |",
+             "|---|---|---|---|---|---|"]
     for r in rows:
-        lines.append(f"| {r['run_id']} | {r['turn']} | {r['R']} | {r['actual']} | {r['rewrite_seen']} |")
+        lines.append(f"| {r['run_id']} | {r['turn']} | {r['R']} | {r['actual']} | {r['rewrite_seen']} "
+                     f"| {r['gap_s']} |")
     return "\n".join(lines) + "\n"
 
 

@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from ..quote.messages import default_count
-from .common import Run, load_runs
+from .common import RETRY_REASONS, Run, load_runs
 
 GET = re.compile(r"^\s*(\d+)\b")
 READ_OPS = {"list", "get", "search", "sql_read"}
@@ -84,11 +84,6 @@ def econo_metrics(run: Run) -> dict:
         "avg_added_tokens_per_turn": round(added / n_turns, 1),
         "quotes": len(edits),
     }
-
-
-# finish_reason values after which the call is resent with the same prompt below CLM's
-# step counter: the gateway sees one more call than CLM counts.
-RETRY_REASONS = {"malformed_function_call"}
 
 
 def row_for(run: Run) -> dict:

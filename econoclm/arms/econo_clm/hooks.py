@@ -16,9 +16,11 @@ Fail open: every change is made on a COPY of CLM's StepResult. If anything raise
 the error is recorded in hook_errors and CLM's original StepResult is returned.
 
 Usage tracking (on_response) runs after each model call: it keeps the last call's
-cached/uncached tokens (from litellm's usage, else from the gateway's ledger row),
-and the calibration k = provider prompt tokens / CLM-tokenizer tokens for the same
-messages, which puts our token positions in the provider's units.
+cached/uncached tokens (from litellm's usage, else from the gateway's ledger row), the
+reply's thinking tokens keyed by its thought signature (quote/hidden.py), and the
+calibration k = (provider prompt tokens - hidden thinking in the request) / CLM-tokenizer
+tokens for the same messages, which puts our counts of the visible text in the
+provider's units.
 """
 
 import asyncio
@@ -39,6 +41,7 @@ from ...core.meter import price_call_usd
 from ...core.run_store import RunStore
 from ...core.usage import Counts, counts, to_usage
 from ...quote.edit_quote import edit_quote
+from ...quote.hidden import hidden_per_message, sig_key, signature
 from ...quote.messages import default_count, obs_ids
 from ...quote.status_line import status_line
 
@@ -48,6 +51,7 @@ SANDBOX_DIR = "/tmp/econo"
 SETUP_COMMAND = (f"mkdir -p {SANDBOX_DIR}/obs && : > {SANDBOX_DIR}/index.tsv "
                  f"&& : > {SANDBOX_DIR}/log.tsv")
 LEDGER_WAIT_S = 0.5
+RETRY_REASONS = ("malformed_function_call",)  # resent below CLM's count (results_table.py)
 
 
 def usage_dict(response: Any) -> dict | None:
@@ -58,6 +62,16 @@ def usage_dict(response: Any) -> dict | None:
     if hasattr(usage, "model_dump"):
         return usage.model_dump()
     return dict(usage) if isinstance(usage, dict) else None
+
+
+def reply_signature(response: Any) -> str | None:
+    """The thought signature on the reply's tool calls (None if absent)."""
+    try:
+        msg = response.choices[0].message
+        msg = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+    except Exception:
+        return None
+    return signature(msg)
 
 
 class EconoHooks:
@@ -82,7 +96,9 @@ class EconoHooks:
         self.n_calls = 0                 # model calls seen by on_response
         self.n_hook_errors = 0
         self.last: Counts | None = None  # the last model call's tokens
-        self.k = 1.0                     # provider tokens per CLM-tokenizer token
+        self.k = 1.0                     # provider tokens per CLM-tokenizer token (visible text)
+        self.thinking: dict[str, int] = {}  # thought-signature key -> that call's thinking tokens
+        self.last_read: tuple[int, int, int] | None = None  # (Gemini read, CLM count, hidden)
         self.agent_cost_usd = 0.0        # fallback run cost (from litellm usage)
         self.reads: dict[str, tuple[str, int, int]] = {}  # path -> (sha1, turn, obs_id), latest read
 
@@ -114,8 +130,13 @@ class EconoHooks:
                            uncached=row["uncached_tokens"], output=row["output_tokens"],
                            reasoning=row["reasoning_tokens"])
         self.last = c
+        sig = reply_signature(response)
+        if sig:
+            self.thinking[sig_key(sig)] = c.reasoning or 0
         ours = self.count(messages)
-        self.k = (c.prompt / ours) if (c.prompt and ours) else 1.0
+        hidden = sum(hidden_per_message(messages, self.thinking))
+        self.k = ((c.prompt - hidden) / ours) if (c.prompt and ours and c.prompt > hidden) else 1.0
+        self.last_read = (c.prompt, ours, hidden) if c.prompt else None
         self.agent_cost_usd += price_call_usd(to_usage(usage), prices.RATES) if usage else 0.0
 
     async def ledger_row(self, n: int) -> dict | None:
@@ -129,7 +150,9 @@ class EconoHooks:
         try:
             while True:
                 rows = ledger.rows("SELECT * FROM calls WHERE run_id=? AND http_status=200 "
-                                   "ORDER BY call_no LIMIT 1 OFFSET ?", (self.run_id, n))
+                                   "AND COALESCE(finish_reason, '') NOT IN (?) "
+                                   "ORDER BY call_no LIMIT 1 OFFSET ?",
+                                   (self.run_id, *RETRY_REASONS, n))
                 if rows or time.monotonic() >= deadline:
                     return rows[0] if rows else None
                 await asyncio.sleep(0.05)
@@ -200,7 +223,7 @@ class EconoHooks:
         c = self.last.cached if self.last else None
         if sr.ctx_changed:
             q = edit_quote(before, messages, c, protect=self.protect(), k=self.k,
-                           count=self.count)
+                           count=self.count, thinking=self.thinking)
             if q is not None:
                 self.store.insert(
                     "edits", turn=turn, before_tokens=q.before_tokens,
@@ -216,7 +239,8 @@ class EconoHooks:
         st = status_line(messages + ([pending] if pending else []), cached_c=c,
                          uncached=self.last.uncached if self.last else None,
                          run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
-                         protect=self.protect(), k=self.k, count=self.count)
+                         protect=self.protect(), k=self.k, count=self.count,
+                         thinking=self.thinking, read=self.last_read)
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out
