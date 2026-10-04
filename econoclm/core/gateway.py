@@ -232,6 +232,7 @@ class Gateway(BaseHTTPRequestHandler):
                 queue_ms=round(queue_ms, 1), model=body.get("model"), stream=int(stream),
                 cached_reported=int(isinstance((usage or {}).get("prompt_tokens_details"), dict)),
                 usage_anomaly=int(anomaly),
+                raw_usage=json.dumps(usage, sort_keys=True) if usage is not None else None,
             )
             if anomaly:
                 log.warning("usage anomaly in %s: %s", run_id, usage)

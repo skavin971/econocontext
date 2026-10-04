@@ -106,6 +106,7 @@ def test_forwards_bytes_and_records_usage(servers):
     assert "placeholder" not in json.dumps(seen["headers"])  # the agent's key is not passed on
     row = rows(cfg, "r1")[0]
     assert row["usage_anomaly"] == 0
+    assert json.loads(row["raw_usage"]) == usage  # stored as received, for recomputing
     assert (row["prompt_tokens"], row["cached_tokens"], row["uncached_tokens"]) == (1000, 600, 400)
     assert row["output_tokens"] == 150  # reasoning reported outside completion_tokens
     assert row["reasoning_tokens"] == 50
@@ -248,7 +249,9 @@ def test_usage_anomalies_are_flagged(servers):
     ]
     for _ in range(3):
         post(f"{gw}/run/r9/v1/chat/completions", BODY)
-    assert [r["usage_anomaly"] for r in rows(cfg, "r9", n=3)] == [1, 1, 1]
+    got = rows(cfg, "r9", n=3)
+    assert [r["usage_anomaly"] for r in got] == [1, 1, 1]
+    assert [r["raw_usage"] for r in got[1:]] == ['{"prompt_tokens": 6}', None]
 
 
 def test_spend_cap_counts_other_phases(tmp_path):

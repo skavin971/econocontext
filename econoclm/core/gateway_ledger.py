@@ -13,7 +13,10 @@ Rate-limit columns (so rate limits never skew the comparison):
   latency_ms          the final upstream attempt only (excludes the two waits above)
 
 usage_anomaly = 1: the usage numbers don't add up, or a 200 reply had no usable output
-count (core/usage.py). Older ledgers get the column when opened.
+count (core/usage.py).
+raw_usage: the provider's usage JSON exactly as received (sorted keys), so tokens and
+costs can be recomputed if the parsing changes. Never holds the key.
+Older ledgers get the newer columns when opened.
 """
 
 import time
@@ -42,6 +45,7 @@ CREATE TABLE IF NOT EXISTS calls (
   stream INTEGER,
   cached_reported INTEGER,      -- 1 if prompt_tokens_details was present
   usage_anomaly INTEGER,        -- 1 if the usage numbers are inconsistent or missing
+  raw_usage TEXT,               -- the provider's usage JSON as received
   PRIMARY KEY (run_id, call_no)
 );
 """
@@ -49,15 +53,17 @@ CREATE TABLE IF NOT EXISTS calls (
 COLUMNS = ("prompt_tokens", "cached_tokens", "uncached_tokens", "output_tokens",
            "reasoning_tokens", "cost_usd", "latency_ms", "finish_reason", "http_status",
            "upstream_attempts", "ratelimit_wait_ms", "queue_ms", "model", "stream",
-           "cached_reported", "usage_anomaly")
+           "cached_reported", "usage_anomaly", "raw_usage")
+ADDED_COLUMNS = {"usage_anomaly": "INTEGER", "raw_usage": "TEXT"}  # added after v1 began
 
 
 class Ledger(Store):
     def __init__(self, path: str | Path):
         super().__init__(path, SCHEMA)
         have = {r["name"] for r in self.rows("PRAGMA table_info(calls)")}
-        if "usage_anomaly" not in have:
-            self.execute("ALTER TABLE calls ADD COLUMN usage_anomaly INTEGER")
+        for name, kind in ADDED_COLUMNS.items():
+            if name not in have:
+                self.execute(f"ALTER TABLE calls ADD COLUMN {name} {kind}")
 
     def insert(self, run_id: str, **fields) -> int:
         """Record one call; returns its call_no (0, 1, 2, ... per run)."""

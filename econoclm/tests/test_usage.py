@@ -69,7 +69,7 @@ def test_no_output_count_at_all():
     assert billed_output(None) == (None, False)
 
 
-def test_old_ledger_gets_the_anomaly_column(tmp_path):
+def test_old_ledger_gets_the_new_columns(tmp_path):
     import sqlite3
     path = tmp_path / "gateway.sqlite"
     old = sqlite3.connect(path)
@@ -79,6 +79,8 @@ def test_old_ledger_gets_the_anomaly_column(tmp_path):
     old.commit()
     old.close()
     ledger = Ledger(path)
-    ledger.insert("smoke", cost_usd=0.001, usage_anomaly=0)
-    assert [r["usage_anomaly"] for r in ledger.calls("smoke")] == [None, 0]
+    ledger.insert("smoke", cost_usd=0.001, usage_anomaly=0, raw_usage='{"prompt_tokens": 6}')
+    got = ledger.calls("smoke")
+    assert [r["usage_anomaly"] for r in got] == [None, 0]
+    assert [r["raw_usage"] for r in got] == [None, '{"prompt_tokens": 6}']
     ledger.close()
