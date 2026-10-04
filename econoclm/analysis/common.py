@@ -22,6 +22,14 @@ from ..core.gateway_ledger import Ledger
 from ..core.run_store import RunStore
 from ..core.tokenizer import use_bundled_tokenizer
 
+# finish_reason values after which the call is resent with the same prompt below CLM's
+# step counter: the gateway sees one more call than CLM counts.
+RETRY_REASONS = {"malformed_function_call"}
+
+# Vertex's 400 for a request that ends with an assistant turn: CLM's rebuild after an edit
+# can produce one (Gate 4, scan-linux-persistence-artifacts); CLM retries it and fails.
+REBUILD_REJECTED = "Requests ending with a model turn are not supported"
+
 use_bundled_tokenizer()  # count tokens exactly as the runs did, on any machine
 
 
@@ -48,6 +56,17 @@ class Run:
     def exception(self) -> str | None:
         exc = (self.result or {}).get("exception_info")
         return exc.get("exception_type") if exc else None
+
+    @property
+    def exception_message(self) -> str:
+        exc = (self.result or {}).get("exception_info")
+        return str(exc.get("exception_message") or "") if exc else ""
+
+    @property
+    def rebuild_rejected(self) -> bool:
+        """The trial died because Vertex refused a request CLM's rebuild ended with an
+        assistant turn ("Requests ending with a model turn are not supported")."""
+        return REBUILD_REJECTED in self.exception_message
 
     @property
     def wall_s(self) -> float | None:

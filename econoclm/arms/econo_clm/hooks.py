@@ -16,9 +16,10 @@ Fail open: every change is made on a COPY of CLM's StepResult. If anything raise
 the error is recorded in hook_errors and CLM's original StepResult is returned.
 
 Usage tracking (on_response) runs after each model call: it keeps the last call's
-cached/uncached tokens (from litellm's usage, else from the gateway's ledger row),
-and the calibration k = provider prompt tokens / CLM-tokenizer tokens for the same
-messages, which puts our token positions in the provider's units.
+cached/uncached tokens (from litellm's usage, else from the gateway's ledger row), the
+reply's thinking tokens keyed by its thought signature, and a HiddenMeter
+(quote/hidden.py) that measures how much hidden thinking Gemini read in the call and
+keeps k (Gemini tokens per CLM-tokenizer token of visible text) calibrated.
 """
 
 import asyncio
@@ -39,6 +40,7 @@ from ...core.meter import price_call_usd
 from ...core.run_store import RunStore
 from ...core.usage import Counts, counts, to_usage
 from ...quote.edit_quote import edit_quote
+from ...quote.hidden import HiddenMeter, sig_key, signature
 from ...quote.messages import default_count, obs_ids
 from ...quote.status_line import status_line
 
@@ -48,6 +50,8 @@ SANDBOX_DIR = "/tmp/econo"
 SETUP_COMMAND = (f"mkdir -p {SANDBOX_DIR}/obs && : > {SANDBOX_DIR}/index.tsv "
                  f"&& : > {SANDBOX_DIR}/log.tsv")
 LEDGER_WAIT_S = 0.5
+HIT_WINDOW = 10        # recent calls for the cache-hit rate shown in the quote and status line
+RETRY_REASONS = ("malformed_function_call",)  # resent below CLM's count (results_table.py)
 
 
 def usage_dict(response: Any) -> dict | None:
@@ -58,6 +62,16 @@ def usage_dict(response: Any) -> dict | None:
     if hasattr(usage, "model_dump"):
         return usage.model_dump()
     return dict(usage) if isinstance(usage, dict) else None
+
+
+def reply_signature(response: Any) -> str | None:
+    """The thought signature on the reply's tool calls (None if absent)."""
+    try:
+        msg = response.choices[0].message
+        msg = msg.model_dump() if hasattr(msg, "model_dump") else dict(msg)
+    except Exception:
+        return None
+    return signature(msg)
 
 
 class EconoHooks:
@@ -82,7 +96,11 @@ class EconoHooks:
         self.n_calls = 0                 # model calls seen by on_response
         self.n_hook_errors = 0
         self.last: Counts | None = None  # the last model call's tokens
-        self.k = 1.0                     # provider tokens per CLM-tokenizer token
+        self.k = 1.0                     # provider tokens per CLM-tokenizer token (visible text)
+        self.thinking: dict[str, int] = {}  # thought-signature key -> that call's thinking tokens
+        self.meter = HiddenMeter()
+        self.hit_log: list[bool] = []    # per model call after the first: any cached tokens?
+        self.last_read: tuple[int, int, int] | None = None  # (Gemini read, CLM count, hidden)
         self.agent_cost_usd = 0.0        # fallback run cost (from litellm usage)
         self.reads: dict[str, tuple[str, int, int]] = {}  # path -> (sha1, turn, obs_id), latest read
 
@@ -114,9 +132,22 @@ class EconoHooks:
                            uncached=row["uncached_tokens"], output=row["output_tokens"],
                            reasoning=row["reasoning_tokens"])
         self.last = c
+        if self.n_calls > 1:
+            self.hit_log.append(bool(c.cached))
         ours = self.count(messages)
-        self.k = (c.prompt / ours) if (c.prompt and ours) else 1.0
+        hidden = self.meter.observe(messages, c.prompt, ours, self.thinking)
+        self.k = self.meter.k
+        self.last_read = (c.prompt, ours, hidden) if hidden is not None else None
+        sig = reply_signature(response)   # this reply's thinking: read by later calls
+        if sig:
+            self.thinking[sig_key(sig)] = c.reasoning or 0
         self.agent_cost_usd += price_call_usd(to_usage(usage), prices.RATES) if usage else 0.0
+
+    def hits(self) -> tuple[int, int] | None:
+        """(calls with a cache hit, calls) over the last HIT_WINDOW calls (the run's first
+        call is left out: nothing can be cached yet)."""
+        recent = self.hit_log[-HIT_WINDOW:]
+        return (sum(recent), len(recent)) if recent else None
 
     async def ledger_row(self, n: int) -> dict | None:
         """The gateway's row for this run's n-th successful call (0-based; failed
@@ -129,7 +160,9 @@ class EconoHooks:
         try:
             while True:
                 rows = ledger.rows("SELECT * FROM calls WHERE run_id=? AND http_status=200 "
-                                   "ORDER BY call_no LIMIT 1 OFFSET ?", (self.run_id, n))
+                                   "AND COALESCE(finish_reason, '') NOT IN (?) "
+                                   "ORDER BY call_no LIMIT 1 OFFSET ?",
+                                   (self.run_id, *RETRY_REASONS, n))
                 if rows or time.monotonic() >= deadline:
                     return rows[0] if rows else None
                 await asyncio.sleep(0.05)
@@ -200,7 +233,8 @@ class EconoHooks:
         c = self.last.cached if self.last else None
         if sr.ctx_changed:
             q = edit_quote(before, messages, c, protect=self.protect(), k=self.k,
-                           count=self.count)
+                           count=self.count, thinking=self.thinking, mode=self.meter.mode,
+                           hits=self.hits())
             if q is not None:
                 self.store.insert(
                     "edits", turn=turn, before_tokens=q.before_tokens,
@@ -216,7 +250,9 @@ class EconoHooks:
         st = status_line(messages + ([pending] if pending else []), cached_c=c,
                          uncached=self.last.uncached if self.last else None,
                          run_cost_usd=self.run_cost(), n_stored=self.n_obs, stale=stale,
-                         protect=self.protect(), k=self.k, count=self.count)
+                         protect=self.protect(), k=self.k, count=self.count,
+                         thinking=self.thinking, mode=self.meter.mode, read=self.last_read,
+                         hits=self.hits())
         self.store.insert("status_lines", turn=turn, text=st.line, stale_paths=json.dumps(stale))
         out.readout = sr.readout + "\n" + st.line
         return out

@@ -98,8 +98,12 @@ def test_scripts_run_on_a_synthetic_day(tmp_path):
     assert res["arms"]["raw"]["edit_usd"] == pytest.approx(7 * (prices.PRICE_IN - prices.PRICE_CACHED))
 
     qc = quote_check.check(runs, count=count)
-    assert qc == [{"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True}]
-    assert quote_check.summary(qc)["median_abs_err_tokens"] == 3
+    keys = ("run_id", "turn", "R", "actual", "rewrite_seen", "gap_s")
+    assert [{k: r[k] for k in keys} for r in qc] == [
+        {"run_id": "econo-task-a-r1", "turn": 2, "R": 10, "actual": 7, "rewrite_seen": True, "gap_s": 0.0}]
+    assert qc[0]["edit_caused"] + qc[0]["background"] == qc[0]["actual"]
+    assert quote_check.summary(qc)["violations"] == 0
+    assert quote_check.summary(qc)["median_abs_err_tokens"] == 10   # |R - edit-caused|, edit-caused 0
 
 
 def test_split_format_change_vs_edit_position():
@@ -162,3 +166,19 @@ def test_gate_check_allows_provider_side_retries_only(tmp_path, capsys):
     ledger.insert("raw-task-a-r1", finish_reason="stop", **row)  # unexplained extra row
     assert gate_check.main([str(day), "--gate", "3"]) == 1
     assert "[FAIL] gateway calls = CLM LM calls + provider-side retries" in capsys.readouterr().out
+
+
+def test_rebuild_rejected_is_counted(tmp_path):
+    import json as _json
+    from econoclm.analysis.common import load_runs
+    from econoclm.analysis.results_table import row_for
+    day = make_day(tmp_path)
+    res = day / "harbor" / "raw-task-a-r1" / "result.json"
+    data = _json.loads(res.read_text())
+    data["exception_info"] = {"exception_type": "BadRequestError", "exception_message":
+        "Error code: 400 - [{'error': {'code': 400, 'message': 'Requests ending with a model "
+        "turn are not supported.', 'status': 'INVALID_ARGUMENT'}}]"}
+    res.write_text(_json.dumps(data))
+    rows = {r.run_id: row_for(r) for r in load_runs(day)}
+    assert rows["raw-task-a-r1"]["rebuild_rejected"] == 1
+    assert rows["econo-task-a-r1"]["rebuild_rejected"] == 0

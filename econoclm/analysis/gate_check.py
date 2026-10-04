@@ -28,8 +28,8 @@ from collections import Counter
 from pathlib import Path
 
 from . import quote_check
-from .common import Run, load_runs
-from .results_table import RETRY_REASONS, commands
+from .common import RETRY_REASONS, Run, load_runs
+from .results_table import commands
 
 
 def base_checks(run: Run) -> list[tuple[str, bool, str]]:
