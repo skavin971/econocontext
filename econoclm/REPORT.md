@@ -241,6 +241,42 @@ Run after Gate 6 on the same 10 tasks and settings (`runs/2026-10-03-main`, `eng
   - All are in `scan-linux`: the live estimate p was 170–290 tokens past the exact P, and three times that put p just above the 4,096 line while P was below it.
 - Pass and cost differences between the four arms are within the noise band (§7).
 
+### EconoCLM-View, Gemini gate (deviation 9)
+
+Run 2026-10-04 on the same 10 tasks and settings (`runs/2026-10-03-main`, `view_report.md`). Shared parts unchanged, no infra failures, $1.64.
+
+| Gate criterion (pre-set) | Result |
+|---|---|
+| 1. No crashes or hook errors | **PASS** (0 exceptions, 0 hook errors) |
+| 2. Model edits VIEW.md in at least 5 of 10 runs | **FAIL: 4 of 10** (`bandit`, `malicious`, `maven`, `scan-linux`; the 1-task pilot also edited) |
+| 3. At least 6 of 10 pass | **PASS: 8 of 10** |
+| 4. Same view, same bytes | **PASS: 231 of 231** logged views re-render to the logged sha256 |
+
+| | CLM | EconoCLM-Tools | EconoCLM-View |
+|---|---|---|---|
+| Passed | 8 | 9 | 8 |
+| Total $ | $1.820 | $1.933 | $1.642 |
+| $ per solved task | $0.227 | $0.215 | $0.205 |
+| Context edits | 24 (CLM file) | 24 (CLM file) | 17 (VIEW.md) |
+| Rollbacks | 6 | 5 | 0 |
+| Rebuild rejected by Vertex | 1 | 0 | 0 |
+| Edit-caused share of the bill | 7.1% | 6.3% | 2.3% |
+| Append-only misses | 27.2% | 23.9% | 26.0% |
+
+**Deviations found in the run** (not fixed, because the run had already happened):
+
+1. **Multi-line notes were lost.** VIEW.md's format has single-line notes (`note NAME: TEXT`).
+   - In 10 of the 17 model edits, the model wrote `note SUMMARY:` followed by 8–25 lines of text. Every continuation line was ignored as "not a view line" (the receipt said so), so each such note reached the prompt empty.
+   - In `malicious` the model emptied the view at all 3 of its edits.
+   - Part of View's lower cost therefore comes from the model discarding its context, not from managing it.
+2. **A trailing skill separator.** View's system prompt is CLM's with only the section swapped, plus a trailing `\n\n---\n\n`. CLM's `run` appends that separator whenever `skill_dirs` is set, even without a SKILL.md, and View sets `skill_dirs` only to put the `econo` tool on PATH.
+
+**Other observations.**
+- **Where edits happened.** The model's edits replace the whole view from the top: the median first changed line is at 0% of the view.
+- **The cache minimum.** All 17 View rewrites changed something below the 4,096-token line, so each lost the whole cache. Edit-caused re-read is low (2.3%) only because the view shrank so much.
+- **Unused features.** No obs lines, no `econo get` or `econo search`, and no restores were used.
+- **Stale flags.** 3 were shown and 1 was followed by a re-read.
+
 ## 6. Anomalies
 
 _Usage anomalies by arm ("Usage anomalies (ledger)" in `results.md`; must be 0, else list the rows and their usage), hook errors, failed or `infra_fail` trials, rate-limit waits by arm, anything surprising._
