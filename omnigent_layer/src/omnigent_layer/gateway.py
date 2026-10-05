@@ -38,7 +38,7 @@ from . import DB_PATH, HOME, agent_id, current_run, engine_for, env, wire
 log = logging.getLogger("econocontext.gateway")
 # /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
 # sub-agents, whose model URL comes from a global Omnigent provider and cannot name a run).
-PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
+PATH = re.compile(r"^/(?:run/(?P<run>[\w.:+-]+)|current)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
 LOG_DIR = HOME / "logs" / "gateway"
 # Tool results the gateway replaced with pointers (COMMIT_PENDING), per agent: applied to
 # every later request so the change is made once and the prefix stays stable after it.
