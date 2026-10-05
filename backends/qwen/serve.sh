@@ -23,6 +23,7 @@ FLAGS=(
   --served-model-name "$SERVED_NAME"
   --dtype bfloat16 --tensor-parallel-size 1
   --max-model-len 65536 --gpu-memory-utilization 0.92
+  --max-num-seqs 64
   --enable-prefix-caching --enable-prompt-tokens-details
   --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3
   --host 127.0.0.1 --port "$PORT"
