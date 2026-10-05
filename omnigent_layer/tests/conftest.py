@@ -4,6 +4,7 @@ import pytest
 
 import omnigent_layer
 from omnigent_layer import gateway
+from omnigent_layer import research
 
 
 @pytest.fixture(autouse=True)
@@ -13,4 +14,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(gateway, "LOG_DIR", tmp_path / "logs")
     monkeypatch.setattr(omnigent_layer, "_engines", {})
     monkeypatch.setattr(omnigent_layer, "CURRENT", tmp_path / "current_run")
-    return tmp_path
+    monkeypatch.setattr(research, "DB_PATH", tmp_path / "agent.sqlite3")
+    monkeypatch.setattr(research, "BINDINGS", tmp_path / "research-bindings")
+    monkeypatch.setattr(research, "_cache", {})
+    yield tmp_path
+    for sink in research._cache.values():
+        sink.close()

@@ -27,6 +27,11 @@ import json
 import os
 import re
 import subprocess
+import time
+import uuid
+
+from econocontext.observation import observe
+from .research import recorder_for_workspace
 
 TIMEOUT_S = 300
 MAX_OUTPUT_CHARS = 30_000  # keeps one command's output from flooding the window
@@ -45,8 +50,18 @@ def _container_for(workdir: str) -> tuple[str, dict[str, str]] | None:
 def container_shell(command: str) -> str:
     """Run a bash command in the repository's own environment (cwd: the repository root)."""
     workdir = os.path.realpath(os.getcwd())
-    found = _container_for(workdir)
+    sink = recorder_for_workspace(workdir)
+    started = time.monotonic()
+    execution_id = uuid.uuid4().hex
+    links = dict(source="container_shell", call_id=execution_id)
+    observe(sink, "shell.started", {"command": command, "workspace": workdir}, **links)
+    try:
+        found = _container_for(workdir)
+    except Exception as exc:
+        observe(sink, "shell.error", {"type": type(exc).__name__}, **links)
+        raise
     if found is None:
+        observe(sink, "shell.error", {"type": "container_unavailable"}, **links)
         return f"error: no running container is bound to this workspace ({workdir})"
     container, labels = found
     mount = labels.get("econocontext.mount", "/workspace")
@@ -56,8 +71,18 @@ def container_shell(command: str) -> str:
         done = subprocess.run(["docker", "exec", container, "bash", "-lc", script],
                               capture_output=True, text=True, timeout=TIMEOUT_S)
         code, out, err = done.returncode, done.stdout, done.stderr
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        observe(sink, "shell.output", {"command": command, "exit_code": None,
+                "stdout": exc.stdout or b"", "stderr": exc.stderr or b"", "timed_out": True,
+                "duration_ms": (time.monotonic() - started) * 1000}, **links)
         code, out, err = -1, "", f"timed out after {TIMEOUT_S} s"
+    except Exception as exc:
+        observe(sink, "shell.error", {"type": type(exc).__name__}, **links)
+        raise
+    else:
+        observe(sink, "shell.output", {"command": command, "exit_code": code,
+                "stdout": out, "stderr": err, "timed_out": False,
+                "duration_ms": (time.monotonic() - started) * 1000}, **links)
     text = f"exit code: {code}\nstdout:\n{out}\nstderr:\n{err}"
     # Only the mount path itself (e.g. /testbed/src/x.py), not names that contain it
     # (e.g. /opt/miniconda3/envs/testbed).

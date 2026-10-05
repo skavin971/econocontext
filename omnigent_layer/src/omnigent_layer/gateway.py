@@ -28,13 +28,17 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from http.client import IncompleteRead
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from econocontext.store.db import AgentDB
 from econocontext.types import HostRequest
+from econocontext.observation import observing
+from econocontext.research.capture import CallCapture
 
 from . import DB_PATH, HOME, agent_id, current_run, engine_for, wire
+from .research import recorder_for
 
 log = logging.getLogger("econocontext.gateway")
 # /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
@@ -111,10 +115,15 @@ class Gateway(BaseHTTPRequestHandler):
             # e.g. /responses: Vertex serves Chat Completions only (question 0a).
             entry["refused"] = "unsupported path"
             self.write_log(entry)
+            self.capture_refusal(match, raw, 404, "unsupported path")
             return self.reply_error(404, f"unsupported path {self.path}: this gateway serves "
                                          f"Chat Completions only; set the harness to use them")
         run_id = match["run"] or current_run()
-        body = json.loads(raw)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            self.capture_refusal(match, raw, 400, "invalid JSON")
+            raise
         # Named agents (workers) share one URL; each instance is told apart by its first
         # user message, which a continued worker keeps.
         agent = agent_id(run_id, match["agent"], wire.first_user_text(body))
@@ -123,17 +132,27 @@ class Gateway(BaseHTTPRequestHandler):
         if found is None:
             entry["refused"] = "unregistered run"
             self.write_log(entry)
+            self.capture_refusal(match, raw, 400, "unregistered run")
             return self.reply_error(400, f"run {run_id} is not registered")
         engine, arm = found
+        call_id = uuid.uuid4().hex  # shared by operational accounting and the passive trace
+        sink = recorder_for(run_id)
+        engine.observer = sink
+        capture = CallCapture(sink, call_id, raw, body, agent_id=agent,
+                              provider=engine.cfg["model"]["provider"],
+                              identity_basis="prompt_hash" if match["agent"] else "root_route")
+        self.capture = capture
         cap = over_cap(self.db, run_id)
         if cap:
             entry["refused"] = cap
             self.write_log(entry)
+            capture.finish("refused", 429, error={"reason": cap})
             return self.reply_error(429, cap)
 
         decision_id = None
         if arm == "econo":
-            body, decision_id = self.plan(engine, run_id, agent, body)
+            with observing(sink, call_id=call_id):
+                body, decision_id = self.plan(engine, run_id, agent, body)
             raw = json.dumps(body).encode()
         stream = bool(body.get("stream"))
         if stream and not (body.get("stream_options") or {}).get("include_usage"):
@@ -146,18 +165,40 @@ class Gateway(BaseHTTPRequestHandler):
             (LOG_DIR / "bodies").mkdir(parents=True, exist_ok=True)
             (LOG_DIR / "bodies" / f"{time.time_ns()}.json").write_bytes(raw)
 
-        call_id = uuid.uuid4().hex  # one id for the outcome row and its timing span
+        capture.sent(raw, body, decision_id)
         span = self.start_span(engine, agent, call_id, body, decision_id, arm)
         usage, status = None, 502
+        failure = None
         try:
             usage, status = self.forward(raw, stream)
+        except Exception as exc:
+            failure = type(exc).__name__
+            raise
         finally:
             latency = (time.monotonic() - started) * 1000
             self.finish_span(engine, agent, span, latency, status == 200)
+            capture.finish("error" if failure else ("completed" if status == 200 else "http_error"),
+                           status, latency, usage, card=engine.config.card,
+                           error={"type": failure} if failure else None, normalizer=wire.to_usage)
         entry.update(status=status, usage=usage, latency_ms=round(latency))
         self.write_log(entry)
         if status == 200:
             self.measure(engine, agent, call_id, decision_id, usage, latency)
+
+    def capture_refusal(self, match, raw, status, reason):
+        if not match:
+            return  # no identifiable run
+        sink = recorder_for(match["run"] or current_run())
+        if sink is None:
+            return
+        try:
+            body = json.loads(raw)
+            if not isinstance(body, dict):
+                body = {}
+        except ValueError:
+            body = {}
+        capture = CallCapture(sink, uuid.uuid4().hex, raw, body)
+        capture.finish("refused", status, error={"reason": reason, "path": self.path})
 
     def plan(self, engine, run_id, agent, body) -> tuple[dict, str | None]:
         """plan_prompt on the full request. Observe mode logs; autopilot may reorder, and
@@ -228,11 +269,17 @@ class Gateway(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as err:
             upstream = err
         status = upstream.status if hasattr(upstream, "status") else upstream.code
+        self.capture.http_status = status
         self.send_response(status)
         self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/json"))
         usage = None
         if not stream or status != 200:
-            data = upstream.read()
+            try:
+                data = upstream.read()
+            except IncompleteRead as exc:
+                self.capture.response(exc.partial)
+                raise
+            self.capture.response(data)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -242,6 +289,7 @@ class Gateway(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         for line in upstream:
+            self.capture.chunk(line)
             self.wfile.write(line)
             self.wfile.flush()
             if line.startswith(b"data: {"):

@@ -81,13 +81,16 @@ def engine_for(run_id: str) -> tuple[EconoContext, str] | None:
 
 def _engine(run_id, arm, mode, instance_id, jev, overrides, workdir) -> EconoContext:
     """One engine for a run, the same in every process (gateway, Omnigent's server)."""
+    from .research import recorder_for
+
     overrides = dict(overrides or {})
     learned = overrides.pop("learned", False)
     history = History(AgentDB(DB_PATH), exclude_instance=instance_id) if learned else None
     return EconoContext(str(CONFIG_DIR), OmnigentHost(workdir) if workdir else None, run_id,
                         host_name="omnigent", arm=arm, instance_id=instance_id,
                         db_path=str(DB_PATH), mode=mode, jev=jev,
-                        overrides=overrides or None, workdir=workdir, history=history)
+                        overrides=overrides or None, workdir=workdir, history=history,
+                        observer=recorder_for(run_id))
 
 
 def agent_id(run_id: str, agent: str | None, instance_key: str | None = None) -> str:

@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from econocontext.observation import observe
+
 
 def docker_available() -> bool:
     if not shutil.which("docker"):
@@ -18,7 +20,8 @@ def docker_available() -> bool:
 
 
 def evaluate(predictions: Path, instance_ids: list[str], run_id: str,
-             dataset: str = "SWE-bench/SWE-bench_Verified", workdir: Path | None = None) -> dict:
+             dataset: str = "SWE-bench/SWE-bench_Verified", workdir: Path | None = None,
+             recorder=None) -> dict:
     """Run swebench 5.0.2 on `predictions` (JSONL). Each call needs a fresh run_id: the
     harness caches results by run_id + instance_id."""
     if not docker_available():
@@ -29,6 +32,9 @@ def evaluate(predictions: Path, instance_ids: list[str], run_id: str,
            "--predictions_path", str(predictions.resolve()), "--instance_ids", *instance_ids,
            "--max_workers", "1", "--run_id", run_id]
     done = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    observe(recorder, "artifact", {"name": "evaluation_process", "content": {
+            "command": cmd, "returncode": done.returncode, "stdout": done.stdout,
+            "stderr": done.stderr}}, source="evaluator")
     reports = sorted(Path(cwd).glob(f"*.{run_id}.json"))
     if done.returncode != 0 or not reports:
         raise RuntimeError(f"swebench evaluation failed ({done.returncode}):\n{done.stdout[-2000:]}"

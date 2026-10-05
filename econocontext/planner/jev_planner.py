@@ -46,11 +46,16 @@ Test
 
 import json
 import os
+import sys
+import time
+import uuid
 from dataclasses import asdict
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ..types import PlanContext, Segment, ToolResultEvent
+from ..observation import current_observer
+from ..research.capture import CallCapture
 
 
 def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg: dict,
@@ -89,19 +94,41 @@ def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
     )
+    capture = CallCapture(current_observer(), uuid.uuid4().hex, request.data, payload,
+                          agent_id=segment.agent_id, provider="typesafe", purpose="predictor",
+                          source="jev")
+    capture.sent(request.data, payload)
+    started = time.monotonic()
+    status, response_body = None, None
     try:
         with urlopen(request, timeout=settings["timeout_seconds"]) as response:
-            answer = json.load(response)["answers"]["needed_again"]
+            status = getattr(response, "status", 200)
+            raw_response = response.read()
+            capture.response(raw_response)
+            response_body = json.loads(raw_response)
+            answer = response_body["answers"]["needed_again"]
         answer_type, probability = answer["type"], answer["noul"]
     except HTTPError as exc:
+        status = exc.code
+        if current_observer() is not None:
+            try:
+                capture.response(exc.read())
+            except Exception:
+                pass  # Preserve the original predictor failure even if observation fails.
         # The engine logs exceptions: don't include response bodies or credentials.
         raise RuntimeError(f"Jev HTTP {exc.code}") from None
     except (URLError, TimeoutError):
         raise RuntimeError("Jev request failed or timed out") from None
     except (ValueError, KeyError, TypeError):
         raise ValueError("Jev returned an invalid response") from None
-
-    if (answer_type != "noul" or type(probability) not in (int, float)
-            or not 0.0 <= probability <= 1.0):
-        raise ValueError("Jev returned an invalid probability")
+    else:
+        if (answer_type != "noul" or type(probability) not in (int, float)
+                or not 0.0 <= probability <= 1.0):
+            raise ValueError("Jev returned an invalid probability")
+    finally:
+        failure = sys.exc_info()[0]
+        capture.finish("error" if failure else "completed", status,
+                       (time.monotonic() - started) * 1000,
+                       response_body.get("usage") if isinstance(response_body, dict) else None,
+                       error={"type": failure.__name__} if failure else None)
     return float(probability)
