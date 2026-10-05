@@ -31,6 +31,18 @@ CURRENT = HOME / "data" / "current_run"   # the run sub-agents' calls belong to
 ARMS = ("baseline", "econo")
 
 _engines: dict[str, tuple[EconoContext, str]] = {}  # run_id -> (engine, arm)
+
+
+def env(name: str, default: str | None = None) -> str | None:
+    """From the process environment, else from HOME/.env. Never printed."""
+    if name in os.environ:
+        return os.environ[name]
+    path = HOME / ".env"
+    if path.exists():
+        for line in path.read_text().splitlines():
+            if line.startswith(name + "="):
+                return line.split("=", 1)[1].strip().strip('"')
+    return default
 _lock = threading.Lock()
 
 
@@ -81,6 +93,10 @@ def engine_for(run_id: str) -> tuple[EconoContext, str] | None:
 
 def _engine(run_id, arm, mode, instance_id, jev, overrides, workdir) -> EconoContext:
     """One engine for a run, the same in every process (gateway, Omnigent's server)."""
+    # Omnigent's daemon runs under launchd and does not see the shell's environment, so
+    # the policy's engine would never find Jev's key; read it the way the gateway does.
+    if jev and "TYPESAFE_API_KEY" not in os.environ and env("TYPESAFE_API_KEY"):
+        os.environ["TYPESAFE_API_KEY"] = env("TYPESAFE_API_KEY")
     overrides = dict(overrides or {})
     learned = overrides.pop("learned", False)
     history = History(AgentDB(DB_PATH), exclude_instance=instance_id) if learned else None

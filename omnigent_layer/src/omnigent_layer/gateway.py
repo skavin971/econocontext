@@ -22,7 +22,6 @@ Run: .venv/bin/python -m omnigent_layer.gateway [--port 8787]
 import argparse
 import json
 import logging
-import os
 import re
 import time
 import urllib.error
@@ -34,7 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from econocontext.store.db import AgentDB
 from econocontext.types import HostRequest
 
-from . import DB_PATH, HOME, agent_id, current_run, engine_for, wire
+from . import DB_PATH, HOME, agent_id, current_run, engine_for, env, wire
 
 log = logging.getLogger("econocontext.gateway")
 # /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
@@ -45,18 +44,6 @@ LOG_DIR = HOME / "logs" / "gateway"
 # every later request so the change is made once and the prefix stays stable after it.
 POINTERS_TABLE = ("CREATE TABLE IF NOT EXISTS gateway_pointers (run_id TEXT, agent_id TEXT, "
                   "tool_call_id TEXT, text TEXT, PRIMARY KEY (run_id, agent_id, tool_call_id))")
-
-
-def env(name: str, default: str | None = None) -> str | None:
-    """From the process environment, else from HOME/.env. Never printed."""
-    if name in os.environ:
-        return os.environ[name]
-    path = HOME / ".env"
-    if path.exists():
-        for line in path.read_text().splitlines():
-            if line.startswith(name + "="):
-                return line.split("=", 1)[1].strip().strip('"')
-    return default
 
 
 UPSTREAM = (env("ECONOCONTEXT_BASE_URL") or "").rstrip("/")  # Vertex .../endpoints/openapi
