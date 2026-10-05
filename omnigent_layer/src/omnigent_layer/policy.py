@@ -31,12 +31,15 @@ import json
 import logging
 import os
 import time
+import uuid
 
 from econocontext.monitor import context_map
 from econocontext.types import ToolCallEvent, ToolResultEvent
+from econocontext.observation import observe, observing
 
 from . import agent_id, engine_for
 from .workspace import Workspace
+from .research import recorder_for
 
 log = logging.getLogger("econocontext.policy")
 
@@ -99,12 +102,13 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
             return {"result": "ALLOW", "data": admitted.rendered_text}
         return None
 
-    def evaluate(event: dict) -> dict | None:
+    def evaluate_decisions(event: dict) -> dict | None:
         try:
             found = engine_for(run_id)
             if found is None or found[1] != "econo":
                 return None
             engine, phase = found[0], event.get("type")
+            engine.observer = recorder_for(run_id)
             name, data = event.get("target") or "", event.get("data") or {}
             if phase == "tool_call" and name == DISPATCH:
                 return on_dispatch(engine, data.get("arguments") or {})
@@ -121,6 +125,17 @@ def econocontext(run_id: str, workdir: str | None = None, agent: str = "root"):
         except Exception:
             log.exception("econocontext policy failed open")
         return None
+
+    def evaluate(event: dict) -> dict | None:
+        sink = recorder_for(run_id)
+        event_id = uuid.uuid4().hex
+        # Record before evaluation: a crash still leaves the incoming observation.
+        observe(sink, "tool.observed" if event.get("type") in ("tool_call", "tool_result")
+                else "policy.observed", {"event": event}, event_id=event_id, source="policy")
+        with observing(sink, parent_event_id=event_id):
+            reply = evaluate_decisions(event)
+        observe(sink, "policy.returned", {"reply": reply}, parent_event_id=event_id, source="policy")
+        return reply
 
     return evaluate
 

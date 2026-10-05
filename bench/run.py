@@ -39,10 +39,13 @@ from omnigent.host.identity import load_or_create_host_identity
 from omnigent_client import OmnigentClient, SessionsChat
 
 from omnigent_layer import HOME, engine_for, register_run
+from omnigent_layer import research
+from econocontext.observation import observe
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate import evaluate  # noqa: E402
 from tasks import SETS, load  # noqa: E402
+from research_metadata import snapshot  # noqa: E402
 
 BENCH = Path(__file__).parent
 ACTIVATE = "source /opt/miniconda3/bin/activate testbed"
@@ -79,7 +82,8 @@ def prepare(image: str, workdir: Path, container: str) -> None:
        "-v", f"{workdir}:/testbed", "-w", "/testbed", image, "sleep", "infinity")
 
 
-async def run_session(server: str, spec: Path, workdir: Path, prompt: str, seconds: float) -> str:
+async def run_session(server: str, spec: Path, workdir: Path, prompt: str, seconds: float,
+                      recorder=None) -> str:
     # The same path `omnigent run` takes: the host daemon launches a runner for the new
     # session. These helpers are private to Omnigent 0.15.0 (pinned); re-check on upgrade.
     prepared = await _prepare_chat_session_via_daemon(
@@ -90,6 +94,7 @@ async def run_session(server: str, spec: Path, workdir: Path, prompt: str, secon
     async with OmnigentClient(base_url=server) as client:
         bound = await client.sessions.get(prepared.session_id)
         print(f"session {server}/c/{bound.id}", flush=True)
+        research.artifact(recorder, "session", {"id": bound.id, "server": server})
         files = client.files.for_session(bound.id)
         chat = SessionsChat(namespace=client.sessions, files_uploader=files.upload,
                             files_getter=files.get, session=bound)
@@ -138,10 +143,26 @@ def run_one(a, instance: str, overrides: dict) -> None:
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
     values = {"run_id": run_id, "gateway": a.gateway, "workdir": str(workdir)}
-    text = (BENCH / "agent.yaml").read_text() + (POLICY if a.arm == "econo" else "")
+    # Every run records tool events; baseline policy evaluation makes no optimizer changes.
+    text = (BENCH / "agent.yaml").read_text() + POLICY
     spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
     spec.parent.mkdir(parents=True, exist_ok=True)
     spec.write_text(Template(text).substitute(values))
+    recorder = research.start(run_id, snapshot(HOME, a, inst, overrides, spec.read_text()),
+                              str(workdir))
+    print(f"research trace {recorder.run_id} in {recorder.path}", flush=True)
+    try:
+        execute_run(a, inst, run_id, safe, workdir, container, spec, overrides, recorder)
+    except BaseException as exc:
+        observe(recorder, "run.finished", {"status": "interrupted" if isinstance(exc, KeyboardInterrupt)
+                else "error", "error_type": type(exc).__name__}, source="bench")
+        raise
+    finally:
+        research.stop(run_id, recorder, str(workdir))
+
+
+def execute_run(a, inst, run_id, safe, workdir, container, spec, overrides, recorder):
+    instance = inst.instance_id
     register_run(run_id, a.arm, a.mode, instance, jev=a.jev and a.arm == "econo", current=True,
                  overrides=overrides or None, workdir=str(workdir))
     print(f"== {run_id}", flush=True)
@@ -149,8 +170,17 @@ def run_one(a, instance: str, overrides: dict) -> None:
     status = "done"
     try:
         prepare(inst.image, workdir, container)
+        if recorder:
+            try:
+                image_info = sh("docker", "image", "inspect", "--format", "{{.Id}}", inst.image, check=False)
+                research.artifact(recorder, "docker_image", {"name": inst.image,
+                                  "id": image_info.stdout.strip(), "returncode": image_info.returncode})
+            except OSError as exc:
+                observe(recorder, "capture.issue", {"code": "image_metadata_unavailable",
+                        "detail": type(exc).__name__}, source="bench")
         summary = asyncio.run(run_session(a.server, spec, workdir, inst.problem_statement,
-                                          a.max_minutes * 60))
+                                          a.max_minutes * 60, recorder))
+        research.artifact(recorder, "final_answer", summary, "text/plain")
         print("agent:", summary[:300])
     except TimeoutError:
         status = "timeout"
@@ -158,11 +188,13 @@ def run_one(a, instance: str, overrides: dict) -> None:
     except Exception as exc:  # the agent's failure is a result, not a crash of the bench
         status = f"error: {str(exc)[:300]}"
         print(status)
+        observe(recorder, "run.error", {"type": type(exc).__name__, "message": str(exc)}, source="bench")
     finally:
         sh("docker", "rm", "-f", container, check=False)
 
     sh("git", "-C", str(workdir), "add", "-A")
     patch = sh("git", "-C", str(workdir), "diff", "--cached", "HEAD").stdout
+    research.artifact(recorder, "patch", patch, "text/x-diff")
     out = HOME / "data" / "runs" / a.label
     out.mkdir(parents=True, exist_ok=True)
     predictions = out / f"{safe}.jsonl"
@@ -170,10 +202,12 @@ def run_one(a, instance: str, overrides: dict) -> None:
                                        "model_name_or_path": f"omnigent-{a.arm}"}) + "\n")
     engine, _ = engine_for(run_id)
     engine.end_run(status)
-    grade = evaluate(predictions, [instance], run_id=f"{safe}-eval")
+    grade = evaluate(predictions, [instance], run_id=f"{safe}-eval", recorder=recorder)
+    research.artifact(recorder, "evaluation", grade)
     engine.db.set_resolved(run_id, grade["per_instance"][instance])
     print(json.dumps({"run_id": run_id, "status": status, "patch_bytes": len(patch),
                       "resolved": grade["per_instance"][instance]}), flush=True)
+    observe(recorder, "run.finished", {"status": status, "resolved": grade["per_instance"][instance]}, source="bench")
 
 
 if __name__ == "__main__":

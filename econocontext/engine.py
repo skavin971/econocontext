@@ -20,6 +20,7 @@ from .host import Host, HostCapabilities
 from .monitor.cache_belief import CacheBelief
 from .pricing.ledger import Ledger, summary
 from .monitor.registry import Registry
+from .observation import observe, observing
 from .optimizer.optimizer import select
 from .planner import jev_planner, planner
 from .pricing.predictor import remaining_turns
@@ -37,7 +38,8 @@ class EconoContext:
     def __init__(self, config_dir: str, host: Host | None, run_id: str, *, host_name: str,
                  arm: str, instance_id: str | None = None, db_path: str | None = None,
                  mode: str | None = None, jev: bool = False, overrides: dict | None = None,
-                 workdir: str | None = None, history=None):
+                 workdir: str | None = None, history=None, observer=None):
+        self.observer = observer
         self.config = config_module.load(config_dir, overrides)
         # learn/predictors.History: learned H_hat and p_hat instead of the config guesses.
         self.history = history
@@ -125,6 +127,10 @@ class EconoContext:
                                 candidate_costs={})
         self.db.add_decision(self.run_id, agent_id, decision, self.mode.value, ms, error,
                              cache_predicted, manifest_hash)
+        observe(self.observer, "decision", dict(decision=decision, mode=self.mode.value,
+                decision_ms=ms, error=error, cache_predicted=cache_predicted,
+                manifest_hash=manifest_hash), agent_id=agent_id, decision_id=decision.id,
+                source="optimizer")
         return decision.id
 
     # -- runtime timing -------------------------------------------------------------
@@ -277,7 +283,8 @@ class EconoContext:
         if not self.jev:
             return dict(p_need_again=prior, source="prior", prior=prior)
         try:
-            p = float(jev_planner.p_need_again(segment, event, ctx, self.cfg, prior))
+            with observing(self.observer, agent_id=segment.agent_id):
+                p = float(jev_planner.p_need_again(segment, event, ctx, self.cfg, prior))
             if not 0.0 <= p <= 1.0:
                 raise ValueError(f"Jev returned {p}, not a probability")
             return dict(p_need_again=p, source="jev", prior=prior)
@@ -352,6 +359,8 @@ class EconoContext:
         """Write barrier: bump the path (and the workspace epoch); invalidate what depended on it."""
         self.registry.mark_side_effect(agent_id)
         self.db.bump(self.run_id, [path] if path else [])
+        observe(self.observer, "workspace.changed", {"path": path}, agent_id=agent_id,
+                source="optimizer")
 
     def on_turn_end(self, agent_id: str) -> None:
         self.registry.turn_end(agent_id)
