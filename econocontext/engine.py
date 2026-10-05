@@ -277,10 +277,11 @@ class EconoContext:
         if not self.jev:
             return dict(p_need_again=prior, source="prior", prior=prior)
         try:
-            p = float(jev_planner.p_need_again(segment, event, ctx, self.cfg, prior))
+            usage: dict = {}  # Jev's own tokens, so its cost can be summed per run
+            p = float(jev_planner.p_need_again(segment, event, ctx, self.cfg, prior, usage=usage))
             if not 0.0 <= p <= 1.0:
                 raise ValueError(f"Jev returned {p}, not a probability")
-            return dict(p_need_again=p, source="jev", prior=prior)
+            return dict(p_need_again=p, source="jev", prior=prior, jev_usage=usage)
         except Exception as exc:  # fail open: the agent never stops because of Jev
             return dict(p_need_again=prior, source=f"prior (jev failed: {str(exc)[:200]})",
                         prior=prior)

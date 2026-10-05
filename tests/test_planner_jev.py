@@ -93,7 +93,7 @@ def test_with_jev_its_number_is_used_and_the_guess_is_still_logged(make, monkeyp
     import json
     seen = {}
 
-    def fake_jev(segment, event, ctx, cfg, prior):
+    def fake_jev(segment, event, ctx, cfg, prior, usage=None):
         seen.update(segment=segment, event=event, ctx=ctx, prior=prior)
         return 0.9
 
@@ -120,7 +120,7 @@ def test_missing_jev_key_falls_back_to_the_guess(make, monkeypatch):
 
 def test_a_bad_jev_answer_falls_back_to_the_guess(make, monkeypatch):
     import json
-    monkeypatch.setattr(jev_planner, "p_need_again", lambda *a: 7.0)  # not a probability
+    monkeypatch.setattr(jev_planner, "p_need_again", lambda *a, **k: 7.0)  # not a probability
     pred = json.loads(admit(make(jev=True))["prediction"])
     assert pred["source"].startswith("prior (jev failed:")
 
@@ -136,7 +136,8 @@ def test_a_jev_run_is_recorded_as_such(make):
 @pytest.fixture
 def jev_http(monkeypatch):
     """Fake only the HTTP boundary so serialization and response parsing run."""
-    seen = {"response": {"answers": {"needed_again": {"type": "noul", "noul": 0.82}}}}
+    seen = {"response": {"answers": {"needed_again": {"type": "noul", "noul": 0.82}},
+                         "usage": {"input_tokens": 1200, "output_tokens": 21}}}
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-jev-key")
 
     def send(request, timeout):
@@ -187,6 +188,7 @@ def test_jev_http_probability_reaches_the_engine(make, jev_http, probability):
     row = admit(make(jev=True))
     pred = json.loads(row["prediction"])
     assert pred["source"] == "jev" and pred["p_need_again"] == probability
+    assert pred["jev_usage"] == {"input_tokens": 1200, "output_tokens": 21}  # for Jev's cost
     tokens = -(-len(BIG) // 4)
     window = json.loads(row["payloads"])["POINTER"]["extra_call_input_tokens"]
     assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(probability * (tokens + window))
