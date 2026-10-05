@@ -188,7 +188,8 @@ def test_jev_http_probability_reaches_the_engine(make, jev_http, probability):
     pred = json.loads(row["prediction"])
     assert pred["source"] == "jev" and pred["p_need_again"] == probability
     tokens = -(-len(BIG) // 4)
-    assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(probability * tokens)
+    window = json.loads(row["payloads"])["POINTER"]["extra_call_input_tokens"]
+    assert json.loads(row["candidates"])["POINTER"]["prepare"] == pytest.approx(probability * (tokens + window))
 
 
 @pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan"), float("inf"), True, "0.8", None])
