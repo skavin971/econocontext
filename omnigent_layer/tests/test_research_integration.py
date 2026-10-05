@@ -84,7 +84,7 @@ def wait_finished(sink, count=1):
 @pytest.mark.parametrize("arm", ["baseline", "econo"])
 def test_full_requests_final_answer_and_cost_in_both_arms(recorded_gateway, arm):
     state, send, path = recorded_gateway
-    sink = research.start("r", path, {"arm": arm})
+    sink = research.start("r", {"arm": arm})
     register_run("r", arm, "observe")
     status, reply = send("r")
     wait_finished(sink)
@@ -104,7 +104,7 @@ def test_full_requests_final_answer_and_cost_in_both_arms(recorded_gateway, arm)
 def test_streaming_reply_and_partial_capture(recorded_gateway, done):
     state, send, path = recorded_gateway
     state.update(stream=True, done=done)
-    sink = research.start("r", path, {})
+    sink = research.start("r", {})
     register_run("r", "baseline", "observe")
     status, data = send("r", {**BODY, "stream": True})
     wait_finished(sink)
@@ -119,7 +119,7 @@ def test_streaming_reply_and_partial_capture(recorded_gateway, done):
 
 def test_refusal_and_upstream_error_are_attempts(recorded_gateway, monkeypatch):
     state, send, path = recorded_gateway
-    sink = research.start("r", path, {})
+    sink = research.start("r", {})
     register_run("r", "baseline", "observe")
     state["http_status"] = 503
     assert send("r")[0] == 503
@@ -130,12 +130,12 @@ def test_refusal_and_upstream_error_are_attempts(recorded_gateway, monkeypatch):
     assert [r[0] for r in sink.conn.execute("SELECT status FROM model_calls ORDER BY started_at")] == ["http_error", "refused"]
 
 
-def test_failed_or_disabled_recording_does_not_change_wire_behavior(recorded_gateway, monkeypatch):
+def test_failed_or_missing_recorder_does_not_change_wire_behavior(recorded_gateway, monkeypatch):
     state, send, path = recorded_gateway
     register_run("off", "econo", "observe")
     without = send("off")
     assert not path.exists()
-    sink = research.start("on", path, {})
+    sink = research.start("on", {})
     register_run("on", "econo", "observe")
     with_logging = send("on")
     wait_finished(sink)
@@ -149,7 +149,7 @@ def test_failed_or_disabled_recording_does_not_change_wire_behavior(recorded_gat
 
 
 def test_tool_events_structured_results_and_ambiguous_ids(tmp_path):
-    sink = research.start("r", tmp_path / "research.db", {})
+    sink = research.start("r", {})
     register_run("r", "baseline", "observe")
     policy = econocontext("r")
     event = {"type": "tool_result", "target": "read", "request_data": {"arguments": {"path": "x"}},
@@ -164,12 +164,12 @@ def test_tool_events_structured_results_and_ambiguous_ids(tmp_path):
 
 def test_repeated_runtime_id_gets_distinct_trace_even_with_cached_engine(recorded_gateway):
     state, send, path = recorded_gateway
-    first = research.start("r", path, {})
+    first = research.start("r", {})
     register_run("r", "econo", "observe")
     send("r")
     wait_finished(first)
     research.stop("r", first)
-    second = research.start("r", path, {})
+    second = research.start("r", {})
     send("r")
     wait_finished(second)
     assert first.run_id != second.run_id
@@ -181,7 +181,7 @@ def test_shell_captures_output_before_truncation_and_timeout(tmp_path, monkeypat
     import subprocess
     from omnigent_layer import tools
     monkeypatch.chdir(tmp_path)
-    sink = research.start("r", tmp_path / "research.db", {}, str(tmp_path))
+    sink = research.start("r", {}, str(tmp_path))
     output = "é" * 40000
     monkeypatch.setattr(tools, "_container_for", lambda _: ("fake", {"econocontext.mount": "/testbed"}))
     def run(*args, **kwargs):
@@ -205,17 +205,20 @@ def test_shell_captures_output_before_truncation_and_timeout(tmp_path, monkeypat
     assert payload["timed_out"] == timeout
 
 
-def test_disabled_run_clears_stale_discovery(tmp_path):
-    sink = research.start("r", tmp_path / "research.db", {}, str(tmp_path))
-    assert research.recorder_for("r") is sink
-    research.disable("r", str(tmp_path))
+def test_new_run_replaces_stale_discovery_and_stop_cleans_up(tmp_path):
+    first = research.start("r", {}, str(tmp_path))
+    second = research.start("r", {}, str(tmp_path))
+    research.stop("r", first, str(tmp_path))
+    assert research.recorder_for("r") is second
+    assert research.recorder_for_workspace(str(tmp_path)) is second
+    research.stop("r", second, str(tmp_path))
     assert research.recorder_for("r") is None
     assert research.recorder_for_workspace(str(tmp_path)) is None
 
 
 def test_original_and_transformed_requests_and_decision_link(recorded_gateway, monkeypatch):
     state, send, path = recorded_gateway
-    sink = research.start("r", path, {})
+    sink = research.start("r", {})
     register_run("r", "econo", "autopilot")
     original = gateway.Gateway.plan
     def plan(self, engine, run, agent, body):
@@ -229,3 +232,59 @@ def test_original_and_transformed_requests_and_decision_link(recorded_gateway, m
     assert call[0] != call[1] and json.loads(state["seen"][0])["messages"][0]["content"] == "transformed"
     decision = sink.conn.execute("SELECT decision_id,call_id FROM decisions").fetchone()
     assert tuple(decision) == tuple(call[2:])
+
+
+@pytest.mark.parametrize("arm", ["baseline", "econo"])
+def test_benchmark_command_records_automatically(recorded_gateway, monkeypatch, arm):
+    import importlib.util
+    import sys
+    from pathlib import Path
+    from types import ModuleType, SimpleNamespace
+
+    # Stub the external runner imports; the real CLI, run lifecycle, recorder,
+    # policy, and gateway execute without requiring Omnigent or paid model calls.
+    imports = {
+        "omnigent": [], "omnigent.host": [],
+        "omnigent.chat": ["_prepare_chat_session_via_daemon", "_remote_headers",
+                          "_server_auth", "_stop_headless_session"],
+        "omnigent.cli": ["_bundle"],
+        "omnigent.host.identity": ["load_or_create_host_identity"],
+        "omnigent_client": ["OmnigentClient", "SessionsChat"],
+    }
+    for name, attributes in imports.items():
+        module = ModuleType(name)
+        for attribute in attributes:
+            setattr(module, attribute, None)
+        monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    spec = importlib.util.spec_from_file_location(
+        "research_bench_test", Path(__file__).resolve().parents[2] / "bench" / "run.py")
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+
+    state, send, path = recorded_gateway
+    monkeypatch.setattr(bench, "HOME", path.parent)
+    monkeypatch.setattr(bench, "load", lambda _: [SimpleNamespace(instance_id="task")])
+    monkeypatch.setattr(bench, "snapshot", lambda *args: {"arm": arm})
+    seen = {}
+    def execute(args, instance, run_id, safe, workdir, container, agent_spec, overrides, sink):
+        assert not hasattr(args, "research_db")
+        assert "omnigent_layer.policy.econocontext" in agent_spec.read_text()
+        assert research.recorder_for_workspace(workdir) is sink
+        seen.update(trace=sink.run_id, runtime=run_id, workspace=workdir)
+        register_run(run_id, arm, "observe")
+        assert send(run_id)[0] == 200
+        wait_finished(sink)
+        econocontext(run_id)({"type": "tool_result", "target": "read",
+                             "data": {"result": "file contents"}})
+        observe(sink, "run.finished", {"status": "done"})
+    monkeypatch.setattr(bench, "execute_run", execute)
+    monkeypatch.setattr(sys, "argv", ["bench/run.py", "--label", "test",
+                                     "--instance", "task", "--arm", arm])
+    bench.main()
+    with connect(path) as conn:
+        assert conn.execute("SELECT status FROM runs").fetchone()[0] == "done"
+        assert conn.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM tool_events").fetchone()[0] == 1
+    assert research.recorder_for(seen["runtime"]) is None
+    assert research.recorder_for_workspace(seen["workspace"]) is None

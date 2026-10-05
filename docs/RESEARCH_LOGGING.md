@@ -1,7 +1,8 @@
 # Research trajectory recording
 
-The optional research recorder saves what happened during an experiment in its own
-SQLite file. The agent never reads this database. The operational Agent DB at
+Every benchmark run automatically saves what happened in
+`econocontext/data/research.sqlite3`. Recording needs no flags or configuration.
+The agent never reads this database. The operational Agent DB at
 `econocontext/data/econocontext.sqlite3` still supplies memory, optimizer state,
 learned predictions, and limits exactly as before. This implementation does not
 change its schema, storage code, or retention behavior.
@@ -17,11 +18,10 @@ Docker setup running:
 
 ```sh
 uv run --no-sync python bench/run.py --label research1 \
-  --instance pytest-dev__pytest-5809 --arm econo --mode observe \
-  --research-db data/research.sqlite3
+  --instance pytest-dev__pytest-5809 --arm econo --mode observe
 ```
 
-The same flag works for `--arm baseline`, `--mode autopilot`, sets, and `--jev`.
+Recording is automatic for both arms, all modes, sets, and `--jev`.
 Use the interpreter/environment containing the installed Omnigent layer, as for
 ordinary benchmark runs. Restart the gateway and Omnigent processes after installing
 this change so their imports include the hooks.
@@ -32,9 +32,9 @@ recorder does not reset operational memory; use distinct labels when the experim
 requires distinct operational runs. The worker gateway's existing `/current` route
 requires benchmark runs to execute one at a time.
 
-Omit `--research-db` to disable recording. A disabled invocation clears stale
-research discovery bindings for its runtime ID/workspace. Baseline research runs
-attach the observation policy; it records events and returns no optimizer changes.
+Each invocation creates the database if necessary and publishes fresh discovery
+bindings for its runtime ID/workspace, replacing any left by a killed run. Both arms
+attach the observation policy; baseline evaluation returns no optimizer changes.
 
 All analysis commands read only the research database:
 
@@ -77,7 +77,7 @@ The TypeSafe predictor has its own hook. There is no change to the archived `v0/
 
 HTTP authentication headers and environment variables are not logged. Prompt,
 response, tool, artifact and local code-diff contents are preserved without redaction.
-The suggested `econocontext/data/` destination is already gitignored.
+The `econocontext/data/` destination is already gitignored.
 
 ## Schema and identifiers
 
@@ -143,16 +143,17 @@ in `econocontext/data/research-bindings/` let the gateway, policy, and shell pro
 find the sink. These files only select the recording destination. The observer in
 `econocontext/econocontext/observation.py` passes snapshots to
 `econocontext/econocontext/research/recorder.py`; its results are never used to make
-agent decisions. Disabling or failing the recorder does not replace agent results.
+agent decisions. A recorder failure during execution does not replace agent results.
 
-An invalid database destination fails before the paid run starts. The recorder
+Failure to initialize the database stops the run before paid work starts. The recorder
 rejects the operational database, its aliases, other non-research SQLite databases,
 and research schemas newer than it understands.
 
 The research connection uses WAL, foreign keys and atomic transactions with a
 100 ms SQLite lock timeout. Once a sink encounters a write failure, that sink stops
-recording and execution continues. A best-effort `<research-db>.errors.jsonl` journal
-records the affected run/event kind and exception type; it contains no payloads.
+recording and execution continues. A best-effort journal at
+`econocontext/data/research.sqlite3.errors.jsonl` records the affected run/event kind
+and exception type; it contains no payloads.
 The offline summary reports that capture as partial. If both SQLite and the journal
 are unwritable, only stderr can report the failure. A killed process can leave open
 calls or a run without an end; summaries mark those partial rather than inventing
@@ -176,7 +177,8 @@ PYTHONPATH=omnigent_layer/src uv run --no-sync python -m pytest -q \
   tests omnigent_layer/tests -m 'not live and not docker'
 ```
 
-The targeted tests cover database separation, repeat trials, concurrent connections,
+The targeted tests cover automatic recording through the normal benchmark command
+in both arms, database separation, repeat trials, concurrent connections,
 atomic failures, exports, final responses, streaming interruption, auxiliary calls,
 tool ambiguity, untruncated shell output and unchanged gateway responses with
-recording enabled, disabled, or failed. They make no paid model calls.
+healthy, missing, or failed recorder connections. They make no paid model calls.

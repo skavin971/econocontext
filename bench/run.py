@@ -122,8 +122,6 @@ def main() -> None:
                    help="autopilot may use POINTER, COMMIT_PENDING and RESUME (quality risk <= 0.2)")
     p.add_argument("--server", default="http://127.0.0.1:6767")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
-    p.add_argument("--research-db", metavar="PATH",
-                   help="opt in to a separate, observation-only SQLite trajectory database")
     a = p.parse_args()
 
     instances = SETS[a.set] if a.set else [a.instance]
@@ -145,17 +143,14 @@ def run_one(a, instance: str, overrides: dict) -> None:
     workdir = HOME / "data" / "work" / safe
     container = "econo-" + safe.lower()[:60]
     values = {"run_id": run_id, "gateway": a.gateway, "workdir": str(workdir)}
-    # Baseline research runs get the same observation hook, with decisions still disabled.
-    text = (BENCH / "agent.yaml").read_text() + (POLICY if a.arm == "econo" or a.research_db else "")
+    # Every run records tool events; baseline policy evaluation makes no optimizer changes.
+    text = (BENCH / "agent.yaml").read_text() + POLICY
     spec = HOME / "data" / "work" / f"{safe}.agent.yaml"
     spec.parent.mkdir(parents=True, exist_ok=True)
     spec.write_text(Template(text).substitute(values))
-    recorder = None
-    research.disable(run_id, str(workdir))  # runs using /current are already serial
-    if a.research_db:
-        recorder = research.start(run_id, a.research_db,
-                                  snapshot(HOME, a, inst, overrides, spec.read_text()), str(workdir))
-        print(f"research trace {recorder.run_id} in {recorder.path}", flush=True)
+    recorder = research.start(run_id, snapshot(HOME, a, inst, overrides, spec.read_text()),
+                              str(workdir))
+    print(f"research trace {recorder.run_id} in {recorder.path}", flush=True)
     try:
         execute_run(a, inst, run_id, safe, workdir, container, spec, overrides, recorder)
     except BaseException as exc:

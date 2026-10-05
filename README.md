@@ -134,9 +134,9 @@ See `tests/test_planner_jev.py` for mocked tests and an optional live check.
 Cost tracking, runtime spans, and text/JSON/CSV reporting are documented in
 [`docs/COST_TRACKING.md`](docs/COST_TRACKING.md).
 
-For a separate, optional SQLite record of experiment trajectories, use
-`bench/run.py --research-db data/research.sqlite3`. This records observations for
-offline analysis without feeding them back into the agent or changing its operational
+Every `econocontext/bench/run.py` experiment automatically records its trajectory in
+`econocontext/data/research.sqlite3`, with no logging flags or configuration. These
+observations support offline analysis without feeding back into the agent or changing its operational
 storage. See [econocontext/docs/RESEARCH_LOGGING.md](docs/RESEARCH_LOGGING.md).
 
 

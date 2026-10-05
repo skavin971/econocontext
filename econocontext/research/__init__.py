@@ -1,4 +1,4 @@
-"""Optional research recording, independent of the operational AgentDB.
+"""Research recording, independent of the operational AgentDB.
 
 Only offline analysis reads these records. Nothing in planning, retrieval, budgets,
 or worker placement reads this database.

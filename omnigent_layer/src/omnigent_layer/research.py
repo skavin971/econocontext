@@ -19,6 +19,7 @@ from econocontext.research.recorder import record_failure
 from . import DB_PATH, HOME
 
 BINDINGS = HOME / "data" / "research-bindings"
+RESEARCH_DB_PATH = HOME / "data" / "research.sqlite3"
 _cache = {}
 _lock = threading.RLock()
 log = logging.getLogger(__name__)
@@ -36,9 +37,9 @@ def _write(path, data):
     os.replace(temporary, path)
 
 
-def start(run_id, database, metadata, workdir=None):
-    """Explicit bench opt-in. Fail before a paid run if configuration is invalid."""
-    sink = ResearchRecorder.start(database, run_id, metadata, operational_path=DB_PATH)
+def start(run_id, metadata, workdir=None):
+    """Start every benchmark trace in the fixed research database before the paid run."""
+    sink = ResearchRecorder.start(RESEARCH_DB_PATH, run_id, metadata, operational_path=DB_PATH)
     if sink.failed:
         sink.close()
         raise RuntimeError("Could not initialize research recording")
@@ -67,18 +68,6 @@ def stop(run_id, sink, workdir=None):
         sink.close()
     except Exception:
         log.exception("Could not close research recorder")
-
-
-def disable(run_id, workdir=None):
-    """Explicitly disabled invocation: clear stale descriptors left by a killed run."""
-    paths = [_path("run", run_id)]
-    if workdir:
-        paths.append(_path("workspace", Path(workdir).resolve()))
-    for path in paths:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            log.warning("Could not remove stale research binding %s", path)
 
 
 def _get(path):
