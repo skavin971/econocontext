@@ -22,6 +22,7 @@ import dataclasses
 import json
 import shlex
 import stat
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -141,7 +142,9 @@ class ClaudeCodeEcono(ClaudeCode):
         if not self.hooks_on:
             return None
         try:
-            with urllib.request.urlopen(f"{SERVICE_ON_HOST}/flag?run={self.econo_run}", timeout=5) as r:
+            # Quote the run name: its "+" (econo+jev) would otherwise be read as a space (run v2x maven).
+            url = f"{SERVICE_ON_HOST}/flag?run={urllib.parse.quote(self.econo_run, safe='')}"
+            with urllib.request.urlopen(url, timeout=5) as r:
                 return json.load(r).get("compact")
         except OSError:
             return None

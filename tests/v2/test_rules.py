@@ -317,3 +317,24 @@ def test_a_tiny_repeat_is_served_because_a_note_would_cost_more(make):
     pre = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat notes.txt"}}
     assert spec(decide.pre_tool(ctx, pre))["updatedInput"]["command"].startswith("cat <<'ECONO_EOF'\nhello")
     assert rules(ctx)[-1] == ("3 serve_stored", "serve")
+
+
+def test_the_flag_is_found_for_a_run_name_with_a_plus(tmp_path):
+    """The driver asks for the flag over HTTP; a '+' in the run name must survive the query string."""
+    import threading
+    import urllib.parse
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from econocontext.service import make_handler
+    service = Service(CFG)
+    run = "v2x:econo+jev:maven"
+    service.register({"run": run, "predictor": "prior", "sessions_dir": str(tmp_path)})
+    session, _ = service.session(run, "s1")
+    session.set("compact", {"instructions": "x", "keep_ids": [], "rule": "7 compact"})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/flag?run={urllib.parse.quote(run, safe='')}"
+        assert json.load(urllib.request.urlopen(url))["compact"]["instructions"] == "x"
+    finally:
+        server.shutdown()

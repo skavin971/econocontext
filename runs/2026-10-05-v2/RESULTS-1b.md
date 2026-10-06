@@ -36,3 +36,15 @@ Reward **1.0**, 23 calls, **$0.4851** (transcript = gateway). Jev: 4 calls, 52,5
 | 6/7 | evict / compact | not exercised | below the 20k-token conversation minimum; to be seen in the long tasks |
 | 8 | placement | **not exercised** | the agent issued both Agent calls in one message, so neither worker was idle when the second started; both became idle afterwards (session state). The mechanism (deny → SendMessage) is still untested live |
 | 9 | invalidate | **works** (2) | |
+
+## Experiment pair 1: maven-slf4j-conflict (`runs/v2x`)
+
+| | baseline | econo+jev |
+|---|---|---|
+| reward | 1.0 | 1.0 |
+| calls | 21 | 25 |
+| run cost (transcript) | $0.5937 | $0.5653 (−4.8%, within noise) |
+| Jev (separate) | — | 8 calls, 132,317 input tokens, about $0.0056 |
+| rules | — | arrival: 6 slice, 1 full; invalidate ×18; compaction **decided** once (call 14: Jev portion_done 0.69, phase exploring; keep 53,049 vs compact 21,449 units, H* 5.8) |
+
+**The compaction was not carried out (a bug in our driver):** the driver asked for the flag with `?run=v2x:econo+jev:…` unquoted. In a query string `+` reads as a space, so the lookup never matched and the flag stayed pending (`econo_compactions: 0`). Fixed by quoting the run name, with a test. **This econo run measured arrival slices only.**
