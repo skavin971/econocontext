@@ -157,16 +157,31 @@ def test_an_overlapping_read_of_changed_lines_is_not_trimmed(make):
 
 
 # Rule 3 ------------------------------------------------------------------------------------
-def test_an_unchanged_read_only_command_is_served_not_rerun(make):
+def test_an_unchanged_repeat_gets_a_note_while_the_copy_is_in_context(make):
+    ctx = make()
+    decide.post_tool(ctx, bash("cat notes.txt", "\n".join(f"hello {i}" for i in range(200))))
+    pre = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat notes.txt"},
+           "tool_use_id": "t2"}
+    reply = decide.pre_tool(ctx, pre)
+    command = spec(reply)["updatedInput"]["command"]
+    assert "Same output as your earlier identical call" in command and "hello 5" not in command
+    assert rules(ctx)[-1] == ("1 dont_repeat", "note")
+    decide.post_tool(ctx, bash(command, "Same output ...", use_id="t2"))
+    assert ctx.s.last_same("main", "Bash", {"command": "cat notes.txt"})["form"] == "note"
+
+
+def test_an_unchanged_repeat_is_served_in_full_once_the_copy_left_context(make):
     ctx = make()
     decide.post_tool(ctx, bash("cat notes.txt", "hello"))
+    ctx.s.drop_from_context("main", set())                             # e.g. after a compaction
     pre = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat notes.txt"},
            "tool_use_id": "t2"}
     reply = decide.pre_tool(ctx, pre)
     assert spec(reply)["updatedInput"]["command"].startswith("cat <<'ECONO_EOF'\nhello")
+    assert rules(ctx)[-1] == ("3 serve_stored", "serve")
     post = decide.post_tool(ctx, bash(spec(reply)["updatedInput"]["command"], "hello", use_id="t2"))
     assert "saved output" in spec(post)["additionalContext"]
-    assert ctx.s.last_same("main", "Bash", {"command": "cat notes.txt"})["output"] == "hello"
+    assert ctx.s.full_copy_in_context("main", "Bash", {"command": "cat notes.txt"})["output"] == "hello"
 
 
 def test_nothing_is_served_after_a_write_or_for_a_command_that_writes(make):
@@ -294,3 +309,11 @@ def test_a_forced_compaction_waits_for_work_and_happens_once(make):
     decide.post_compact(ctx.s, {"trigger": "manual", "compact_summary": "s"})
     ctx.calls = 30
     assert decide.live_check(ctx) is None                         # once only
+
+
+def test_a_tiny_repeat_is_served_because_a_note_would_cost_more(make):
+    ctx = make()
+    decide.post_tool(ctx, bash("cat notes.txt", "hello"))
+    pre = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat notes.txt"}}
+    assert spec(decide.pre_tool(ctx, pre))["updatedInput"]["command"].startswith("cat <<'ECONO_EOF'\nhello")
+    assert rules(ctx)[-1] == ("3 serve_stored", "serve")

@@ -132,14 +132,33 @@ def pre_tool(ctx: Ctx, ev: dict) -> dict:
         prev = ctx.s.last_same(agent, tool, args)
         if (prev and prev["epoch"] == ctx.s.epoch and prev["output"] is not None
                 and (read_only_bash(command) or TESTS.match(command))):
-            served = {**args, "command": f"cat <<'ECONO_EOF'\n{prev['output']}\nECONO_EOF"}
-            if ev.get("tool_use_id"):  # PostToolUse will see the rewritten command; remember the original
-                ctx.s.set(f"served:{ev['tool_use_id']}", args)
-            ctx.s.log("3 serve_stored", "serve", prev["id"], note=command[:200])
-            return reply_pre(updated_input=served)
+            return repeat(ctx, ev, agent, args, prev)
     if tool in AGENT_TOOLS:
         return placement(ctx, args)
     return {}
+
+
+def repeat(ctx: Ctx, ev: dict, agent: str, args: dict, prev) -> dict:
+    """An identical, unchanged repeat: the price chooses a short note (the earlier full copy is
+    still in context), the stored copy (it is not, but nothing changed), or running it again.
+    Note and stored copy both skip the run; the stored copy costs the same tokens as a run."""
+    full = prev["tokens"]
+    in_context = ctx.s.full_copy_in_context(agent, "Bash", args)
+    note_text = (f"Same output as your earlier identical call (item {in_context['id']}); nothing was "
+                 "written since, so it is unchanged and still above.") if in_context else None
+    options = {"run": lifecycle.keep(ctx.p, full, ctx.calls_left),
+               "serve": lifecycle.keep(ctx.p, full, ctx.calls_left)}
+    if note_text:
+        options["note"] = lifecycle.keep(ctx.p, count_tokens(note_text), ctx.calls_left)
+    choice = min(options, key=lambda k: (options[k], k == "run"))  # a tie goes to not running it
+    text = note_text if choice == "note" else prev["output"]
+    if ev.get("tool_use_id"):  # PostToolUse will see the rewritten command; remember the original
+        ctx.s.set(f"served:{ev['tool_use_id']}", {"args": args, "form": choice, "full": prev["output"]})
+    rule = "1 dont_repeat" if choice == "note" else "3 serve_stored"
+    ctx.s.log(rule, choice, prev["id"], prices=options, note=args.get("command", "")[:200])
+    if choice == "run":
+        return {}
+    return reply_pre(updated_input={**args, "command": f"cat <<'ECONO_EOF'\n{text}\nECONO_EOF"})
 
 
 def placement(ctx: Ctx, args: dict) -> dict:
@@ -181,11 +200,15 @@ def placement(ctx: Ctx, args: dict) -> dict:
 def post_tool(ctx: Ctx, ev: dict) -> dict:
     tool, args, agent = ev.get("tool_name"), ev.get("tool_input") or {}, ev.get("agent_id") or "main"
     resp = ev.get("tool_response")
-    original = ctx.s.get(f"served:{ev.get('tool_use_id')}") if ev.get("tool_use_id") else None
-    if original is not None:  # rule 3 served this call from the session database
-        text = text_of(tool, resp) or ""
-        ctx.s.add_item(agent, tool, original, text, count_tokens(text))
+    served = ctx.s.get(f"served:{ev.get('tool_use_id')}") if ev.get("tool_use_id") else None
+    if served is not None:  # rule 1 or 3 answered this call without running it
         ctx.s.set(f"served:{ev['tool_use_id']}", None)
+        full = served["full"]
+        if served["form"] == "note":
+            shown = count_tokens(text_of(tool, resp) or "")
+            ctx.s.add_item(agent, tool, served["args"], full, count_tokens(full), form="note", shown_tokens=shown)
+            return {}
+        ctx.s.add_item(agent, tool, served["args"], full, count_tokens(full))
         return reply_post(None, "Nothing was written since you last ran this exact command, so this is "
                                 "its saved output (not re-run).")
     if tool in WRITES or (tool == "Bash" and not read_only_bash(args.get("command", ""))
