@@ -45,12 +45,14 @@ def describe(name: str, args: dict) -> str:
 
 
 class Owner:
-    def __init__(self, run: str | None, mode: str, db_path: str | Path, force=(), cfg: dict | None = None):
+    def __init__(self, run: str | None, mode: str, db_path: str | Path, force=(), cfg: dict | None = None,
+                 cache: bool | None = None):
         cfg = cfg or yaml.safe_load(CONFIG.read_text())
         self.cfg, h = cfg, cfg["harness"]
         self.h = h
+        self.cache = h.get("cache_in_decisions", True) if cache is None else cache
         self.p = lifecycle.from_card(h["price"]["provider"], h["price"]["model"], h["hit_share"],
-                                     h["expected_output"])
+                                     h["expected_output"], cache=self.cache)
         self.s = Session(db_path)
         self.predictor = Prior() if mode == "prior" else Jev(cfg["jev"]["model"], cfg["jev"]["timeout_seconds"],
                                                               cfg["jev"]["max_input_tokens"])

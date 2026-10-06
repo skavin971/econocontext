@@ -27,6 +27,8 @@ def load(labels):
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--label", action="append", required=True)
+    p.add_argument("--means", action="store_true",
+                   help="per-task averages over all repeats (arms may have different repeat counts)")
     a = p.parse_args()
     rows, replaced = [], []
     by_task = defaultdict(dict)
@@ -40,6 +42,8 @@ def main() -> None:
         by_task[(r["task"], r["repeat"])][r["arm"]] = r
         rows.append(r)
     arms = sorted({r["arm"] for r in rows}, key=lambda x: (x != "raw", x))
+    if a.means:
+        return task_means(rows, arms)
     print(f"{'task':46s} " + "  ".join(f"{arm:>26s}" for arm in arms))
     for (task, repeat), cells in sorted(by_task.items()):
         parts = []
@@ -70,6 +74,40 @@ def main() -> None:
               f"~${jev_in * JEV_USD_PER_MTOK / 1e6:.4f}")
         if rules:
             print("             rules: " + ", ".join(f"{k} x{v}" for k, v in sorted(rules.items())))
+
+
+def task_means(rows, arms) -> None:
+    """Per task: mean run cost and pass rate per arm over its repeats; then, for each arm, the
+    paired comparison with raw on the tasks both ran (one pair per task: the two means)."""
+    import math
+    import statistics as st
+    cell = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        if not r.get("skipped"):
+            cell[r["task"]][r["arm"]].append(r)
+    print(f"{'task':40s} " + "  ".join(f"{arm:>24s}" for arm in arms))
+    for task in sorted(cell):
+        parts = []
+        for arm in arms:
+            runs = cell[task].get(arm, [])
+            if not runs:
+                parts.append(f"{'-':>24s}")
+                continue
+            cost = st.mean(r["run_cost_usd"] for r in runs)
+            passed = sum(r.get("reward") == 1.0 for r in runs)
+            parts.append(f"${cost:.4f} {passed}/{len(runs)} pass")
+        print(f"{task[:40]:40s} " + "  ".join(f"{x:>24s}" for x in parts))
+    print()
+    for arm in arms[1:]:
+        tasks = [t for t in cell if cell[t].get(arm) and cell[t].get("raw")]
+        raw = [st.mean(r["run_cost_usd"] for r in cell[t]["raw"]) for t in tasks]
+        eco = [st.mean(r["run_cost_usd"] for r in cell[t][arm]) for t in tasks]
+        diffs = [e - r for e, r in zip(eco, raw)]
+        line = f"{arm:20s} vs raw on {len(tasks)} tasks: raw ${sum(raw):.4f}  {arm} ${sum(eco):.4f}  " \
+               f"change {100 * sum(diffs) / sum(raw):+.1f}%  cheaper on {sum(d < 0 for d in diffs)}/{len(diffs)}"
+        if len(diffs) > 2 and st.stdev(diffs) > 0:
+            line += f"  paired t = {st.mean(diffs) / (st.stdev(diffs) / math.sqrt(len(diffs))):.2f}"
+        print(line)
 
 
 if __name__ == "__main__":

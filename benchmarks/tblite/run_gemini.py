@@ -35,7 +35,8 @@ from run import FROZEN, TBLITE  # noqa: E402
 HOST = "econo-agent:gemini"
 MODEL = "openai/google/gemini-3.6-flash"
 DB = ROOT / "data" / "econocontext.sqlite3"
-ECONO = {"raw": "off", "econo+jev": "jev", "econo+prior": "prior"}
+ECONO = {"raw": "off", "econo+jev": "jev", "econo+prior": "prior", "econo+jev-nocache": "jev"}
+NO_CACHE = {"econo+jev-nocache"}   # v2.1: decisions do not plan around the provider's cache
 lock = threading.Lock()
 
 
@@ -65,11 +66,13 @@ def trial(a, task: str, repeat: int) -> dict:
                "--trials-dir", str(out / "harbor"), "--trial-name", name]
     if a.force:
         command += ["--agent-kwarg", f"force={json.dumps(a.force.split(','))}"]
+    if a.arm in NO_CACHE:
+        command += ["--agent-kwarg", "econo_cache=off"]
     (out / "command.txt").write_text(" ".join(command) + "\n")
     env = {**os.environ, "PYTHONPATH": f"{ROOT}:{os.environ.get('PYTHONPATH', '')}"}
     # The owner runs inside Harbor's process and asks Jev: give it the key from .env, as the gateway
     # reads its keys (spike gspike ran with no key and every Jev question fell back to the prior).
-    if a.arm == "econo+jev" and "TYPESAFE_API_KEY" not in env:
+    if ECONO[a.arm] == "jev" and "TYPESAFE_API_KEY" not in env:
         from omnigent_layer.gateway_common import env as dotenv
         if dotenv("TYPESAFE_API_KEY"):
             env["TYPESAFE_API_KEY"] = dotenv("TYPESAFE_API_KEY")
