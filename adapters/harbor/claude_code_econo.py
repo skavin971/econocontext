@@ -33,6 +33,7 @@ HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "
                "Stop", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"]
 MAX_COMPACTIONS = 3
 CONTINUE = "Continue the task from where you left off."
+BACKGROUND = {"FORCE_AUTO_BACKGROUND_TASKS", "ENABLE_BACKGROUND_TASKS"}
 
 
 def hook_settings(run: str, url: str = SERVICE_IN_CONTAINER) -> dict:
@@ -81,6 +82,9 @@ class ClaudeCodeEcono(ClaudeCode):
     async def _drive(self, environment, instruction: str, env: dict) -> None:
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 
+        # Plain Claude Code workers in both arms: Harbor forces them into the background, where a
+        # worker's report arrives as a notification no hook can shape (spike 1b; user's decision).
+        env = {k: v for k, v in env.items() if k not in BACKGROUND}
         container = await self._container(environment)
         workdir = environment.task_env_config.workdir or "/app"
         flags = " ".join(f"-e {shlex.quote(f'{k}={v}')}" for k, v in env.items())
