@@ -44,14 +44,14 @@ from .gateway_common import env, log
 
 # /run/<id>/...: an explicit run. /current/...: the run the bench marked current (used by
 # sub-agents, whose model URL comes from a global Omnigent provider and cannot name a run).
-PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
+PATH = re.compile(r"^/(?:run/(?P<run>[\w.:+-]+)|current)(?:/agent/(?P<agent>[\w.-]+))?/v1(?P<rest>/.*)$")
 # Tool results the gateway replaced with pointers (COMMIT_PENDING), per agent: applied to
 # every later request so the change is made once and the prefix stays stable after it.
 POINTERS_TABLE = ("CREATE TABLE IF NOT EXISTS gateway_pointers (run_id TEXT, agent_id TEXT, "
                   "tool_call_id TEXT, text TEXT, PRIMARY KEY (run_id, agent_id, tool_call_id))")
 UPSTREAM = (env("ECONOCONTEXT_BASE_URL") or "").rstrip("/")  # Vertex .../endpoints/openapi
 # A provider's own format: /run/<id>/<provider>/<the path the harness built>[?query]
-PROVIDER_PATH = re.compile(r"^/(?:run/(?P<run>[\w.:-]+)|current)/(?P<provider>gemini|anthropic)"
+PROVIDER_PATH = re.compile(r"^/(?:run/(?P<run>[\w.:+-]+)|current)/(?P<provider>gemini|anthropic)"
                            r"(?P<rest>/[^?]*)(?:\?(?P<query>.*))?$")
 GEMINI_UPSTREAM = (env("ECONOCONTEXT_GEMINI_UPSTREAM") or "https://aiplatform.googleapis.com").rstrip("/")
 ANTHROPIC_UPSTREAM = (env("ECONOCONTEXT_ANTHROPIC_UPSTREAM") or "https://api.anthropic.com").rstrip("/")

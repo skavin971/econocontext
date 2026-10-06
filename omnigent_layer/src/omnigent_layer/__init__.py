@@ -84,6 +84,12 @@ def engine_for(run_id: str) -> tuple[EconoContext, str] | None:
 def _engine(run_id, arm, mode, instance_id, jev, overrides, workdir,
             host="omnigent") -> EconoContext:
     """One engine for a run, the same in every process (gateway, Omnigent's server)."""
+    # Omnigent's daemon runs under launchd and does not see the shell's environment, so
+    # the policy's engine would never find Jev's key; read it the way the gateway does.
+    if jev and "TYPESAFE_API_KEY" not in os.environ:
+        from .gateway_common import env  # imported here: gateway_common imports this package
+        if env("TYPESAFE_API_KEY"):
+            os.environ["TYPESAFE_API_KEY"] = env("TYPESAFE_API_KEY")
     overrides = dict(overrides or {})
     learned = overrides.pop("learned", False)
     history = History(AgentDB(DB_PATH), exclude_instance=instance_id) if learned else None

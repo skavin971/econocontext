@@ -118,9 +118,6 @@ then to the host default. Every loser's `why_not` is written to `decisions`. `ob
 logs decisions and changes nothing; `autopilot` applies them.
 
 **Open for the next person**
-- **`econocontext/planner/jev_planner.py`: Jev predicts whether a tool result will be needed again.** It is used only with `--jev`; see `tests/test_planner_jev.py`.
-
-
 - **`econocontext/pricing/ledger.py`: actual cost per call and per run.**
   - It saves token counts today; the cost columns are empty.
   - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
@@ -135,7 +132,6 @@ See `tests/test_planner_jev.py` for mocked tests and an optional live check.
 
 Cost tracking, runtime spans, and text/JSON/CSV reporting are documented in
 [`docs/COST_TRACKING.md`](docs/COST_TRACKING.md).
-
 
 ## Running
 

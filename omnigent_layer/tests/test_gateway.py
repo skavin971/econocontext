@@ -99,6 +99,12 @@ def test_econo_arm_logs_a_plan_prompt_decision_per_call(gw):
     assert [tuple(r) for r in rows] == [("e1:root", "plan_prompt")]
 
 
+def test_a_jev_run_id_is_routed(gw):
+    run = "j1:econo+jev:pytest-dev__pytest-5809"  # bench/run.py's id for a --jev run
+    register_run(run, "econo", "observe")
+    assert post(f"{gw}/run/{run}/v1/chat/completions", BODY) == REPLY
+
+
 def test_current_route_and_two_workers_stay_apart(gw):
     register_run("w1", "econo", "observe", current=True)
     for task in ("find where lexer is set", "run the pastebin tests"):

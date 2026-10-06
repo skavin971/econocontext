@@ -54,8 +54,10 @@ from ..types import PlanContext, Segment, ToolResultEvent
 
 
 def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg: dict,
-                 prior: float) -> float:
-    """Send the provided context to Jev and return its probability of future use."""
+                 prior: float, usage: dict | None = None) -> float:
+    """Send the provided context to Jev and return its probability of future use.
+
+    If `usage` is given, Jev's reported token usage is copied into it (for its cost)."""
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
         raise RuntimeError("TYPESAFE_API_KEY is not set")
@@ -91,7 +93,8 @@ def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg
     )
     try:
         with urlopen(request, timeout=settings["timeout_seconds"]) as response:
-            answer = json.load(response)["answers"]["needed_again"]
+            reply = json.load(response)
+        answer = reply["answers"]["needed_again"]
         answer_type, probability = answer["type"], answer["noul"]
     except HTTPError as exc:
         # The engine logs exceptions: don't include response bodies or credentials.
@@ -104,4 +107,6 @@ def p_need_again(segment: Segment, event: ToolResultEvent, ctx: PlanContext, cfg
     if (answer_type != "noul" or type(probability) not in (int, float)
             or not 0.0 <= probability <= 1.0):
         raise ValueError("Jev returned an invalid probability")
+    if usage is not None and isinstance(reply.get("usage"), dict):
+        usage.update(reply["usage"])
     return float(probability)
