@@ -21,3 +21,18 @@ Task `benchmarks/tblite/spike-all-nine`, Claude Code **2.1.290** (pinned), Sonne
 - identical re-reads of an unchanged file return a `file_unchanged` stub (spike B);
 - outputs over about 30k characters are saved to a file with a 2KB preview (this run);
 - workers run asynchronously.
+
+## Run 3 (`runs/v2spike3`): plain Claude Code workers, repeat priced among note / serve / run
+
+Reward **1.0**, 23 calls, **$0.4851** (transcript = gateway). Jev: 4 calls, 52,542 input tokens (about $0.0022, separate). Forced: 4, 5, 8. Compaction left to fire naturally (user's decision); it did not, because the conversation never reached the 20k-token minimum.
+
+| # | Rule | Run 3 | Evidence |
+|---|---|---|---|
+| 1 | dont_repeat | **works** | the second identical `grep` got "Same output as your earlier identical call (item 1); nothing was written since, so it is unchanged and still above." |
+| 2 | delta_read | **works** (2) | |
+| 3 | serve_stored | **works** (1 serve, 1 restore) | the repeated `pytest` was served; a `file_unchanged` re-read of a sliced file was restored in full |
+| 4 | arrival | **works** (3 slices, forced, Jev-chosen) | |
+| 5 | worker_report | **works** (1 slice, forced) | with plain workers, the report arrives as the Agent tool's result |
+| 6/7 | evict / compact | not exercised | below the 20k-token conversation minimum; to be seen in the long tasks |
+| 8 | placement | **not exercised** | the agent issued both Agent calls in one message, so neither worker was idle when the second started; both became idle afterwards (session state). The mechanism (deny → SendMessage) is still untested live |
+| 9 | invalidate | **works** (2) | |
