@@ -167,12 +167,18 @@ def main() -> None:
                                 "cost_complete, raw FROM outcomes WHERE run_id=? ORDER BY created_at", (run,)):
                 w.writerow(r)
     # totals and paired statistics, rebuilt from the rows above (a crashed trial is replaced by a later label's)
-    cell = {}
+    # Only trials that ran to the grader count. A crashed or aborted trial (an exception, or no
+    # reward) is listed above but kept out of totals and pairs; a later label's trial replaces it.
+    cell, aborted = {}, []
     for r in rows:
         key = (r["arm"], r["task"], r["repeat"])
-        if key not in cell or cell[key]["exception"]:
-            cell[key] = r
-    stats = ["", "## Totals (rebuilt from raw rows)", ""]
+        if r["exception"] or r["reward"] is None:
+            aborted.append(r)
+            continue
+        cell[key] = r
+    stats = ["", "## Totals (rebuilt from raw rows; valid trials only)", "",
+             f"Kept out (crashed or aborted, not graded): {len(aborted)} -- "
+             + ", ".join(f"{r['label']} {r['arm']} {r['task']} r{r['repeat']} ({r['exception']})" for r in aborted), ""]
     arms = sorted({k[0] for k in cell}, key=lambda x: (x != "raw", x))
     for arm in arms:
         rs = [r for k, r in cell.items() if k[0] == arm]

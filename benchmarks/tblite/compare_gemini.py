@@ -33,6 +33,8 @@ def main() -> None:
     rows, replaced = [], []
     by_task = defaultdict(dict)
     for r in load(a.label):
+        if r.get("exception") or r.get("reward") is None or r.get("skipped"):
+            continue  # crashed, aborted or skipped trials never enter tables, totals or pairs
         old = by_task[(r["task"], r["repeat"])].get(r["arm"])
         if old and not old.get("exception"):
             continue  # a later label only replaces a trial the harness crashed on
