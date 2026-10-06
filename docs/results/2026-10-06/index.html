@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EconoContext Results, Oct 6</title>
+<style>
+  :root {
+    --bg: #f6f7f8; --sheet: #ffffff; --ink: #1d2733; --muted: #5d6b78; --line: #dde3e8;
+    --accent: #1f6f8b; --good: #2c7a4b; --good-soft: #e4f2e9; --bad: #a3402c; --bad-soft: #f8e6e1;
+    --bar: #9cc3d3; --bar-econo: #2c7a4b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171c; --sheet: #1a2128; --ink: #e5eaef; --muted: #9aa7b3; --line: #2c3640;
+      --accent: #6cb7d3; --good: #6fcf97; --good-soft: #1d3326; --bad: #f08a72; --bad-soft: #3a231e;
+      --bar: #3f6f82; --bar-econo: #4caf7a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171c; --sheet: #1a2128; --ink: #e5eaef; --muted: #9aa7b3; --line: #2c3640;
+    --accent: #6cb7d3; --good: #6fcf97; --good-soft: #1d3326; --bad: #f08a72; --bad-soft: #3a231e;
+    --bar: #3f6f82; --bar-econo: #4caf7a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 10px; }
+  .date { color: var(--muted); margin: 0 0 20px; }
+  .answer { background: var(--sheet); border: 1px solid var(--line); border-left: 4px solid var(--good);
+            border-radius: 8px; padding: 14px 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 16px; }
+  .card { background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card .big { font-size: 2rem; font-weight: 700; color: var(--good); line-height: 1.1; }
+  .card .what { color: var(--muted); font-size: .9rem; }
+  .scroll { overflow-x: auto; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 700; }
+  .down { color: var(--good); font-weight: 600; }
+  .up { color: var(--bad); font-weight: 600; }
+  .pass { background: var(--good-soft); border-radius: 4px; padding: 0 4px; }
+  .fail { background: var(--bad-soft); border-radius: 4px; padding: 0 4px; }
+  .barrow { display: grid; grid-template-columns: 200px 1fr 72px; gap: 10px; align-items: center; margin: 8px 0; }
+  .barrow .lbl { font-size: .9rem; }
+  .bar { height: 18px; border-radius: 3px; background: var(--bar); }
+  .bar.econo { background: var(--bar-econo); }
+  .bars { background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .note { color: var(--muted); font-size: .9rem; }
+  code { font-size: .88em; background: var(--bg); padding: 1px 4px; border-radius: 3px; }
+  a { color: var(--accent); }
+  @media (max-width: 560px) { .barrow { grid-template-columns: 1fr 64px; } .barrow .lbl { grid-column: 1 / -1; margin-bottom: -6px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Does EconoContext cut an agent's cost?</h1>
+  <p class="date">Experiment results, October 6, 2026</p>
+
+  <div class="answer"><strong>Yes, so far.</strong> In the same agent on the same tasks, EconoContext lowered the cost of a run and did not lower the pass rate. The samples are small (see the caveats).</div>
+
+  <div class="cards">
+    <div class="card"><div class="big">−12.4%</div><div>run cost, all 10 tasks × 3 runs</div><div class="what">$11.17 → $9.79 · passed 24 → 26 of 30</div></div>
+    <div class="card"><div class="big">−22.5%</div><div>run cost, 5 longest tasks × 2 runs, no cache guess</div><div class="what">$5.97 → $4.63 · passed 8 → 10 of 10</div></div>
+  </div>
+
+  <h2>Setup</h2>
+  <div class="scroll"><table>
+    <tr><td><strong>Agent harness</strong></td><td>Our own small agent loop (Python) with 4 tools: bash, read file, write file, submit</td></tr>
+    <tr><td><strong>Model</strong></td><td>Gemini 3.6 Flash (Google Vertex)</td></tr>
+    <tr><td><strong>Benchmark</strong></td><td>TBLite (Terminal-Bench Lite), 10 fixed tasks</td></tr>
+    <tr><td><strong>Runner</strong></td><td>Harbor; each run in a fresh Docker container</td></tr>
+    <tr><td><strong>Grading</strong></td><td>Each task's own tests: pass or fail</td></tr>
+    <tr><td><strong>Limits</strong></td><td>Same for every setup: at most 60 steps; tool output cut at 30,000 characters</td></tr>
+    <tr><td><strong>Isolation</strong></td><td>Each run starts with an empty session database, deleted at the end; nothing carries over</td></tr>
+    <tr><td><strong>Cost</strong></td><td>Gemini's bill for every call in the run. Jev's cost is counted separately</td></tr>
+  </table></div>
+
+  <h2>The three setups</h2>
+  <div class="scroll"><table>
+    <tr><th>Setup</th><th>What it does</th></tr>
+    <tr><td><strong>No EconoContext</strong></td><td>The agent keeps everything and re-sends its whole conversation on every call</td></tr>
+    <tr><td><strong>EconoContext</strong></td><td>Jev (a classifier) predicts what the agent still needs; a price decides what to keep, shrink or summarize. The price counts on the provider's cache</td></tr>
+    <tr><td><strong>EconoContext, no cache guess</strong></td><td>The same, but the price ignores the cache, which we cannot see or control on a closed model</td></tr>
+  </table></div>
+
+  <h2>Results</h2>
+  <div class="scroll"><table>
+    <tr><th>Test</th><th>Setup</th><th class="n">Passed</th><th class="n">Total cost</th><th class="n">Change</th></tr>
+    <tr><td rowspan="2">All 10 tasks,<br>3 runs each</td><td>No EconoContext</td><td class="n">24/30</td><td class="n">$11.17</td><td class="n"></td></tr>
+    <tr><td>EconoContext</td><td class="n"><strong>26/30</strong></td><td class="n"><strong>$9.79</strong></td><td class="n down">−12.4%</td></tr>
+    <tr><td rowspan="2">5 longest tasks,<br>2 runs each</td><td>No EconoContext</td><td class="n">8/10</td><td class="n">$5.97</td><td class="n"></td></tr>
+    <tr><td>EconoContext, no cache guess</td><td class="n"><strong>10/10</strong></td><td class="n"><strong>$4.63</strong></td><td class="n down">−22.5%</td></tr>
+  </table></div>
+  <ul class="note">
+    <li><strong>Is it luck?</strong> If EconoContext changed nothing, savings this large would appear by chance about 5% of the time in the first test and about 1% in the second (p = 0.049 and 0.011, paired t-test). EconoContext was cheaper in 20 of 30 and 8 of 10 pairs.</li>
+    <li>Jev's own cost, separate: about $0.10 and $0.07 (at an unverified $0.042 per million tokens).</li>
+  </ul>
+
+  <h2>5 longest tasks: average cost per run</h2>
+  <div class="scroll"><table>
+    <tr><th>Task</th><th class="n">No EconoContext</th><th class="n">EconoContext</th><th class="n">No cache guess</th></tr>
+    <tr><td>API permissions</td><td class="n">$0.49 <span class="pass">3/3</span></td><td class="n">$0.46 <span class="pass">3/3</span></td><td class="n">$0.39 <span class="pass">2/2</span></td></tr>
+    <tr><td>Bandit algorithm</td><td class="n">$0.71 <span class="fail">0/3</span></td><td class="n">$0.66 <span class="fail">0/3</span></td><td class="n">$0.68 <span class="pass">2/2</span></td></tr>
+    <tr><td>Malicious package</td><td class="n">$0.47 <span class="pass">3/3</span></td><td class="n">$0.58 <span class="fail">2/3</span></td><td class="n">$0.41 <span class="pass">2/2</span></td></tr>
+    <tr><td>Maven conflict</td><td class="n">$0.50 <span class="pass">3/3</span></td><td class="n">$0.28 <span class="pass">3/3</span></td><td class="n">$0.26 <span class="pass">2/2</span></td></tr>
+    <tr><td>Linux persistence scan</td><td class="n">$0.72 <span class="pass">3/3</span></td><td class="n">$0.57 <span class="pass">3/3</span></td><td class="n">$0.58 <span class="pass">2/2</span></td></tr>
+    <tr class="total"><td>Total</td><td class="n">$2.89</td><td class="n">$2.55 <span class="down">−11.6%</span></td><td class="n">$2.31 <span class="down">−19.8%</span></td></tr>
+  </table></div>
+
+  <h2>All 10 tasks: average cost per run</h2>
+  <div class="scroll"><table>
+    <tr><th>Task</th><th class="n">No EconoContext</th><th class="n">EconoContext</th><th class="n">Change</th></tr>
+    <tr><td>ACL permissions</td><td class="n">$0.066 <span class="pass">3/3</span></td><td class="n">$0.058 <span class="pass">3/3</span></td><td class="n down">−12.7%</td></tr>
+    <tr><td>Anomaly ranking</td><td class="n">$0.154 <span class="pass">3/3</span></td><td class="n">$0.156 <span class="pass">3/3</span></td><td class="n up">+0.8%</td></tr>
+    <tr><td>API permissions</td><td class="n">$0.488 <span class="pass">3/3</span></td><td class="n">$0.456 <span class="pass">3/3</span></td><td class="n down">−6.5%</td></tr>
+    <tr><td>Bandit algorithm</td><td class="n">$0.712 <span class="fail">0/3</span></td><td class="n">$0.663 <span class="fail">0/3</span></td><td class="n down">−6.9%</td></tr>
+    <tr><td>Chained forensics</td><td class="n">$0.140 <span class="pass">3/3</span></td><td class="n">$0.139 <span class="pass">3/3</span></td><td class="n down">−0.8%</td></tr>
+    <tr><td>Malicious package</td><td class="n">$0.468 <span class="pass">3/3</span></td><td class="n">$0.579 <span class="fail">2/3</span></td><td class="n up">+23.7%</td></tr>
+    <tr><td>Maven conflict</td><td class="n">$0.502 <span class="pass">3/3</span></td><td class="n">$0.284 <span class="pass">3/3</span></td><td class="n down">−43.4%</td></tr>
+    <tr><td>Pandas ETL</td><td class="n">$0.072 <span class="pass">3/3</span></td><td class="n">$0.083 <span class="pass">3/3</span></td><td class="n up">+14.9%</td></tr>
+    <tr><td>Sales data CSV</td><td class="n">$0.403 <span class="fail">0/3</span></td><td class="n">$0.275 <span class="pass">3/3</span></td><td class="n down">−31.7%</td></tr>
+    <tr><td>Linux persistence scan</td><td class="n">$0.717 <span class="pass">3/3</span></td><td class="n">$0.570 <span class="pass">3/3</span></td><td class="n down">−20.5%</td></tr>
+    <tr class="total"><td>Total</td><td class="n">$3.72</td><td class="n">$3.26</td><td class="n down">−12.4%</td></tr>
+  </table></div>
+
+  <h2>Where the saving comes from</h2>
+  <div class="bars">
+    <div class="barrow"><span class="lbl">Input tokens, no EconoContext</span><div class="bar" style="width:100%"></div><span class="n">27.8M</span></div>
+    <div class="barrow"><span class="lbl">Input tokens, EconoContext</span><div class="bar econo" style="width:79.8%"></div><span class="n">22.2M</span></div>
+    <div class="barrow"><span class="lbl">Output tokens, no EconoContext</span><div class="bar" style="width:3.3%"></div><span class="n">0.91M</span></div>
+    <div class="barrow"><span class="lbl">Output tokens, EconoContext</span><div class="bar econo" style="width:3.3%"></div><span class="n">0.92M</span></div>
+  </div>
+  <p>EconoContext <strong>sends 20% fewer input tokens</strong>; the model writes about the same. Gemini served about 69% of input from its cache in both setups. In the first repeat, most of the saving came from compaction: when Jev says a part of the work is finished, the model summarizes it and the details leave the conversation (a full copy stays in the session database).</p>
+
+  <h2>What EconoContext did</h2>
+  <div class="scroll"><table>
+    <tr><th>Action</th><th class="n">EconoContext (30 runs)</th><th class="n">No cache guess (10 runs)</th></tr>
+    <tr><td>Big tool output: keep a slice or a preview instead of all of it</td><td class="n">78 of 106</td><td class="n">58 of 77</td></tr>
+    <tr><td>Compaction: the model summarizes a finished part</td><td class="n">7</td><td class="n">2</td></tr>
+    <tr><td>Drop a finished big item</td><td class="n">0</td><td class="n">6</td></tr>
+    <tr><td>Don't repeat an identical call</td><td class="n">3</td><td class="n">1</td></tr>
+  </table></div>
+  <p class="note">Counting on the cache made keeping everything look cheap, so the first setup never dropped an item. Ignoring the cache let that rule act.</p>
+
+  <h2>How we checked</h2>
+  <ul>
+    <li>Every model call re-priced from Gemini's raw token counts; call counts and token totals match the agent's own log.</li>
+    <li>Every pass/fail matches the grader's own file.</li>
+    <li>Every run had its own empty database and its own container; on the first repeat we checked that no run borrowed another run's cache.</li>
+    <li>10 runs never reached the grader (one harness crash; nine stopped by our own gateway's daily token cap). They are not counted, and their reruns are.</li>
+  </ul>
+
+  <h2>Caveats</h2>
+  <ul>
+    <li>Small samples: 30 pairs and 10 pairs.</li>
+    <li>The no-cache-guess runs used only the 5 longest tasks, and the no-EconoContext runs they are compared with ran earlier the same day.</li>
+    <li>Malicious package cost more with EconoContext (+23.7%, one failure); not yet analysed.</li>
+    <li>The pass-rate gains (sales data, bandit) are hints, not findings.</li>
+  </ul>
+
+  <h2>Spend</h2>
+  <div class="scroll"><table>
+    <tr><td>Gemini, all of October 6 (tests, experiments, stopped runs)</td><td class="n">$26.63</td></tr>
+    <tr><td>Sonnet 5, earlier Claude Code track (paused)</td><td class="n">$3.85</td></tr>
+    <tr><td>Jev (separate)</td><td class="n">about $0.18</td></tr>
+  </table></div>
+
+  <p class="note" style="margin-top:32px">Details, every trial and where the raw data lives: <a href="README.md">README.md</a> · <a href="trials.csv">trials.csv</a> · verification: <code>runs/2026-10-06-gemini/VERIFY-final.md</code></p>
+</main>
+</body>
+</html>
