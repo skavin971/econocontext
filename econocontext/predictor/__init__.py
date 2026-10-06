@@ -1,9 +1,10 @@
 """Predictors: answer the rules' questions about context. Jev now; our own classifier later.
 
-Every predictor has the same three methods, each returning (answers, usage):
+Every predictor has the same four methods, each returning (answers, usage):
   arrival(task, convo, item)         -> needed_again (0-1), lifetime (label), relevant ({chunk: prob} or None)
   live(task, convo, items)           -> done ({item id: 0-1}), phase (label), portion_done (0-1)
   subtask(task, convo, prompt, items) -> needed ({item id: 0-1})
+  segment(task, turns, items, boundaries) -> done ({item id: 0-1}), segment_done (0-1), segment_end (turn)
 Predictors only select; they never write text. Prices and decisions live elsewhere, so a new
 predictor changes no economics.
 """

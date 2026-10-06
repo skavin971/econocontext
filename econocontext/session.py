@@ -106,11 +106,12 @@ class Session:
             "SELECT * FROM items WHERE agent=? AND key=? AND form='full' AND in_context=1 "
             "ORDER BY id DESC LIMIT 1", (agent, tool_key(tool, tool_input))).fetchone()
 
-    def reads_of(self, agent: str, file_path: str):
-        """Earlier Read results of this file by this agent, still in context, newest first."""
+    def reads_of(self, agent: str, file_path: str, tool: str = "Read", key: str = "file_path"):
+        """Earlier reads of this file by this agent, still in context, newest first (Claude Code's
+        Read by default; our own agent's read_file passes tool and argument key)."""
         return self.db.execute(
-            "SELECT * FROM items WHERE agent=? AND tool='Read' AND in_context=1 AND "
-            "json_extract(input, '$.file_path')=? ORDER BY id DESC", (agent, file_path)).fetchall()
+            f"SELECT * FROM items WHERE agent=? AND tool=? AND in_context=1 AND "
+            f"json_extract(input, '$.{key}')=? ORDER BY id DESC", (agent, tool, file_path)).fetchall()
 
     def update_item(self, item_id: int, **fields) -> None:
         cols = ", ".join(f"{k}=?" for k in fields)

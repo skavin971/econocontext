@@ -156,7 +156,8 @@ class EconoAgent(BaseAgent):
         self.messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": instruction}]
         if self.econo != "off":
             from econocontext.owner import Owner
-            self.owner = Owner(self.econo_run, self.econo, Path(self.logs_dir) / "session.sqlite3")
+            self.owner = Owner(self.econo_run, self.econo, Path(self.logs_dir) / "session.sqlite3",
+                               force=self.force)
             self.owner.start(instruction)
         try:
             for _ in range(self.max_steps):
@@ -189,7 +190,8 @@ class EconoAgent(BaseAgent):
             else:
                 served = self.owner.before_tool(name, args) if self.owner else None
                 full = served if served is not None else await self.tool(environment, name, args)
-                shown = self.owner.after_tool(name, args, full, served is not None) if self.owner else full
+                shown = self.owner.after_tool(name, args, full, served is not None, call["id"]) \
+                    if self.owner else full
                 shown = cap(shown, self.output_chars)
             self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": shown})
         return done

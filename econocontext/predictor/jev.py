@@ -102,3 +102,40 @@ class Jev:
             for i in items}
         answers, usage = self.ask(state, questions)
         return {"needed": {i["id"]: self._p(answers[f"needed_{i['id']}"]) for i in items}}, usage
+
+    def segment(self, task, turns, items, boundaries):
+        """Rules 6 and 7 in a harness that owns its context. `turns` = the conversation as numbered
+        turns; `items` = big tool outputs still in context; `boundaries` = turn numbers where a
+        finished segment could end (right after a tool result)."""
+        state = {"task": task, "conversation": turns,
+                 "items_in_context": [{"id": i["id"], "turn": i.get("turn"), "tool": i["tool"],
+                                       "input": i["input"], "tokens": i["tokens"]} for i in items]}
+        questions = {f"done_{i['id']}": {"type": "noul", "instructions": (
+            f"Is the agent finished using the output of item {i['id']} (turn {i.get('turn')}), so it will not "
+            "need that exact output again for the rest of the task?")} for i in items}
+        questions["segment_done"] = {"type": "noul", "instructions": SEGMENT_DONE}
+        if len(boundaries) > 1:
+            questions["segment_end"] = {"type": "choice", "instructions": SEGMENT_END,
+                                        "criteria": {f"t{b}": f"after turn {b}" for b in boundaries[-60:]}}
+        answers, usage = self.ask(state, questions)
+        end = None
+        if "segment_end" in answers and answers["segment_end"].get("choice"):
+            end = int(answers["segment_end"]["choice"][1:])
+        elif boundaries:
+            end = boundaries[-1]
+        return {"done": {i["id"]: self._p(answers[f"done_{i['id']}"]) for i in items},
+                "segment_done": self._p(answers["segment_done"]), "segment_end": end}, usage
+
+
+SEGMENT_DONE = (
+    "Looking at the agent's task and its conversation so far, has the agent fully finished a "
+    "self-contained part of the work (a segment), so that the detailed tool outputs and reasoning from "
+    "that part are no longer needed word for word, only a short record of its results? Example: the task "
+    "needs 10 SQL queries and query 1 is written, run and checked; the agent is starting query 2. Answer "
+    "yes only if (a) that part's goal was reached or abandoned, (b) the agent has moved on or is about to "
+    "move on to a different part, and (c) what the rest of the task needs from it fits in a few lines "
+    "(file names, values, decisions, what was verified). Answer no if the agent is in the middle of a "
+    "sub-task, debugging, or is likely to need exact earlier output (code, logs, data rows) soon.")
+SEGMENT_END = (
+    "Which turn ends the finished segment? The segment runs from the start of the conversation (after "
+    "the task) up to and including that turn; everything after it is still in progress.")

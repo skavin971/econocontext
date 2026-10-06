@@ -17,3 +17,7 @@ class Prior:
 
     def subtask(self, task, convo, prompt, items):
         return {"needed": {i["id"]: DEFAULT for i in items}}, None
+
+    def segment(self, task, turns, items, boundaries):
+        # Without knowledge of the trajectory, no segment is judged finished and nothing evicted.
+        return {"done": {i["id"]: 0.0 for i in items}, "segment_done": 0.0, "segment_end": None}, None

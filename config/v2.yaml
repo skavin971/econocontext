@@ -26,3 +26,23 @@ jev:
   max_state_chars: 200000  # the conversation sent to Jev is cut to its most recent part beyond this
 
 force: []                  # spike 1b: names of rules applied whenever they apply, regardless of price
+
+# Our own Gemini agent (adapters/harbor/econo_agent.py), where EconoContext owns the conversation
+# (econocontext/owner.py). Values marked ASSUMED are to be revisited with data.
+harness:
+  price: {provider: vertex_gemini, model: gemini-3.6-flash}
+  hit_share: 0.81            # fitted implicit-cache hit rate (cost_model miss 0.19, 243 Gemini calls, 2026-09-30)
+  expected_output: 1500      # mean output + thinking tokens per call (smoke run gsmoke, 21 calls)
+  calls_total: 25            # ASSUMED: expected calls per session (EconoCLM raw mean); H = this - calls so far, min 3
+  fixed_prefix: 1502         # system prompt + tools + task, first call of the smoke run
+  big_tokens: 1000           # results at least this big are priced (Jev asked)
+  preview_lines: 10
+  chunk_lines: 40
+  slice_min_prob: 0.15
+  check_every: 4             # calls between "done yet?" questions while there is something to evict or compact
+  evict_min_done: 0.5        # an item counts as finished when Jev's done >= this
+  compact_min_prompt: 30000  # ASSUMED (user): no compaction below this prompt size
+  compact_cooldown_calls: 8  # ASSUMED (user): calls between compactions
+  segment_done_min: 0.7      # ASSUMED (user): Jev's segment_done needed to compact
+  keep_verbatim_min: 0.5     # a big item in the segment is kept word for word when 1 - done >= this
+  summary_output_estimate: 2000  # ASSUMED: logged price only (compaction is not gated on price)
