@@ -1,0 +1,26 @@
+# EconoContext v2: one session, decide at each hook (plan: ~/.claude/plans/give-the-policy-the-shiny-donut.md).
+# Read by econocontext/service.py. Prices come from billing_rates.yaml (provider/model below).
+
+price:
+  provider: anthropic
+  model: claude-sonnet-5
+  hit_share: 0.95          # share of resident tokens Anthropic serves from cache each call (spike 1a: 36,402 of 36,404)
+  expected_output: 500     # output tokens of an extra call (a re-read)
+
+session:
+  calls_total: 30          # PLACEHOLDER: expected model calls per session; H = calls_total − calls so far (min 3)
+  big_tokens: 1000         # results at least this big are priced (Jev asked); smaller ones stay full
+  preview_lines: 10        # head + tail lines shown in a preview (5 + 5)
+  slice_min_prob: 0.15     # a chunk is kept in a slice when Jev gives it at least this probability
+  chunk_lines: 40          # lines per chunk offered to Jev's relevant_parts question (≤ 255 chunks)
+  live_check_every: 4      # calls between "done yet?" checks while big items are in context
+  compact_min_conversation: 20000   # never compact a conversation smaller than this (tokens beyond the fixed prefix)
+  fixed_prefix: 36400      # Claude Code's system prompt + tools, cached at the start (spike 1a)
+  summary_tokens: 1500     # PLACEHOLDER: a compaction summary's size
+
+jev:
+  model: jev-latest
+  timeout_seconds: 20
+  max_state_chars: 200000  # the conversation sent to Jev is cut to its most recent part beyond this
+
+force: []                  # spike 1b: names of rules applied whenever they apply, regardless of price

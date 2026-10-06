@@ -1,0 +1,104 @@
+"""Jev (TypeSafe's classifier) as a predictor: one HTTP request per moment, several questions each.
+
+API (https://docs.typesafe.ai/api.md, checked 2026-10-05): POST /v1/systemone with
+{"model", "state", "questions": {key: {"type": "noul"|"choice", "instructions", "criteria"?}}};
+answers come back under the same keys: noul -> {"noul": p}; choice -> {"choice", "probabilities",
+"confidence"}. The key comes only from TYPESAFE_API_KEY. Standard library only.
+"""
+
+import json
+import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from . import LIFETIMES, PHASES
+
+URL = "https://api.typesafe.ai/v1/systemone"
+
+
+def numbered(text: str) -> str:
+    return "\n".join(f"{i}\t{line}" for i, line in enumerate(text.splitlines(), 1))
+
+
+class Jev:
+    name = "jev"
+
+    def __init__(self, model: str = "jev-latest", timeout: float = 20):
+        self.model, self.timeout = model, timeout
+
+    def ask(self, state: dict, questions: dict) -> tuple[dict, dict]:
+        key = os.environ.get("TYPESAFE_API_KEY")
+        if not key:
+            raise RuntimeError("TYPESAFE_API_KEY is not set")
+        body = json.dumps({"model": self.model, "state": state, "questions": questions},
+                          allow_nan=False).encode()
+        request = Request(URL, data=body, method="POST", headers={
+            "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                reply = json.load(response)
+        except HTTPError as exc:  # never include response bodies or the key in errors
+            raise RuntimeError(f"Jev HTTP {exc.code}") from None
+        except (URLError, TimeoutError):
+            raise RuntimeError("Jev request failed or timed out") from None
+        answers = reply.get("answers")
+        if not isinstance(answers, dict):
+            raise ValueError("Jev returned no answers")
+        return answers, reply.get("usage") or {}
+
+    @staticmethod
+    def _p(answer: dict) -> float:
+        p = answer.get("noul")
+        if type(p) not in (int, float) or not 0 <= p <= 1:
+            raise ValueError("Jev returned an invalid probability")
+        return float(p)
+
+    def arrival(self, task, convo, item):
+        state = {"task": task, "conversation": convo,
+                 "new_tool_result": {"tool": item["tool"], "input": item["input"],
+                                     "lines": numbered(item["text"])}}
+        questions = {
+            "needed_again": {"type": "noul", "instructions": (
+                "The agent just received `new_tool_result`. After its next step, will it need "
+                "information from this result again to finish its task?")},
+            "lifetime": {"type": "choice", "criteria": LIFETIMES, "instructions": (
+                "For how long will the agent keep using `new_tool_result`?")},
+        }
+        spans = item.get("chunks") or []
+        if len(spans) > 1:
+            questions["relevant"] = {"type": "choice", "instructions": (
+                "Which part of `new_tool_result` (by line numbers) holds what the agent needs "
+                "for its task?"), "criteria": {f"c{i}": f"lines {a}-{b}" for i, (a, b) in enumerate(spans)}}
+        answers, usage = self.ask(state, questions)
+        out = {"needed_again": self._p(answers["needed_again"]),
+               "lifetime": answers["lifetime"].get("choice"), "relevant": None}
+        if "relevant" in answers:
+            probs = answers["relevant"].get("probabilities") or {}
+            out["relevant"] = {int(k[1:]): float(v) for k, v in probs.items() if k[1:].isdigit()}
+        return out, usage
+
+    def live(self, task, convo, items):
+        state = {"task": task, "conversation": convo,
+                 "items_in_context": [{"id": i["id"], "tool": i["tool"], "input": i["input"],
+                                       "tokens": i["tokens"]} for i in items]}
+        questions = {f"done_{i['id']}": {"type": "noul", "instructions": (
+            f"Is the agent finished using the result of item {i['id']} in `items_in_context`, "
+            "so it will not need it for the rest of the task?")} for i in items}
+        questions["phase"] = {"type": "choice", "criteria": PHASES,
+                              "instructions": "Which phase of the task is the agent in now?"}
+        questions["portion_done"] = {"type": "noul", "instructions": (
+            "Has the agent just finished a distinct part of its task (for example, it found the "
+            "cause and is moving on to fixing it), so earlier work could be summarized?")}
+        answers, usage = self.ask(state, questions)
+        return {"done": {i["id"]: self._p(answers[f"done_{i['id']}"]) for i in items},
+                "phase": answers["phase"].get("choice"),
+                "portion_done": self._p(answers["portion_done"])}, usage
+
+    def subtask(self, task, convo, prompt, items):
+        state = {"task": task, "conversation": convo, "new_subtask": prompt,
+                 "worker_items": [{"id": i["id"], "tool": i["tool"], "input": i["input"]} for i in items]}
+        questions = {f"needed_{i['id']}": {"type": "noul", "instructions": (
+            f"Will the new sub-task `new_subtask` need the information in worker item {i['id']}?")}
+            for i in items}
+        answers, usage = self.ask(state, questions)
+        return {"needed": {i["id"]: self._p(answers[f"needed_{i['id']}"]) for i in items}}, usage

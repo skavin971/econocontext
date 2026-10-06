@@ -1,0 +1,39 @@
+Mon Oct  5 22:44:06 EDT 2026
+..........F.F........                                                    [100%]
+=================================== FAILURES ===================================
+_______ test_a_repeated_read_of_a_previewed_file_gets_the_full_copy_back _______
+
+make = <function make.<locals>.build at 0x10749e5c0>
+
+    def test_a_repeated_read_of_a_previewed_file_gets_the_full_copy_back(make):
+        ctx = make(predictor=FakePredictor(needed=0.01))
+        decide.post_tool(ctx, read("big.py", 1, BIG))                            # previewed (rule 4)
+        reply = decide.post_tool(ctx, read("big.py", 1, "", kind="file_unchanged"))
+>       assert spec(reply)["updatedToolOutput"]["file"]["content"] == BIG
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'updatedToolOutput'
+
+tests/v2/test_rules.py:176: KeyError
+___________ test_a_big_result_likely_needed_stays_full_unless_forced ___________
+
+make = <function make.<locals>.build at 0x10758ca40>
+
+    def test_a_big_result_likely_needed_stays_full_unless_forced(make):
+>       assert decide.post_tool(make(predictor=FakePredictor(needed=0.95)), bash("pytest -q", BIG)) == {}
+E       AssertionError: assert {'hookSpecifi... all of it.'}} == {}
+E         
+E         Left contains 1 more item:
+E         {'hookSpecificOutput': {'additionalContext': '[EconoContext] This output has '
+E                                                      '300 lines (about 5298 tokens); '
+E                                                      'you are seeing the first and '
+E                                                      'last lines. The full output is '
+E                                                      'saved: repeat the identical call '...
+E         
+E         ...Full output truncated (29 lines hidden), use '-vv' to show
+
+tests/v2/test_rules.py:191: AssertionError
+=========================== short test summary info ============================
+FAILED tests/v2/test_rules.py::test_a_repeated_read_of_a_previewed_file_gets_the_full_copy_back
+FAILED tests/v2/test_rules.py::test_a_big_result_likely_needed_stays_full_unless_forced
+2 failed, 19 passed in 0.20s
+exit=1
