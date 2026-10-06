@@ -1,0 +1,129 @@
+downloading uv 0.7.13 aarch64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Using CPython 3.12.15 interpreter at: /usr/local/bin/python
+Creating virtual environment at: .tbench-testing
+Using Python 3.12.15 environment at: .tbench-testing
+Resolved 11 packages in 267ms
+Downloading numpy (13.0MiB)
+Downloading pandas (14.5MiB)
+Downloading scipy (33.7MiB)
+ Downloading numpy
+ Downloading scipy
+ Downloading pandas
+Prepared 11 packages in 1.42s
+Installed 11 packages in 72ms
+ + iniconfig==2.3.0
+ + numpy==2.1.3
+ + packaging==26.3
+ + pandas==2.2.3
+ + pluggy==1.6.0
+ + pytest==8.3.4
+ + python-dateutil==2.9.0.post0
+ + pytz==2026.5
+ + scipy==1.14.1
+ + six==1.17.0
+ + tzdata==2026.5
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-8.3.4, pluggy-1.6.0 -- /app/.tbench-testing/bin/python3
+cachedir: .pytest_cache
+rootdir: /tests
+collecting ... collected 20 items
+
+../tests/test_outputs.py::TestOutputFormat::test_predictions_file_exists PASSED [  5%]
+../tests/test_outputs.py::TestOutputFormat::test_delay_model_file_exists PASSED [ 10%]
+../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_file_exists PASSED [ 15%]
+../tests/test_outputs.py::TestOutputFormat::test_predictions_columns PASSED [ 20%]
+../tests/test_outputs.py::TestOutputFormat::test_predictions_row_count PASSED [ 25%]
+../tests/test_outputs.py::TestOutputFormat::test_selected_arm_valid PASSED [ 30%]
+../tests/test_outputs.py::TestOutputFormat::test_expected_reward_non_negative PASSED [ 35%]
+../tests/test_outputs.py::TestOutputFormat::test_confidence_interval_valid PASSED [ 40%]
+../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_columns PASSED [ 45%]
+../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_row_count PASSED [ 50%]
+../tests/test_outputs.py::TestOutputFormat::test_delay_model_fields PASSED [ 55%]
+../tests/test_outputs.py::TestArmSelectionQuality::test_regret_ratio_threshold PASSED [ 60%]
+../tests/test_outputs.py::TestRewardCalibration::test_calibration_error_threshold FAILED [ 65%]
+../tests/test_outputs.py::TestConfidenceIntervals::test_ci_coverage_upper_bound PASSED [ 70%]
+../tests/test_outputs.py::TestDelayModel::test_distribution_type_lognormal PASSED [ 75%]
+../tests/test_outputs.py::TestDelayModel::test_mu_parameter_accuracy PASSED [ 80%]
+../tests/test_outputs.py::TestDelayModel::test_sigma_parameter_accuracy PASSED [ 85%]
+../tests/test_outputs.py::TestDelayModel::test_median_delay_error_threshold PASSED [ 90%]
+../tests/test_outputs.py::TestDelayModel::test_conversion_rate_error_threshold PASSED [ 95%]
+../tests/test_outputs.py::TestArmStatistics::test_conversion_rate_rmse_threshold PASSED [100%]
+
+=================================== FAILURES ===================================
+____________ TestRewardCalibration.test_calibration_error_threshold ____________
+
+self = <test_outputs.TestRewardCalibration object at 0xffff7418bbf0>
+predictions =       context_id  selected_arm  ...  confidence_lower  confidence_upper
+0     CTX_000000             0  ...          0...3802          0.491209
+1999  CTX_001999             4  ...          0.359495          0.405378
+
+[2000 rows x 5 columns]
+ground_truth =       context_id  optimal_arm  ...  arm_8_actual  arm_9_actual
+0     CTX_000000            5  ...          0.00       .....          0.00           0.0
+1999  CTX_001999            5  ...          0.00           0.0
+
+[2000 rows x 13 columns]
+
+    def test_calibration_error_threshold(self, predictions, ground_truth):
+        """
+        Verify Calibration Error <= 0.15 as specified in instruction.md.
+    
+        Calibration Error = |mean(expected) - mean(actual)| / mean(actual)
+        """
+        merged = predictions.merge(ground_truth, on='context_id')
+    
+        # Get actual rewards for selected arms
+        actual_rewards = []
+        for _, row in merged.iterrows():
+            selected_arm = row['selected_arm']
+            actual_col = f'arm_{selected_arm}_actual'
+            actual_rewards.append(row[actual_col])
+    
+        mean_expected = predictions['expected_reward'].mean()
+        mean_actual = np.mean(actual_rewards)
+    
+        if mean_actual == 0:
+            calibration_error = float('inf') if mean_expected > 0 else 0
+        else:
+            calibration_error = abs(mean_expected - mean_actual) / mean_actual
+    
+        max_calibration_error = 0.15
+>       assert calibration_error <= max_calibration_error, \
+            f"Calibration Error {calibration_error:.4f} exceeds {max_calibration_error}"
+E       AssertionError: Calibration Error 0.4371 exceeds 0.15
+E       assert np.float64(0.4370531226720145) <= 0.15
+
+/tests/test_outputs.py:208: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_predictions_file_exists
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_delay_model_file_exists
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_file_exists
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_predictions_columns
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_predictions_row_count
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_selected_arm_valid
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_expected_reward_non_negative
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_confidence_interval_valid
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_columns
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_arm_statistics_row_count
+PASSED ../tests/test_outputs.py::TestOutputFormat::test_delay_model_fields
+PASSED ../tests/test_outputs.py::TestArmSelectionQuality::test_regret_ratio_threshold
+PASSED ../tests/test_outputs.py::TestConfidenceIntervals::test_ci_coverage_upper_bound
+PASSED ../tests/test_outputs.py::TestDelayModel::test_distribution_type_lognormal
+PASSED ../tests/test_outputs.py::TestDelayModel::test_mu_parameter_accuracy
+PASSED ../tests/test_outputs.py::TestDelayModel::test_sigma_parameter_accuracy
+PASSED ../tests/test_outputs.py::TestDelayModel::test_median_delay_error_threshold
+PASSED ../tests/test_outputs.py::TestDelayModel::test_conversion_rate_error_threshold
+PASSED ../tests/test_outputs.py::TestArmStatistics::test_conversion_rate_rmse_threshold
+FAILED ../tests/test_outputs.py::TestRewardCalibration::test_calibration_error_threshold
+========================= 1 failed, 19 passed in 1.04s =========================
