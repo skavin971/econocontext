@@ -141,3 +141,10 @@ def test_long_outputs_are_capped_head_and_tail():
     assert cap(text, 100) == text
     capped = cap(text, 20)
     assert capped.startswith("a" * 10) and capped.endswith("b" * 10) and "80 characters omitted" in capped
+
+
+def test_a_reply_without_a_message_is_treated_as_a_turn_without_a_tool_call(make):
+    empty = reply(("submit", {}))
+    empty.choices[0].message = None          # what Gemini sent in gx1 raw malicious-package-forensics
+    agent, _, _ = make([empty, reply(("submit", {}))])
+    assert agent.messages[2] == {"role": "user", "content": NUDGE} and agent.messages[-1]["content"] == "Submitted."

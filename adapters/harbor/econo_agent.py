@@ -141,11 +141,11 @@ class EconoAgent(BaseAgent):
                 await asyncio.sleep(delay)
                 delay = min(60.0, delay * 2)
                 continue
-            choice = reply.choices[0]
+            choice = reply.choices[0] if reply.choices else None
             self.calls.append({"usage": reply.usage.model_dump() if reply.usage else None,
-                               "finish_reason": choice.finish_reason,
+                               "finish_reason": choice.finish_reason if choice else "no_choice",
                                "latency_ms": round((time.monotonic() - started) * 1000)})
-            if choice.finish_reason == "malformed_function_call" and malformed < 3:
+            if choice is not None and choice.finish_reason == "malformed_function_call" and malformed < 3:
                 malformed += 1
                 continue
             return reply
@@ -165,7 +165,13 @@ class EconoAgent(BaseAgent):
                     if self.owner else self.messages
                 reply = await self.complete(sent)
                 self._account(context)
-                message = reply.choices[0].message.model_dump(exclude_none=True)
+                choice = reply.choices[0] if reply.choices else None
+                if choice is None or choice.message is None:
+                    # Gemini can return a reply without a message (content filter, empty reply; EconoCLM
+                    # saw both). Treat it as a turn with no tool call: nudge and go on (gx1 raw crashed here).
+                    self.messages.append({"role": "user", "content": NUDGE})
+                    continue
+                message = choice.message.model_dump(exclude_none=True)
                 self.messages.append(message)
                 calls = message.get("tool_calls") or []
                 if not calls:
