@@ -31,6 +31,30 @@ def calls(path: str | Path) -> list[dict]:
     return list(seen.values())
 
 
+def usage_totals(paths) -> dict:
+    """Token totals over transcripts (main agent and workers), each model call counted once."""
+    totals = {"calls": 0, "input": 0, "cache_read": 0, "cache_write_5m": 0, "cache_write_1h": 0, "output": 0}
+    for path in paths:
+        for usage in calls(path):
+            created = usage.get("cache_creation") or {}
+            one_hour = int(created.get("ephemeral_1h_input_tokens") or 0)
+            totals["calls"] += 1
+            totals["input"] += int(usage.get("input_tokens") or 0)
+            totals["cache_read"] += int(usage.get("cache_read_input_tokens") or 0)
+            totals["cache_write_1h"] += one_hour
+            totals["cache_write_5m"] += int(usage.get("cache_creation_input_tokens") or 0) - one_hour
+            totals["output"] += int(usage.get("output_tokens") or 0)
+    return totals
+
+
+def cost_usd(totals: dict, rates: dict) -> float:
+    """Dollars from usage_totals and a billing_rates.yaml tier (per million tokens)."""
+    return (totals["input"] * rates["input_per_mtok"] + totals["cache_read"] * rates["cache_read_per_mtok"]
+            + totals["cache_write_5m"] * rates["cache_write_per_mtok"]
+            + totals["cache_write_1h"] * rates.get("cache_write_1h_per_mtok", rates["cache_write_per_mtok"])
+            + totals["output"] * rates["output_per_mtok"]) / 1e6
+
+
 def prompt_tokens(usage: dict) -> int:
     return sum(int(usage.get(k) or 0) for k in
                ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
