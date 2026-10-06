@@ -4,8 +4,8 @@ Why it exists: TBLite runs Claude Code inside each task container (Harbor's `cla
 agent). This subclass changes only what EconoContext needs and reuses everything else
 (install, model and key environment, transcripts under /logs/agent/sessions):
 
-1. Writes $CLAUDE_CONFIG_DIR/settings.json with HTTP hooks to the host's hook service
-   (econocontext/service.py), tagged with this run's name.
+1. Writes $CLAUDE_CONFIG_DIR/settings.json with command hooks (curl) to the host's hook
+   service (econocontext/service.py), tagged with this run's name.
 2. Replaces Harbor's final `claude --print` with a driver on the host: the Claude Agent SDK
    talks to `claude` in the container through `docker exec -i`. Between messages it asks the
    service for a pending compaction; when there is one it interrupts the turn, sends
@@ -36,7 +36,13 @@ CONTINUE = "Continue the task from where you left off."
 
 
 def hook_settings(run: str, url: str = SERVICE_IN_CONTAINER) -> dict:
-    hook = {"type": "http", "url": f"{url}/hook", "headers": {"X-Econo-Run": run}, "timeout": 120}
+    # Command hooks running curl: Claude Code refuses HTTP hooks to private addresses such as
+    # host.docker.internal ("HTTP hook blocked ... private/link-local", spike 1b run 1). The event
+    # arrives on stdin and the service's JSON reply is printed; if the service is down, curl
+    # prints nothing and the hook changes nothing.
+    command = (f"curl -s -m 110 -H 'Content-Type: application/json' -H 'X-Econo-Run: {run}' "
+               f"--data-binary @- {url}/hook")
+    hook = {"type": "command", "command": command, "timeout": 120}
     return {"hooks": {event: [{**({"matcher": "*"} if "ToolUse" in event else {}), "hooks": [hook]}]
                       for event in HOOK_EVENTS}}
 

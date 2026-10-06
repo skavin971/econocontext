@@ -39,6 +39,7 @@ FROZEN = ["api-endpoint-permission-canonicalizer", "sales-data-csv-analysis", "a
           "malicious-package-forensics", "bandit-delayed-feedback", "anomaly-detection-ranking",
           "scan-linux-persistence-artifacts"]  # EconoCLM seed 20261003, oracle health-checked
 MODEL = "claude-sonnet-5"
+CLAUDE_CODE = "2.1.290"  # pinned for both arms (Harbor otherwise installs the latest)
 SERVICE = "http://127.0.0.1:8790"
 RATES = yaml.safe_load((ROOT / "config" / "billing_rates.yaml").read_text())["anthropic"][MODEL]["periods"][0]["tiers"][0]
 
@@ -80,7 +81,7 @@ def main() -> None:
     task_dir = Path(a.task_dir) if a.task_dir else TBLITE / a.task
     command = [str(ROOT / ".venv" / "bin" / "harbor"), "trial", "start", "-p", str(task_dir), "-e", "docker",
                "-a", "adapters.harbor.claude_code_econo:ClaudeCodeEcono", "-m", MODEL,
-               "--agent-kwarg", f"econo_run={run if hooks else 'none'}",
+               "--agent-kwarg", f"econo_run={run if hooks else 'none'}", "--agent-kwarg", f"version={CLAUDE_CODE}",
                "--agent-timeout-multiplier", a.timeout_multiplier,
                "--trials-dir", str(trials), "--trial-name", trial_name]
     env = {**os.environ, "PYTHONPATH": f"{ROOT}:{os.environ.get('PYTHONPATH', '')}",
@@ -101,6 +102,8 @@ def summarize(run: str, out: Path, trial: Path, code: int, seconds: float) -> di
     totals = usage_totals(transcripts)
     summary = {"run": run, "exit": code, "seconds": round(seconds), "reward": rewards.get("reward"),
                "exception": (result.get("exception_info") or {}).get("exception_type"),
+               "claude_code": sorted({json.loads(line).get("version") for path in transcripts for line in open(path)
+                                      if '"version"' in line} - {None}),
                "usage": totals, "run_cost_usd": round(cost_usd(totals, RATES), 4)}
     gateway = ROOT / "data" / "econocontext.sqlite3"
     with sqlite3.connect(gateway) as db:
