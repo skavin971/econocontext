@@ -338,3 +338,12 @@ def test_the_flag_is_found_for_a_run_name_with_a_plus(tmp_path):
         assert json.load(urllib.request.urlopen(url))["compact"]["instructions"] == "x"
     finally:
         server.shutdown()
+
+
+def test_measured_compaction_cost_makes_compaction_rare():
+    # v2x2 maven at call 13: prompt ~60k, 25 calls total. With the measured summary (10,630 kept,
+    # 16,783 output) compaction does not pay; with the old 1,500 placeholder it looked like it did.
+    measured = lifecycle.compaction(PRICES, 60_000, 36_400, 10_630, 12, [], summary_output=16_783)
+    assert measured["compact"] > measured["keep"] and measured["h_star"] > 40
+    placeholder = lifecycle.compaction(PRICES, 60_000, 36_400, 1_500, 12, [])
+    assert placeholder["h_star"] < measured["h_star"]

@@ -79,16 +79,17 @@ def note(p: Prices, note_tokens: int, full: int, calls_left: float) -> dict[str,
 
 
 def compaction(p: Prices, prompt: float, prefix: float, summary: float, calls_left: float,
-               rereads: list[tuple[float, float]]) -> dict[str, float]:
+               rereads: list[tuple[float, float]], summary_output: float | None = None) -> dict[str, float]:
     """Compact the conversation now (Claude Code /compact) or keep carrying it.
 
     Keeping: the conversation beyond the fixed prefix is re-sent on every later call.
-    Compacting: one summary call (reads everything, writes `summary` tokens), the summary is
-    written to the cache once and carried after, plus each dropped item that is needed again
+    Compacting: one summary call (reads everything, writes `summary_output` tokens, thinking
+    included; default `summary`), the `summary` kept is written to the cache once and carried
+    after, plus each dropped item that is needed again
     (`rereads` = [(chance, tokens)]). Returns both prices and the break-even calls H*."""
     conversation = max(0.0, prompt - prefix)
     carry = conversation * p.c * calls_left
-    summary_call = prompt * p.c + summary * p.output
+    summary_call = prompt * p.c + (summary if summary_output is None else summary_output) * p.output
     after = keep(p, summary, calls_left)
     risk = sum(chance * reread(p, prefix + summary, tokens, calls_left / 2) for chance, tokens in rereads)
     fixed = summary_call + summary * p.cache_write + risk

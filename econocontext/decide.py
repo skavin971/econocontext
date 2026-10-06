@@ -361,7 +361,7 @@ def live_check(ctx: Ctx) -> dict | None:
     keep_ids = {r["id"] for r in items if done.get(r["id"], 0.0) < 0.5}
     dropped = [(1 - done.get(r["id"], 0.0), r["tokens"]) for r in items if r["id"] not in keep_ids]
     prices = lifecycle.compaction(ctx.p, ctx.prompt, cfg["fixed_prefix"], cfg["summary_tokens"],
-                                  ctx.calls_left, dropped)
+                                  ctx.calls_left, dropped, cfg.get("summary_output_tokens"))
     finished_big = [i["id"] for i in big if done.get(i["id"], 0.0) >= 0.5]
     rule = "7 compact" if answers.get("portion_done", 0.0) >= 0.6 else "6 evict"
     worth = prices["compact"] < prices["keep"]
