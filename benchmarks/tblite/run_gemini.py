@@ -67,6 +67,12 @@ def trial(a, task: str, repeat: int) -> dict:
         command += ["--agent-kwarg", f"force={json.dumps(a.force.split(','))}"]
     (out / "command.txt").write_text(" ".join(command) + "\n")
     env = {**os.environ, "PYTHONPATH": f"{ROOT}:{os.environ.get('PYTHONPATH', '')}"}
+    # The owner runs inside Harbor's process and asks Jev: give it the key from .env, as the gateway
+    # reads its keys (spike gspike ran with no key and every Jev question fell back to the prior).
+    if a.arm == "econo+jev" and "TYPESAFE_API_KEY" not in env:
+        from omnigent_layer.gateway_common import env as dotenv
+        if dotenv("TYPESAFE_API_KEY"):
+            env["TYPESAFE_API_KEY"] = dotenv("TYPESAFE_API_KEY")
     started = time.time()
     with (out / "harbor.log").open("w") as log:
         code = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT).returncode

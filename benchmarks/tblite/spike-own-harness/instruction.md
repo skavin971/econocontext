@@ -7,7 +7,7 @@ Work in /app. Do the steps below in order, one tool call per step, with exactly 
 5. bash: `python3 -m pytest -q tests/test_app.py`
 6. bash again, exactly the same command: `python3 -m pytest -q tests/test_app.py`
 7. bash: `cat data/big.log`
-8. bash: `wc -l data/big.log`
+8. bash: `seq -w 1 1200`
 9. bash: `grep -c ERROR data/big.log`
 10. bash: `grep -n SECRET_TOKEN data/big.log`
 11. bash again, exactly the same command as step 1: `grep -n "def item_" src/app.py`
