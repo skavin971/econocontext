@@ -45,8 +45,8 @@ def summary_call(text="Found the bug in app.py line 3; fixed it; tests pass."):
 def owner(tmp_path):
     count = iter(range(100))
 
-    def build(predictor=None, force=()):
-        o = Owner("r1", "jev", tmp_path / f"s{next(count)}.sqlite3", force=force)
+    def build(predictor=None, force=(), cache=None):
+        o = Owner("r1", "jev", tmp_path / f"s{next(count)}.sqlite3", force=force, cache=cache)
         o.predictor = predictor or FakePredictor()
         o.start("Fix the bug.")
         return o
@@ -212,3 +212,24 @@ def test_jev_requests_are_cut_to_fit_its_input_limit():
     assert "lines cut to fit" in fitted["new_tool_result"]["lines"]
     small = {"task": "t", "conversation": [{"turn": 1, "text": "hi"}]}
     assert jev.fit(small) == {"task": "t", "conversation": [{"turn": 1, "text": "hi"}]}
+
+
+# v2.1: no cache in decisions -----------------------------------------------------------
+def test_without_cache_planning_a_kept_token_costs_the_full_price_and_edits_break_nothing():
+    from econocontext.pricing import lifecycle
+    p = lifecycle.from_card("vertex_gemini", "gemini-3.6-flash", 0.81, 1500, cache=False)
+    assert (p.c, p.cache_read, p.cache_write, p.hit_share) == (1.0, 1.0, 1.0, 0.0)
+    assert p.output == 5.0                                   # output still priced from the card
+
+
+def test_a_finished_item_far_from_the_end_is_kept_with_cache_planning_and_evicted_without(owner):
+    def run(cache):
+        o = owner(FakePredictor(done=0.9, segment_done=0.1), cache=cache)
+        messages, usage = conversation(o, prompt=12_000, calls=20)
+        messages += [{"role": "assistant", "content": "z" * 120_000}]      # ~30k tokens after the item
+        asyncio.run(o.before_call(messages, usage, summary_call()))
+        return o, messages
+    kept, messages = run(cache=True)
+    assert rules(kept)[-1] == ("6 evict", "keep") and messages[3]["content"] == BIG   # cache break looked costly
+    evicted, messages = run(cache=False)
+    assert rules(evicted)[-1] == ("6 evict", "evict") and messages[3]["content"].startswith(NOTE)

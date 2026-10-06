@@ -62,11 +62,12 @@ def cap(text: str, limit: int) -> str:
 class EconoAgent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, econo="off", econo_run=None,
                  max_steps=60, max_tokens=8192, temperature=0.7, command_timeout=180,
-                 output_chars=30000, client=None, state_dir=STATE, force=None, **kwargs):
+                 output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.model = (model_name or "").removeprefix("openai/")
         self.econo, self.econo_run = econo, econo_run
         self.force = set(force or [])  # spike only: rules applied whenever they apply
+        self.econo_cache = str(econo_cache).lower() not in ("off", "false", "0", "none")
         self.max_steps, self.max_tokens, self.temperature = int(max_steps), int(max_tokens), float(temperature)
         self.command_timeout, self.output_chars = int(command_timeout), int(output_chars)
         if client is None:
@@ -157,7 +158,7 @@ class EconoAgent(BaseAgent):
         if self.econo != "off":
             from econocontext.owner import Owner
             self.owner = Owner(self.econo_run, self.econo, Path(self.logs_dir) / "session.sqlite3",
-                               force=self.force)
+                               force=self.force, cache=self.econo_cache)
             self.owner.start(instruction)
         try:
             for _ in range(self.max_steps):

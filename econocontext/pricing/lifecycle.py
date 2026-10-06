@@ -35,10 +35,16 @@ class Prices:
 
 
 def from_card(provider: str, model: str, hit_share: float = 0.95, expected_output: int = 500,
-              card: Path = CARD) -> Prices:
-    """Ratios from the current period's first tier in billing_rates.yaml."""
+              card: Path = CARD, cache: bool = True) -> Prices:
+    """Ratios from the current period's first tier in billing_rates.yaml.
+
+    cache=False (v2.1, closed models): decisions do not plan around the provider's cache. Every
+    kept token costs the full input price on every later call, writes cost the input price, and
+    an edit breaks nothing that is priced. Any cache hit the provider gives is a bonus."""
     rates = yaml.safe_load(card.read_text())[provider][model]["periods"][0]["tiers"][0]
     base = rates["input_per_mtok"]
+    if not cache:
+        return Prices(base, 1.0, 1.0, rates["output_per_mtok"] / base, 0.0, expected_output)
     write = rates.get("cache_write_per_mtok", base * 1.25)
     return Prices(base, rates["cache_read_per_mtok"] / base, write / base,
                   rates["output_per_mtok"] / base, hit_share, expected_output)
