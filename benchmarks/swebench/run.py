@@ -21,10 +21,13 @@ key, one instance at a time; its own Bash runs the tests in the container (docke
 and, in the econo arm, the policy watches its tools. openai-controlled: our openai-agents spec with a worker. gemini-omnigent:
 stock Gemini CLI, no container (its shell runs on the host), no policy.
 
-Run: .venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
+The default --harness is claude-code (Claude Sonnet 5). Gemini on openai-agents needs
+--harness openai-controlled:
+Run: .venv/bin/python benchmarks/swebench/run.py --harness openai-controlled --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe [--jev]
      .venv/bin/python benchmarks/swebench/run.py --harness gemini-omnigent --label g1 --instance pytest-dev__pytest-5809 --arm econo
-     .venv/bin/python benchmarks/swebench/run.py --label p1 --set mid5 --arm econo --mode observe
-     .venv/bin/python benchmarks/swebench/run.py --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
+     .venv/bin/python benchmarks/swebench/run.py --harness openai-controlled --label p1 --set mid5 --arm econo --mode observe
+     .venv/bin/python benchmarks/swebench/run.py --harness openai-controlled --label p3 --set mid5 --arm econo --mode autopilot --learned --pointer
+     .venv/bin/python benchmarks/swebench/run.py --label c1 --instance pytest-dev__pytest-5809 --arm econo   # Claude Code
 """
 
 import argparse
