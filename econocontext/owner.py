@@ -52,7 +52,8 @@ class Owner:
         self.p = lifecycle.from_card(h["price"]["provider"], h["price"]["model"], h["hit_share"],
                                      h["expected_output"])
         self.s = Session(db_path)
-        self.predictor = Prior() if mode == "prior" else Jev(cfg["jev"]["model"], cfg["jev"]["timeout_seconds"])
+        self.predictor = Prior() if mode == "prior" else Jev(cfg["jev"]["model"], cfg["jev"]["timeout_seconds"],
+                                                              cfg["jev"]["max_input_tokens"])
         self.run, self.force = run, set(force or [])
         self.item_of_call: dict[str, int] = {}   # tool_call_id -> item id
         self.calls, self.prompt = 0, h["fixed_prefix"]

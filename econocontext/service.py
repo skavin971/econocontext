@@ -61,7 +61,7 @@ class Service:
     def predictor(self, run: str):
         if self.runs[run]["predictor"] == "prior":
             return Prior()
-        return Jev(self.cfg["jev"]["model"], self.cfg["jev"]["timeout_seconds"])
+        return Jev(self.cfg["jev"]["model"], self.cfg["jev"]["timeout_seconds"], self.cfg["jev"]["max_input_tokens"])
 
     def hook(self, run: str, ev: dict) -> dict:
         if run not in self.runs or not ev.get("session_id"):

@@ -198,3 +198,17 @@ def test_report_counts_rules_and_jev(owner):
     o.after_tool("bash", {"command": "pytest -q"}, BIG, False, "c1")
     report = o.report()
     assert report["decisions"] == {"4 arrival: preview": 1} and report["jev"] == {"calls": 1, "input_tokens": 7}
+
+
+def test_jev_requests_are_cut_to_fit_its_input_limit():
+    from econocontext.predictor.jev import Jev
+    from econocontext.tokens import count_tokens
+    jev = Jev(max_input_tokens=5_000)
+    state = {"task": "t", "conversation": [{"turn": i, "text": "y" * 2000} for i in range(40)],
+             "new_tool_result": {"tool": "bash", "lines": "\n".join(f"{i}\t" + "z" * 80 for i in range(1, 2001))}}
+    fitted = jev.fit(state)
+    assert count_tokens(json.dumps(fitted)) <= 5_000 * 1.05
+    assert fitted["conversation"][-1]["turn"] == 39 and len(fitted["conversation"]) >= 2   # recent turns kept
+    assert "lines cut to fit" in fitted["new_tool_result"]["lines"]
+    small = {"task": "t", "conversation": [{"turn": 1, "text": "hi"}]}
+    assert jev.fit(small) == {"task": "t", "conversation": [{"turn": 1, "text": "hi"}]}

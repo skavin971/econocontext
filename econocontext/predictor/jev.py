@@ -11,6 +11,7 @@ import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..tokens import count_tokens
 from . import LIFETIMES, PHASES
 
 URL = "https://api.typesafe.ai/v1/systemone"
@@ -23,13 +24,34 @@ def numbered(text: str) -> str:
 class Jev:
     name = "jev"
 
-    def __init__(self, model: str = "jev-latest", timeout: float = 20):
-        self.model, self.timeout = model, timeout
+    def __init__(self, model: str = "jev-latest", timeout: float = 20, max_input_tokens: int = 28_000):
+        self.model, self.timeout, self.max_input_tokens = model, timeout, max_input_tokens
+
+    def fit(self, state: dict) -> dict:
+        """Keep the request under Jev's input limit (probe 2026-10-06: about 30,290 input tokens was
+        accepted, about 50k was refused with max_tokens_exceeded). Cut the conversation from the front
+        first (recent turns matter most), then shorten a long tool result to its head and tail. Lines
+        cut from a tool result cannot be chosen as relevant, so a slice never contains them."""
+        def size() -> int:
+            return count_tokens(json.dumps(state))
+        convo = state.get("conversation")
+        while isinstance(convo, list) and len(convo) > 2 and size() > self.max_input_tokens:
+            del convo[0]
+        result = state.get("new_tool_result")
+        if isinstance(result, dict) and isinstance(result.get("lines"), str) and size() > self.max_input_tokens:
+            lines = result["lines"].split("\n")
+            excess = size() - self.max_input_tokens
+            keep = max(20, len(lines) - int(len(lines) * excess / max(1, count_tokens(result["lines"]))) - 10)
+            head = keep // 2
+            result["lines"] = "\n".join(lines[:head] + [f"... [{len(lines) - keep} lines cut to fit] ..."]
+                                        + lines[-(keep - head):])
+        return state
 
     def ask(self, state: dict, questions: dict) -> tuple[dict, dict]:
         key = os.environ.get("TYPESAFE_API_KEY")
         if not key:
             raise RuntimeError("TYPESAFE_API_KEY is not set")
+        state = self.fit(state)
         body = json.dumps({"model": self.model, "state": state, "questions": questions},
                           allow_nan=False).encode()
         request = Request(URL, data=body, method="POST", headers={
