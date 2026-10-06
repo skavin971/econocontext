@@ -104,13 +104,14 @@ def main() -> None:
     p.add_argument("--tasks", required=True, help="comma-separated task names, or 'frozen' for the 10")
     p.add_argument("--task-dir", help="a task directory outside TBLite (one task only)")
     p.add_argument("--repeats", type=int, default=1)
+    p.add_argument("--repeat-from", type=int, default=1, help="number the repeats from here (r2, r3, ...)")
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--budget", type=float, default=12.0, help="stop when Gemini spend on this host reaches it")
     p.add_argument("--force", default="", help="comma-separated rule names to force (spike only)")
     p.add_argument("--timeout-multiplier", type=float, default=4)
     a = p.parse_args()
     tasks = FROZEN if a.tasks == "frozen" else a.tasks.split(",")
-    jobs = [(task, r) for r in range(1, a.repeats + 1) for task in tasks]
+    jobs = [(task, r) for r in range(a.repeat_from, a.repeat_from + a.repeats) for task in tasks]
     print(f"== {a.label} {a.arm}: {len(jobs)} trials, {a.workers} workers, spent so far ${spent():.4f}", flush=True)
     with ThreadPoolExecutor(max_workers=a.workers) as pool:
         for summary in pool.map(lambda job: trial(a, *job), jobs):
