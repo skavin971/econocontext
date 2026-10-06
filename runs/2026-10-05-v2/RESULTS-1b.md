@@ -48,3 +48,16 @@ Reward **1.0**, 23 calls, **$0.4851** (transcript = gateway). Jev: 4 calls, 52,5
 | rules | — | arrival: 6 slice, 1 full; invalidate ×18; compaction **decided** once (call 14: Jev portion_done 0.69, phase exploring; keep 53,049 vs compact 21,449 units, H* 5.8) |
 
 **The compaction was not carried out (a bug in our driver):** the driver asked for the flag with `?run=v2x:econo+jev:…` unquoted. In a query string `+` reads as a space, so the lookup never matched and the flag stayed pending (`econo_compactions: 0`). Fixed by quoting the run name, with a test. **This econo run measured arrival slices only.**
+
+## Experiment pair 1, rerun: maven-slf4j-conflict with compaction working (`runs/v2x2`)
+
+**Cost measurement corrected:** run cost = gateway calls + transcript calls the gateway never logged. The transcript omits Claude Code's `/compact` summary call; the gateway omits cut-off streams.
+
+| | baseline (v2x) | econo+jev run 1 (v2x, compaction blocked by bug) | econo+jev run 2 (v2x2) |
+|---|---|---|---|
+| reward | 1.0 | 1.0 | 1.0 |
+| run cost | $0.5936 | $0.5653 (−5%) | **$0.7283 (+23%)** |
+| rules | — | 6 slice, 1 full, compaction decided but not run | 3 slice, 2 preview; **1 compaction run** (call 13; 1 item dropped) |
+| Jev (separate) | — | about $0.0056 | about $0.0030 |
+
+**Finding:** Claude Code's `/compact` call alone cost **$0.2019**: 16,783 output tokens (summary + thinking), and the summary kept was 10,630 tokens, against the 1,500-token placeholder in the price. At the true cost the compaction lost money; the rest of the session cost $0.526 (−11% vs baseline). The compaction price needs a real summary cost, not a placeholder.

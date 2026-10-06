@@ -107,14 +107,14 @@ class ClaudeCodeEcono(ClaudeCode):
                 while True:
                     result, interrupted = await self._until_result(client, log, ResultMessage,
                                                                    allow_interrupt=compactions < MAX_COMPACTIONS)
-                    total_cost += getattr(result, "total_cost_usd", 0) or 0
+                    total_cost = max(total_cost, getattr(result, "total_cost_usd", 0) or 0)  # a running total
                     flag = self._flag()
                     if not interrupted or not flag:  # the agent finished its task on its own
                         break
                     compactions += 1
                     await client.query(f"/compact {flag['instructions']}")
                     done, _ = await self._until_result(client, log, ResultMessage, allow_interrupt=False)
-                    total_cost += getattr(done, "total_cost_usd", 0) or 0
+                    total_cost = max(total_cost, getattr(done, "total_cost_usd", 0) or 0)
                     await client.query(CONTINUE)
             # Harbor reads the run's cost from a stream-json result line.
             log.write(json.dumps({"type": "result", "total_cost_usd": total_cost,

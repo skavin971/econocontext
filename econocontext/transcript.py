@@ -33,17 +33,21 @@ def calls(path: str | Path) -> list[dict]:
 
 def usage_totals(paths) -> dict:
     """Token totals over transcripts (main agent and workers), each model call counted once."""
+    return usage_totals_of([usage for path in paths for usage in calls(path)])
+
+
+def usage_totals_of(usages) -> dict:
+    """Token totals over a list of per-call usage dicts."""
     totals = {"calls": 0, "input": 0, "cache_read": 0, "cache_write_5m": 0, "cache_write_1h": 0, "output": 0}
-    for path in paths:
-        for usage in calls(path):
-            created = usage.get("cache_creation") or {}
-            one_hour = int(created.get("ephemeral_1h_input_tokens") or 0)
-            totals["calls"] += 1
-            totals["input"] += int(usage.get("input_tokens") or 0)
-            totals["cache_read"] += int(usage.get("cache_read_input_tokens") or 0)
-            totals["cache_write_1h"] += one_hour
-            totals["cache_write_5m"] += int(usage.get("cache_creation_input_tokens") or 0) - one_hour
-            totals["output"] += int(usage.get("output_tokens") or 0)
+    for usage in usages:
+        created = usage.get("cache_creation") or {}
+        one_hour = int(created.get("ephemeral_1h_input_tokens") or 0)
+        totals["calls"] += 1
+        totals["input"] += int(usage.get("input_tokens") or 0)
+        totals["cache_read"] += int(usage.get("cache_read_input_tokens") or 0)
+        totals["cache_write_1h"] += one_hour
+        totals["cache_write_5m"] += int(usage.get("cache_creation_input_tokens") or 0) - one_hour
+        totals["output"] += int(usage.get("output_tokens") or 0)
     return totals
 
 

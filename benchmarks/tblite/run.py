@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "omnigent_layer" / "src"))
 
-from econocontext.transcript import cost_usd, usage_totals  # noqa: E402
+from econocontext.transcript import calls, cost_usd, usage_totals, usage_totals_of  # noqa: E402
 
 TBLITE = Path(os.environ.get("TBLITE_DIR", Path.home() / "econo" / "OpenThoughts-TBLite"))
 FROZEN = ["api-endpoint-permission-canonicalizer", "sales-data-csv-analysis", "acl-permissions-inheritance",
@@ -104,11 +104,22 @@ def summarize(run: str, out: Path, trial: Path, code: int, seconds: float) -> di
                "exception": (result.get("exception_info") or {}).get("exception_type"),
                "claude_code": sorted({json.loads(line).get("version") for path in transcripts for line in open(path)
                                       if '"version"' in line} - {None}),
-               "usage": totals, "run_cost_usd": round(cost_usd(totals, RATES), 4)}
+               "usage": totals}
+    # Neither source is complete: the transcript omits Claude Code's /compact summary call, and the
+    # gateway omits responses cut off mid-stream (it logs usage only for completed streams). The run
+    # cost is their union: every gateway call, plus transcript calls the gateway never logged.
     gateway = ROOT / "data" / "econocontext.sqlite3"
     with sqlite3.connect(gateway) as db:
-        summary["gateway_cost_usd"] = db.execute("SELECT round(sum(cost_usd), 4) FROM outcomes WHERE run_id=?",
-                                                 (run,)).fetchone()[0]
+        rows = db.execute("SELECT cache_read, output, cost_usd FROM outcomes WHERE run_id=?", (run,)).fetchall()
+    summary["gateway_cost_usd"] = round(sum(r[2] or 0 for r in rows), 4)
+    logged = {(r[0] or 0, r[1] or 0) for r in rows}
+    missing = [u for path in transcripts for u in calls(path)
+               if (int(u.get("cache_read_input_tokens") or 0), int(u.get("output_tokens") or 0)) not in logged]
+    extra = cost_usd(usage_totals_of(missing), RATES)
+    summary["run_cost_usd"] = round(summary["gateway_cost_usd"] + extra, 4)
+    summary["cost_sources"] = {"gateway_calls": len(rows), "transcript_only_calls": len(missing),
+                               "transcript_only_usd": round(extra, 4),
+                               "transcript_usd": round(cost_usd(totals, RATES), 4)}
     sessions = sorted((out / "sessions").glob("*.sqlite3"))
     rules, jev_in, jev_calls = {}, 0, 0
     for path in sessions:
