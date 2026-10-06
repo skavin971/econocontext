@@ -1,4 +1,4 @@
-# Verification of gx1, gx1b, gx23, gx4
+# Verification of gx1, gx1b, gx23, gx4, gx4b
 
 Checks per trial: cost re-priced from raw usage (Gemini card: input $0.75/M, cached $0.075/M, output $3.75/M incl. reasoning), gateway calls = agent calls, token totals match, reward = grader file, summary = gateway, Jev tokens session = summary.
 
@@ -75,6 +75,15 @@ Checks per trial: cost re-priced from raw usage (Gemini card: input $0.75/M, cac
 - gx4:econo+jev-nocache:maven-slf4j-conflict:r2: cost $0.000000 (re-priced $0.000000; reasoning-inside $0.000000), calls 0/0, reward None (file None), jev 0, EXCEPTION RateLimitError  ok
 - gx4:econo+jev-nocache:scan-linux-persistence-artifacts:r1: cost $0.000000 (re-priced $0.000000; reasoning-inside $0.000000), calls 0/0, reward None (file None), jev 0, EXCEPTION RateLimitError  ok
 - gx4:econo+jev-nocache:scan-linux-persistence-artifacts:r2: cost $0.000000 (re-priced $0.000000; reasoning-inside $0.000000), calls 0/0, reward None (file None), jev 0, EXCEPTION RateLimitError  ok
+- gx4b:econo+jev-nocache:api-endpoint-permission-canonicalizer:r1: cost $0.378979 (re-priced $0.378979; reasoning-inside $0.358118), calls 13/13, reward 1.0 (file 1.0), jev 18030  ok
+- gx4b:econo+jev-nocache:api-endpoint-permission-canonicalizer:r2: cost $0.394061 (re-priced $0.394061; reasoning-inside $0.371373), calls 27/27, reward 1.0 (file 1.0), jev 69988  ok
+- gx4b:econo+jev-nocache:bandit-delayed-feedback:r1: cost $0.727948 (re-priced $0.727948; reasoning-inside $0.671076), calls 59/59, reward 1.0 (file 1.0), jev 87322  ok
+- gx4b:econo+jev-nocache:bandit-delayed-feedback:r2: cost $0.622258 (re-priced $0.622258; reasoning-inside $0.569949), calls 50/50, reward 1.0 (file 1.0), jev 54597  ok
+- gx4b:econo+jev-nocache:malicious-package-forensics:r2: cost $0.382588 (re-priced $0.382588; reasoning-inside $0.350938), calls 31/31, reward 1.0 (file 1.0), jev 188121  ok
+- gx4b:econo+jev-nocache:maven-slf4j-conflict:r1: cost $0.259177 (re-priced $0.259177; reasoning-inside $0.251884), calls 40/40, reward 1.0 (file 1.0), jev 341370  ok
+- gx4b:econo+jev-nocache:maven-slf4j-conflict:r2: cost $0.260379 (re-priced $0.260379; reasoning-inside $0.253831), calls 36/36, reward 1.0 (file 1.0), jev 247195  ok
+- gx4b:econo+jev-nocache:scan-linux-persistence-artifacts:r1: cost $0.653203 (re-priced $0.653203; reasoning-inside $0.615834), calls 44/44, reward 1.0 (file 1.0), jev 227170  ok
+- gx4b:econo+jev-nocache:scan-linux-persistence-artifacts:r2: cost $0.509051 (re-priced $0.509051; reasoning-inside $0.471791), calls 39/39, reward 1.0 (file 1.0), jev 258053  ok
 
 ## Totals (rebuilt from raw rows; valid trials only)
 
@@ -82,8 +91,10 @@ Kept out (crashed or aborted, not graded): 10 -- gx1 raw malicious-package-foren
 
 - raw: 30 trials, passed 24, cost $11.1650, Jev tokens 0, exceptions 0
 - econo+jev: 30 trials, passed 26, cost $9.7851, Jev tokens 2,484,890, exceptions 0
-- econo+jev-nocache: 1 trials, passed 1, cost $0.4401, Jev tokens 228,130, exceptions 0
+- econo+jev-nocache: 10 trials, passed 10, cost $4.6278, Jev tokens 1,719,976, exceptions 0
 - econo+jev vs raw, 30 same-repeat pairs: raw $11.1650, econo+jev $9.7851 (-12.4%), mean diff $-0.0460, sd $0.1224, paired t -2.06 (df 29), cheaper in 20/30
   two-sided p: paired t 0.049; exact sign test 0.099 (no normality assumption)
+- econo+jev-nocache vs raw, 10 same-repeat pairs: raw $5.9713, econo+jev-nocache $4.6278 (-22.5%), mean diff $-0.1344, sd $0.1328, paired t -3.20 (df 9), cheaper in 8/10
+  two-sided p: paired t 0.011; exact sign test 0.109 (no normality assumption)
 
 Gateway rows exported to gateway_outcomes.csv.
