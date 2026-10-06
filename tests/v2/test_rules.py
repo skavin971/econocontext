@@ -284,3 +284,13 @@ def test_the_service_routes_hooks_by_run_and_session(tmp_path):
     assert "Same output" in spec(reply)["updatedToolOutput"]["stdout"]
     assert service.hook("unknown", {**base, **bash("ls", "a")}) == {}
     assert (tmp_path / "r1" / "s1.sqlite3").exists() and service.flag("r1") == {"compact": None}
+
+
+def test_a_forced_compaction_waits_for_work_and_happens_once(make):
+    early = make(force=["7 compact"], calls=3, prompt=40_000)
+    assert decide.live_check(early) is None                       # too early in the session
+    ctx = make(force=["7 compact"], calls=12, prompt=40_000)
+    assert decide.live_check(ctx)["rule"] in ("6 evict", "7 compact")
+    decide.post_compact(ctx.s, {"trigger": "manual", "compact_summary": "s"})
+    ctx.calls = 30
+    assert decide.live_check(ctx) is None                         # once only

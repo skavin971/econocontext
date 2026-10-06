@@ -325,7 +325,10 @@ def live_check(ctx: Ctx) -> dict | None:
         return None
     items = [dict(r) for r in ctx.s.in_context("main")]
     conversation = ctx.prompt - cfg["fixed_prefix"]
-    if conversation < cfg["compact_min_conversation"] and not ctx.force & {"6 evict", "7 compact"}:
+    # Forced (spike 1b): once, and only after the session has done some work.
+    forced = bool(ctx.force & {"6 evict", "7 compact"}) and ctx.s.get("compactions", 0) == 0 \
+        and ctx.calls >= cfg["force_compact_after"]
+    if conversation < cfg["compact_min_conversation"] and not forced:
         return None
     ctx.s.set("last_live_check", ctx.calls)
     big = [{"id": r["id"], "tool": r["tool"], "input": json.loads(r["input"]), "tokens": r["tokens"]}
@@ -339,7 +342,6 @@ def live_check(ctx: Ctx) -> dict | None:
     finished_big = [i["id"] for i in big if done.get(i["id"], 0.0) >= 0.5]
     rule = "7 compact" if answers.get("portion_done", 0.0) >= 0.6 else "6 evict"
     worth = prices["compact"] < prices["keep"]
-    forced = bool(ctx.force & {"6 evict", "7 compact"})
     go = forced or (worth and (rule == "7 compact" or finished_big))
     ctx.s.log(rule, "compact" if go else "wait", forced=forced, prices=prices,
               answers={"source": source, **answers}, jev_usage=usage)
@@ -362,3 +364,4 @@ def post_compact(session, ev: dict) -> None:
                 note=json.dumps({"trigger": ev.get("trigger"), "dropped_items": dropped,
                                  "summary_tokens": count_tokens(ev.get("compact_summary") or "")}))
     session.set("compact", None)
+    session.bump("compactions")
