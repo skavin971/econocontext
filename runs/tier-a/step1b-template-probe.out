@@ -1,0 +1,25 @@
+$ .venv-clm/bin/python scripts/purdue_template_probe.py
+unparsed tool-call arguments: transformers fails (TypeError: Can only get item pairs from a mapping.); the rebuild must parse them as vLLM does
+
+== 1. tool turn: HTTP 200, 1.0 s, prompt_tokens 562
+   local preserve_thinking unset    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=True     P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=False    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+
+== 2. follow-up: HTTP 200, 0.93 s, prompt_tokens 536
+   local preserve_thinking unset    P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=True     P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=False    P  532: DIFFERENT after the first user message (P 536 vs 532); at +25: server '<think>\n\n</think>\n\nThe directory has two files: a.txt' vs local 'The directory has two files: a.txt and b.txt.'
+
+== 3. effort low (top-level field): HTTP 200, 0.96 s, prompt_tokens 531
+   local effort=low                 P  532: tools block only (dP = -1)
+   local effort=medium              P  506: DIFFERENT after the first user message (P 531 vs 506); at +27: server '' vs local ''
+
+== 4. effort low (chat_template_kwargs): HTTP 200, 0.9 s, prompt_tokens 532
+   local effort=low                 P  532: identical
+   local effort=medium              P  506: DIFFERENT after the first user message (P 532 vs 506); at +27: server '' vs local ''
+
+== 5. effort medium (top-level field): HTTP 200, 0.71 s, prompt_tokens 505
+   local effort=low                 P  532: DIFFERENT after the first user message (P 505 vs 532); at +27: server '' vs local ''
+   local effort=medium              P  506: tools block only (dP = -1)
+exit 0

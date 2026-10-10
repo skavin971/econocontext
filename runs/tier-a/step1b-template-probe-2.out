@@ -1,0 +1,33 @@
+$ .venv-clm/bin/python scripts/purdue_template_probe.py --live 6
+unparsed tool-call arguments: transformers fails (TypeError: Can only get item pairs from a mapping.); the rebuild must parse them as vLLM does
+
+== 1. tool turn: from the saved request and response, prompt_tokens 562
+   local preserve_thinking unset    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=True     P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=False    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local reasoning dropped, unset   P  562: tools block only (dP = +0)
+
+== 2. follow-up: from the saved request and response, prompt_tokens 536
+   local preserve_thinking unset    P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=True     P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=False    P  532: DIFFERENT after the first user message (P 536 vs 532); at +25: server '<think>\n\n</think>\n\nThe directory has two files: a.txt' vs local 'The directory has two files: a.txt and b.txt.'
+   local reasoning dropped, unset   P  536: tools block only (dP = +0)
+
+== 3. effort low (top-level field): from the saved request and response, prompt_tokens 531
+   local effort=low                 P  532: tools block only (dP = -1)
+   local effort=medium              P  506: DIFFERENT in the system block before the first user message (dP = +25)
+
+== 4. effort low (chat_template_kwargs): from the saved request and response, prompt_tokens 532
+   local effort=low                 P  532: identical
+   local effort=medium              P  506: DIFFERENT in the system block before the first user message (dP = +26)
+
+== 5. effort medium (top-level field): from the saved request and response, prompt_tokens 505
+   local effort=low                 P  532: DIFFERENT in the system block before the first user message (dP = -27)
+   local effort=medium              P  506: tools block only (dP = -1)
+
+== 6. follow-up, field `reasoning`: HTTP 200, 1.04 s, prompt_tokens 536
+   local preserve_thinking unset    P  536: identical
+   local preserve_thinking=True     P  536: identical
+   local preserve_thinking=False    P  532: DIFFERENT after the first user message (P 536 vs 532); at +25: server '<think>\n\n</think>\n\nThe directory has two files: a.txt' vs local 'The directory has two files: a.txt and b.txt.'
+   local reasoning dropped, unset   P  536: identical
+exit 0
