@@ -1,4 +1,4 @@
-"""Harbor agent: a small tool-calling agent for Gemini that owns its conversation.
+"""Harbor agent: a small tool-calling agent that owns its conversation.
 
 Why it exists: the full-control track of EconoContext v2. The agent runs on the host, keeps
 the conversation as a Python list, and runs its tools inside the task's container. In the raw
@@ -6,13 +6,15 @@ arm the list is sent as it is; in the econo arms EconoContext (econocontext/owne
 tool call and result and may edit the list before each model call. Same model, tools, prompts
 and limits in every arm, so arms differ only by EconoContext.
 
-Model calls go to our gateway's OpenAI-compatible route (non-streaming, so it passes the bytes
-through unchanged and records each call's usage and cost). Vertex quirks (EconoCLM): echo each
-assistant message whole (it carries `extra_content.google.thought_signature`), never end the list
-on an assistant turn, and resend a call that ends with `malformed_function_call`.
+Model calls go only to the api_base it is given: our gateway's OpenAI-compatible route (gateway/;
+there is no default upstream). Calls are non-streaming, and each carries X-Econo-Call-Kind: agent,
+or summary for EconoContext's compaction summaries, so the gateway's log can tell them apart.
+Vertex quirks (EconoCLM): echo each assistant message whole (it carries
+`extra_content.google.thought_signature`), never end the list on an assistant turn, and resend a
+call that ends with `malformed_function_call`.
 
 Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
-     -m openai/google/gemini-3.6-flash --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
+     -m openai/qwen3.8:27b --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
      [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>]
 """
 
@@ -71,6 +73,8 @@ class EconoAgent(BaseAgent):
         self.max_steps, self.max_tokens, self.temperature = int(max_steps), int(max_tokens), float(temperature)
         self.command_timeout, self.output_chars = int(command_timeout), int(output_chars)
         if client is None:
+            if not api_base:
+                raise ValueError("api_base is required: agents reach models only through gateway/")
             from openai import AsyncOpenAI
             client = AsyncOpenAI(base_url=api_base, api_key="placeholder", timeout=600, max_retries=0)
         self.client = client
@@ -124,15 +128,16 @@ class EconoAgent(BaseAgent):
         return f"(unknown tool {name})"
 
     # Model ----------------------------------------------------------------------------
-    async def complete(self, messages: list[dict]):
-        """One model call with retries: transient errors back off; a malformed tool call is resent."""
+    async def complete(self, messages: list[dict], kind: str = "agent"):
+        """One model call with retries: transient errors back off; a malformed tool call is resent.
+        `kind` goes to the gateway's log: agent, or summary for a compaction summary."""
         malformed, delay = 0, 2.0
         for attempt in range(8):
             started = time.monotonic()
             try:
                 reply = await self.client.chat.completions.create(
                     model=self.model, messages=messages, tools=TOOLS, max_tokens=self.max_tokens,
-                    temperature=self.temperature)
+                    temperature=self.temperature, extra_headers={"X-Econo-Call-Kind": kind})
             except Exception as exc:  # openai's error types carry status_code; others are transport errors
                 status = getattr(exc, "status_code", None)
                 if status is not None and status not in RETRYABLE:
@@ -162,7 +167,8 @@ class EconoAgent(BaseAgent):
             self.owner.start(instruction)
         try:
             for _ in range(self.max_steps):
-                sent = await self.owner.before_call(self.messages, self.calls, self.complete) \
+                summary = lambda request: self.complete(request, kind="summary")  # noqa: E731
+                sent = await self.owner.before_call(self.messages, self.calls, summary) \
                     if self.owner else self.messages
                 reply = await self.complete(sent)
                 self._account(context)

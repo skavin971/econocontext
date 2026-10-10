@@ -44,11 +44,12 @@ class StatusError(Exception):
 
 class FakeModel:
     def __init__(self, script):
-        self.script, self.sent = list(script), []
+        self.script, self.sent, self.headers = list(script), [], []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     async def create(self, **kwargs):
         self.sent.append(copy.deepcopy(kwargs["messages"]))
+        self.headers.append(kwargs.get("extra_headers"))
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -148,3 +149,14 @@ def test_a_reply_without_a_message_is_treated_as_a_turn_without_a_tool_call(make
     empty.choices[0].message = None          # what Gemini sent in gx1 raw malicious-package-forensics
     agent, _, _ = make([empty, reply(("submit", {}))])
     assert agent.messages[2] == {"role": "user", "content": NUDGE} and agent.messages[-1]["content"] == "Submitted."
+
+
+def test_every_call_tells_the_gateway_its_kind(make):
+    agent, _, _ = make([reply(("submit", {}))])
+    assert agent.client.headers == [{"X-Econo-Call-Kind": "agent"}]
+
+
+def test_without_an_api_base_the_agent_refuses_to_start(tmp_path):
+    # Agents reach models only through the gateway: there is no default upstream to fall back to.
+    with pytest.raises(ValueError, match="api_base is required"):
+        EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b")

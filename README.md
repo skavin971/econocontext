@@ -20,14 +20,14 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 
 Agents reach models only through `gateway/`.
 
-**`gateway/`** (step 3) is one small OpenAI-compatible proxy. It holds the provider keys, enforces the rate limit and the caps, and logs every call to `calls.jsonl`.
+**`gateway/`** is one small OpenAI-compatible proxy (`.venv/bin/python -m gateway.server --provider purdue`). It holds the provider keys, paces requests to the provider's limit, enforces the caps, pins the request fields the measurement depends on, and logs every call to `runs/gateway/<run_id>/calls.jsonl`.
 
 **`measure/`** (step 4) measures cost, independently of the method:
 - model constants from a model's config (CLM Eq. 7);
 - a 16-token prefix-cache simulation;
 - prefix-reuse FLOPs per call and per run (Eq. 9).
 
-**`benchmarks/tblite/`** holds the TBLite runner (step 3) and two task folders for rule spikes.
+**`benchmarks/tblite/`** holds the benchmark (`tasks.py`: the 10 frozen TBLite tasks and their path), the runner for every arm (`run.py`, all calls through the gateway), and two task folders for rule spikes.
 
 **`scripts/`** holds the probes of Purdue's API from step 1.
 

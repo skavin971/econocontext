@@ -11,6 +11,8 @@ ALLOWED_THIRD_PARTY = {"yaml"}
 PROVIDER_HOSTS = ("genai.rcac.purdue.edu", "googleapis.com", "anthropic.com", "openai.com")
 PROVIDER_KEYS = ("GENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                  "ECONOCONTEXT_ANTHROPIC_KEY", "AGENT_PLATFORM_API_KEY")
+# The SDKs' own base-URL settings: a client that read them would have a default upstream.
+DEFAULT_UPSTREAM = ("OPENAI_BASE_URL", "OPENAI_API_BASE")
 
 
 def imports(path: Path) -> set[str]:
@@ -43,3 +45,17 @@ def test_agents_reach_models_only_through_the_gateway():
         text = path.read_text()
         named = [name for name in PROVIDER_HOSTS + PROVIDER_KEYS if name in text]
         assert not named, f"{path.relative_to(ROOT)} names {named}"
+
+
+def test_agents_use_only_the_api_base_they_are_given():
+    # Every client an agent builds gets base_url from a variable (the api_base it was given), never a
+    # literal URL, and no agent reads the SDK's base-URL settings: there is no default upstream.
+    for path in (ROOT / "agents").rglob("*.py"):
+        text = path.read_text()
+        named = [name for name in DEFAULT_UPSTREAM if name in text]
+        assert not named, f"{path.relative_to(ROOT)} names {named}"
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) in (
+                    "OpenAI", "AsyncOpenAI"):
+                base = next((k.value for k in node.keywords if k.arg == "base_url"), None)
+                assert isinstance(base, ast.Name), f"{path.relative_to(ROOT)}: a client without base_url=<api_base>"

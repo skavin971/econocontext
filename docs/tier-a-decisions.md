@@ -29,6 +29,24 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 - `"reasoning_effort": "medium"` on every upstream request, so the rebuild never depends on a server default. Purdue accepts it as a top-level field, and `"low"` was shown to change the server's prompt.
 - `"return_token_ids": true` on every upstream request. The response then carries the server's exact `prompt_token_ids`.
 
+## How the gateway behaves (step 3)
+
+- **Rate limit.** At most 20 upstream requests in any rolling 60 s, with retries counted too. Callers wait; they are never refused.
+- **Retries.** A JSON `null` or empty body, a 429, a 5xx, or a timeout or connection error is retried with backoff (2, 4, 8, 16, 32 s), 6 tries at most. The count goes in `retries`.
+- **Caps.**
+  - The defaults are 150 calls per run and 2,000 requests per UTC day.
+  - A refusal is an HTTP 429 whose message contains "reached", so our agent stops.
+  - A refusal is logged with `call_no` null.
+  - The counts are rebuilt from the log when the gateway restarts.
+- **Earlier reasoning.** Removed from every assistant message: `reasoning`, `reasoning_content`, and the copy our agent echoes inside `provider_specific_fields`.
+- **The log.**
+  - One line per call, with `run_id`, `call_no`, `kind`, `provider`, `model`, `t_start`, `latency_ms`, `limiter_wait_ms`, `status`, `retries`, `edits`, `request` (exactly as sent upstream), `response` (exactly as returned) and `usage`.
+  - The key never appears; it is redacted if a provider ever echoes it.
+  - Model-list calls are not logged.
+- **Streaming.** Neither agent streams: ours sends no `stream`, and CLM's `litellm.completion` call sends none either (checked through the gateway). A `stream: true` request gets a 400.
+- **CLM's requests.** CLM's agent also sends `top_p` and `chat_template_kwargs: {"enable_thinking": true}`. The rebuild uses a request's `chat_template_kwargs` as sent.
+- **No default upstream.** Our agent refuses to start without an `api_base`. The isolation test checks that every client in `agents/` takes its `base_url` from the `api_base` it was given, and that nothing there reads the SDK's base-URL settings.
+
 ## What the FLOPs are computed on
 
 - **Headline:** our request, rendered as above. This is an ideal vLLM server that receives exactly what we send.
