@@ -8,9 +8,11 @@ calls.jsonl alone. For each call of a run:
      - reasoning is read only from a `reasoning` field;
      - the template options are the request's reasoning_effort and chat_template_kwargs.
   2. Validate the rebuild against the server's own prompt ids (the gateway asks for them). It
-     passes only if identical, or if the difference is confined to the tools block before the
-     first user message (Purdue reorders tool-schema keys) with |ΔP| <= 1. Anything else is
-     reported as a mismatch, and the run must be reviewed before its numbers are used.
+     passes only if identical, or if the only difference is inside the tools block and the tools are
+     the same JSON objects in another key order (Purdue's front end reorders them), at any ΔP,
+     with everything after the tools block equal token for token. ΔP is recorded per call.
+     Anything else is reported as a mismatch, and the run must be reviewed before its numbers
+     are used.
   3. R_t: the prefix cache over the run's rebuilt prompts (cache_sim.py). G_t: the call's
      completion_tokens, thinking included.
   4. F_t = C_token·(U_t + G_t) + C_attn·[½(P_t² − R_t²) + G_t·P_t + ½·G_t²], with U_t = P_t − R_t.
@@ -66,37 +68,47 @@ def prompt_ids(tokenizer, request: dict) -> list[int]:
     return list(out["input_ids"] if hasattr(out, "keys") else out)
 
 
-def validate(tokenizer, local: list[int], server: list[int] | None) -> tuple[bool, str]:
-    """Kavin's rule: identical, or different only inside the tools block before the first user message
-    (the same tools, keys in another order) with |ΔP| <= 1."""
-    if server is None:
-        return False, "no server ids"
-    if local == server:
-        return True, "identical"
-    marker = tokenizer.encode("<|im_start|>user\n", add_special_tokens=False)
+def tools_end(tokenizer, ids: list[int]) -> int | None:
+    """The number of leading tokens up to the end of the tools block ("</tools>"), or None."""
+    if "</tools>" not in tokenizer.decode(ids):
+        return None
+    lo, hi = 0, len(ids)
+    while lo < hi:                                          # the smallest prefix that contains "</tools>"
+        mid = (lo + hi) // 2
+        if "</tools>" in tokenizer.decode(ids[:mid]):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
 
-    def first_user(ids):
-        return next((i for i in range(len(ids) - len(marker) + 1) if ids[i:i + len(marker)] == marker), None)
-    s, l = first_user(server), first_user(local)
-    if s is None or l is None or server[s:] != local[l:]:
+
+def validate(tokenizer, local: list[int], server: list[int] | None) -> tuple[bool, str, int | None]:
+    """Kavin's rule (2026-10-10): identical, or different only inside the tools block, where the tools are
+    the same JSON objects in another key order (Purdue's front end reorders them), at any dP.
+    Everything after the tools block must match token for token, and the text before it exactly.
+    Returns (ok, note, dP = server - local)."""
+    if server is None:
+        return False, "no server ids", None
+    delta = len(server) - len(local)
+    if local == server:
+        return True, "identical", 0
+    es, el = tools_end(tokenizer, server), tools_end(tokenizer, local)
+    if es is None or el is None or server[es:] != local[el:]:
         at = next((k for k, (x, y) in enumerate(zip(server, local)) if x != y), min(len(server), len(local)))
-        return False, (f"mismatch at token {at} (P server {len(server)}, local {len(local)}): "
-                       f"server {tokenizer.decode(server[at:at + 16])!r} vs local {tokenizer.decode(local[at:at + 16])!r}")
+        return False, (f"mismatch at token {at} (dP {delta:+d}): server {tokenizer.decode(server[at:at + 16])!r} "
+                       f"vs local {tokenizer.decode(local[at:at + 16])!r}"), delta
 
     def split(ids):
         text = tokenizer.decode(ids)
         i, j = text.find("<tools>"), text.find("</tools>")
-        if not 0 <= i < j:
+        try:
+            return text[:i], [json.loads(line) for line in text[i + len("<tools>"):j].strip().splitlines()]
+        except ValueError:
             return None
-        lines = text[i + len("<tools>"):j].strip().splitlines()
-        return text[:i], [json.loads(line) for line in lines], text[j:]
-    a, b = split(server[:s]), split(local[:l])
-    delta = len(server) - len(local)
-    if a and b and a[0] == b[0] and a[2] == b[2] and a[1] == b[1]:
-        if abs(delta) <= 1:
-            return True, f"tools block only (dP {delta:+d})"
-        return False, f"tools block only (same tools, keys reordered), but dP {delta:+d} exceeds the allowed 1"
-    return False, f"mismatch before the first user message (dP {delta:+d})"
+    a, b = split(server[:es]), split(local[:el])
+    if a and b and a == b:                                  # same text before, same tools as objects
+        return True, f"tools block only, keys reordered (dP {delta:+d})", delta
+    return False, f"mismatch at or before the tools block (dP {delta:+d})", delta
 
 
 def eq9(P: int, R: int, G: int, c_token: float, c_attn: float) -> tuple[float, float]:
@@ -147,8 +159,8 @@ def measure_log(calls_log: Path, tokenizer, c_token: float, c_attn: float) -> di
             continue
         ids = prompt_ids(tokenizer, row["request"])
         server = response.get("prompt_token_ids")
-        ok, note = validate(tokenizer, ids, server)
-        checks.append({"call_no": row["call_no"], "ok": ok, "note": note, "P_local": len(ids),
+        ok, note, delta = validate(tokenizer, ids, server)
+        checks.append({"call_no": row["call_no"], "ok": ok, "note": note, "dP": delta, "P_local": len(ids),
                        "P_server": len(server) if server else None, "prompt_tokens": usage.get("prompt_tokens")})
         calls.append({"call_no": row["call_no"], "kind": row.get("kind", "agent"), "ids": ids, "server_ids": server,
                       "G": usage["completion_tokens"]})

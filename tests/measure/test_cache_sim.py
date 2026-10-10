@@ -39,7 +39,16 @@ def test_a_prompt_shorter_than_one_block_is_never_cached():
 
 def test_the_exact_block_boundary():
     two_blocks = A[:32]
-    assert cached_prefix([two_blocks, two_blocks + A[32:40] + list(range(8)), two_blocks]) == [0, 32, 32]
+    # extended past the boundary: both blocks reused; repeated exactly: the last block is recomputed
+    assert cached_prefix([two_blocks, two_blocks + A[32:40] + list(range(8)), two_blocks]) == [0, 32, 16]
+
+
+def test_vllms_last_token_rule_recomputes_the_last_block_of_a_fully_cached_prompt():
+    four_blocks = list(range(64))
+    # an exact repeat on a block boundary, and an exact earlier prefix on a boundary: R = 16·⌊(P−1)/16⌋
+    assert cached_prefix([four_blocks, four_blocks, four_blocks[:32]]) == [0, 48, 16]
+    # off a boundary the rule changes nothing: the partial last block is never cached anyway
+    assert cached_prefix([four_blocks, four_blocks[:40]]) == [0, 32]
 
 
 def test_two_edits_in_a_row_match_any_earlier_prompt():

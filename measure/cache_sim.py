@@ -5,11 +5,15 @@ prompts' token ids. As vLLM does, a prompt is cut into 16-token blocks and only 
 cached. A block's identity is a hash of the previous block's identity and its own ids (a chain),
 so a block can only match at the same position after the same prefix. R_t = 16 × the number of
 leading blocks of this prompt already seen in any earlier prompt of the same run. That is the
-longest prefix shared with an earlier prompt, rounded down to a multiple of 16. Each run starts
-with an empty cache. Prompts only, as in CLM: generated tokens are not cached.
+longest prefix shared with an earlier prompt, rounded down to a multiple of 16. vLLM's last-token
+rule caps it: the last token must be computed to get the next one, so a fully cached prompt still
+recomputes its last block: R = min(R, 16·⌊(P − 1)/16⌋). Each run starts with an empty cache.
+Prompts only, as in CLM: generated tokens are not cached.
 
-(CLM's own code also matches a trailing partial block, so for an identical repeated prompt it gives
-R = P where this gives 16·⌊P/16⌋. That is the only difference; docs/tier-a-decisions.md.)
+(CLM's own code matches a trailing partial block and has no last-token rule, so it gives R = P for
+a prompt fully covered by earlier ones. Those are the only differences (docs/tier-a-decisions.md):
+- an identical repeat: here P − (P mod 16), or P − 16 when P is a multiple of 16;
+- an exact earlier prefix ending on a block boundary: here P − 16.)
 """
 
 import hashlib
@@ -34,6 +38,6 @@ def cached_prefix(prompts: list[list[int]], block: int = BLOCK) -> list[int]:
         matched = 0
         while matched < len(hashes) and hashes[matched] in seen:
             matched += 1
-        out.append(matched * block)
+        out.append(min(matched * block, block * ((len(ids) - 1) // block)) if ids else 0)
         seen.update(hashes)
     return out

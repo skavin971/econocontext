@@ -52,7 +52,7 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 ## What the FLOPs are computed on
 
 - **Headline:** our request, rendered as above. This is an ideal vLLM server that receives exactly what we send.
-- **Beside it:** the same computation on Purdue's actual prompt ids. These include Purdue's random reordering of the `write_file` tool-schema keys, which breaks the real prefix cache at about token 213 for reasons that have nothing to do with any agent setup.
+- **Beside it,** labelled *"as served by Purdue (includes front-end key reordering); informational, not for comparing arms"*: the same computation on Purdue's actual prompt ids. Purdue's front end randomly reorders tool-schema keys on most requests, which breaks the real prefix cache inside the tools block for reasons that have nothing to do with any agent setup.
 
 ## Summary calls (EconoContext's compaction summaries)
 
@@ -64,12 +64,12 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 ## The measurement as built (step 4)
 
 - **Constants.** From Qwen/Qwen3.8-27B-FP8's config (Eq. 7): C_token = 48,701,112,320 and C_attn = 393,216.
-  - The text config is identical to Qwen3.6-27B's, field by field.
+  - The text config is identical to Qwen3.6-27B's, field by field, so C_token and C_attn equal CLM's (Appendix C).
+  - **Tier B** will serve the same Qwen3.8-27B-FP8 on our own vLLM, to validate the cache simulation on the identical model. Qwen3.6-27B is for comparisons with CLM.
   - Counting the real linear layers on the meta device gives the same C_token exactly.
   - CLM's code table (2 × 24.3532e9) is 0.011% higher because it also counts the 2.65M non-matmul body parameters: short convolutions, norms, and the DeltaNet's A and dt.
 - **Cache simulation vs CLM's code.** On 60 seeded synthetic runs, ΣP, Σ(P − R) and the prefill attention pairs are exactly equal, except in runs with identical repeats. There our extra uncached tokens equal Σ(P mod 16) of the repeats, exactly.
-- **Decode.** Decode attention differs by design: Eq. 9 uses each call's G_t, while CLM's code averages generation over turns (median −9% on the synthetic runs).
-- **Identical repeats at a block boundary.** A repeat whose length is a multiple of 16 counts as fully cached here. A real vLLM server recomputes at least one token. This is rare: only resent calls.
+- **Decode.** Decode attention differs by design: Eq. 9 uses each call's G_t, while CLM's code averages generation over turns. On the synthetic runs the gap is a median of −9.3% of the decode term (range −26.8% to +7.4%), but only −0.087% of total F (range −0.37% to +0.05%).
 - **Validation on the saved Purdue prompts** (11 with the server's own ids, steps 1 and 3):
   - 2 are identical;
   - 7 differ only in the tools block (ΔP 0 or −1);
@@ -78,14 +78,27 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 
   Purdue reorders some tool's keys in 9 of 11 requests, so the actual-ids variant will see the real prefix cache break inside the tools block on most calls.
 
-## Validation
+## Validation (rule as of 2026-10-10, step 4 review)
 
-Each rebuilt prompt is compared with the server's ids, token by token. A mismatch is accepted only if it is confined to the tools block of the system prompt (before the first user message) and |ΔP| ≤ 1. Anything else stops the measurement for review.
+Each rebuilt prompt is compared with the server's ids, token by token. A mismatch is accepted only when all of these hold:
+- it is confined to the tools block;
+- the tools are the same JSON objects, ignoring key order;
+- everything after the tools block matches token for token;
+- the text before the tools block matches exactly.
+
+It is accepted at any ΔP, and ΔP is recorded per call. Anything else stops the measurement for review.
+
+The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had three tool schemas reordered (ΔP −2).
 
 ## Prefix cache (simulated)
 
 - **Rule.** Only full 16-token blocks count. A block is identified by a chained hash, and blocks are matched against earlier prompts of the same run, which starts empty.
-- **Difference from CLM's code.** CLM's code also matches a trailing partial block. So for an identical repeated prompt our R is 16·⌊P/16⌋ where CLM's is P. The cross-check reports this gap.
+- **vLLM's last-token rule** (added 2026-10-10): R = min(R, 16·⌊(P − 1)/16⌋). A fully cached prompt still recomputes its last block.
+- **Difference from CLM's code.** CLM's code matches a trailing partial block and has no last-token rule. So it gives R = P for a prompt fully covered by earlier ones, where we give:
+  - for an identical repeat: P − (P mod 16), or P − 16 when P is a multiple of 16;
+  - for an exact earlier prefix ending on a block boundary: P − 16.
+
+  The cross-check predicts this gap per prompt, and it matches exactly. On 60 synthetic runs there are 0 other differences.
 
 ## The call log
 

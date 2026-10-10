@@ -1,8 +1,9 @@
 """The prompt rebuild against Purdue's own prompt token ids, with the model's real tokenizer.
 
 Every saved request with the server's ids is rebuilt (measure/flops.py) and validated by Kavin's
-rule. The saved requests are the step-1 smoke and probes and the step-3 live call through the
-gateway. Each must pass, except the probe whose assistant turn carried `reasoning`: vLLM would
+rule (tools block may differ by key order at any dP; everything after it token for token). The
+saved requests are the step-1 smoke and probes and the step-3 live call through the gateway. Each
+must pass, except the probe whose assistant turn carried `reasoning`: vLLM would
 render it, Purdue's front end stripped it, and the gateway now strips it before sending. That
 mismatch must be caught. Skipped when the tokenizer isn't in the local Hugging Face cache (no
 download in tests).
@@ -50,10 +51,9 @@ def test_every_saved_prompt_is_rebuilt_exactly_or_differs_only_in_the_tools_bloc
     results = {name: validate(tokenizer, prompt_ids(tokenizer, body), server) for name, body, server in saved_pairs()}
     reasoning_probe = [n for n in results if n.endswith("request-6.json")]
     assert reasoning_probe and not results[reasoning_probe[0]][0], "the stripped-`reasoning` probe must be caught"
-    # The step-3 live call: Purdue reordered the keys of three tool schemas, so dP = -2. The rule as
-    # decided (|dP| <= 1) rejects it; this is open for Kavin's decision (step-4 report).
-    live = results.pop("gateway live call")
-    assert live == (False, "tools block only (same tools, keys reordered), but dP -2 exceeds the allowed 1")
+    assert "mismatch at token" in results[reasoning_probe[0]][1]      # after the tools block: never accepted
+    # The step-3 live call: Purdue reordered the keys of three tool schemas (dP -2); accepted since 2026-10-10.
+    assert results["gateway live call"] == (True, "tools block only, keys reordered (dP -2)", -2)
     others = {n: r for n, r in results.items() if n not in reasoning_probe}
-    assert all(ok for ok, _ in others.values()), {n: note for n, (ok, note) in others.items() if not ok}
-    assert any(note == "identical" for _, note in others.values())    # exact whenever Purdue did not reorder keys
+    assert all(ok for ok, _, _ in others.values()), {n: note for n, (ok, note, _) in others.items() if not ok}
+    assert any(note == "identical" for _, note, _ in others.values())    # exact whenever Purdue did not reorder keys

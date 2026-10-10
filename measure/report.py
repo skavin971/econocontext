@@ -6,7 +6,9 @@ one row:
 - task, arm, pass, calls (agent and summary), retries;
 - ΣP, ΣR, ΣU, ΣG, hit share ΣR/ΣP;
 - PFLOPs: linear, attention, total;
-- the summary calls' PFLOPs, the CLM-convention variant, and the total on Purdue's actual ids;
+- the summary calls' PFLOPs and the CLM-convention variant;
+- the total as served by Purdue: computed on Purdue's actual prompt ids, which include its front
+  end's random key reordering. Informational, not for comparing arms;
 - Jev input tokens and fallbacks;
 - how many calls passed validation.
 
@@ -28,7 +30,7 @@ from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
 COLUMNS = ["run_id", "task", "arm", "pass", "calls", "summary_calls", "retries", "P", "R", "U", "G", "hit_share",
-           "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_server",
+           "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
 
 
@@ -69,23 +71,27 @@ def main() -> None:
                       "hit_share": round(t["hit_share"], 4), "PFLOPs_lin": t["F_lin"] / 1e15,
                       "PFLOPs_attn": t["F_attn"] / 1e15, "PFLOPs": t["F"] / 1e15, "PFLOPs_summary": t["F_summary"] / 1e15,
                       "PFLOPs_clm_aux": t["F_clm_aux"] / 1e15,
-                      "PFLOPs_server": t["F_server"] / 1e15 if t["F_server"] is not None else None,
+                      "PFLOPs_as_served_by_purdue": t["F_server"] / 1e15 if t["F_server"] is not None else None,
                       "jev_input_tokens": (owner.get("jev") or {}).get("input_tokens"),
                       "jev_fallbacks": (s.get("jev_fallbacks") or {}).get("fell_back"),
                       "valid": t["valid"], "invalid": t["invalid"]})
         checks = {c["call_no"]: c for c in result["validation"]}
         for row in result["rows"]:
-            per_call.append({"run_id": run_id, **row, "validation": checks[row["call_no"]]["note"]})
+            check = checks[row["call_no"]]
+            per_call.append({"run_id": run_id, **row, "dP": check["dP"], "validation": check["note"]})
         invalid += [(run_id, c) for c in result["validation"] if not c["ok"]]
     print(f"{'run':44s} {'pass':>4s} {'calls':>7s} {'retry':>5s} {'ΣP':>9s} {'ΣR':>9s} {'ΣG':>7s} {'hit':>5s} "
-          f"{'PF lin':>7s} {'PF attn':>7s} {'PFLOPs':>7s} {'PF summ':>7s} {'PF CLM':>7s} {'PF srv':>7s} {'Jev':>7s} {'fb':>3s} {'ok':>5s}")
+          f"{'PF lin':>7s} {'PF attn':>7s} {'PFLOPs':>7s} {'PF summ':>7s} {'PF CLM':>7s} {'PF Pur*':>7s} {'Jev':>7s} {'fb':>3s} {'ok':>5s}")
     for r in table:
-        server = f"{r['PFLOPs_server']:7.3f}" if r["PFLOPs_server"] is not None else f"{'-':>7s}"
+        server = f"{r['PFLOPs_as_served_by_purdue']:7.3f}" if r["PFLOPs_as_served_by_purdue"] is not None else f"{'-':>7s}"
         print(f"{r['run_id'][:44]:44s} {str(r['pass']):>4s} {r['calls']:4d}/{r['summary_calls']:<2d} {r['retries']:5d} "
               f"{r['P']:9,d} {r['R']:9,d} {r['G']:7,d} {r['hit_share']:5.3f} {r['PFLOPs_lin']:7.3f} {r['PFLOPs_attn']:7.3f} "
               f"{r['PFLOPs']:7.3f} {r['PFLOPs_summary']:7.3f} {r['PFLOPs_clm_aux']:7.3f} {server} "
               f"{str(r['jev_input_tokens'] or '-'):>7s} {str(r['jev_fallbacks'] if r['jev_fallbacks'] is not None else '-'):>3s} "
               f"{r['valid']:2d}/{r['valid'] + r['invalid']:<2d}")
+    print("PF summ: the summary calls' share of PFLOPs. PF CLM: summary calls fully prefilled, outside the cache "
+          "(CLM's aux convention).\n* PF Pur: as served by Purdue (includes front-end key reordering); informational, "
+          "not for comparing arms.")
     out.mkdir(parents=True, exist_ok=True)
     with (out / "report.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)

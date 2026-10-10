@@ -5,9 +5,12 @@ Why it exists: measure/ reimplements CLM's FLOPs accounting. CLM's code
 - `_units_from_token_ids(ids, 16)` + `accumulate_prefill` must give exactly our ΣP and Σ(P − R),
   and our prefill attention pairs Σ½(P² − R²);
 - decode differs by design: CLM averages generation over turns (g·ΣP + G²/2n, with g = G/n), while
-  Eq. 9 uses each call's own G_t (Σ G_t·P_t + ½G_t²). The gap is reported, not asserted;
-- identical repeated prompts are the one known prefill difference. CLM matches the trailing partial
-  block, we don't; reported separately.
+  Eq. 9 uses each call's own G_t (Σ G_t·P_t + ½G_t²). The gap is reported, not asserted, both as a
+  share of the decode term and as a share of total F;
+- the one known prefill difference: prompts fully covered by earlier ones. These are identical
+  repeats, or exact earlier prefixes on a block boundary. CLM gives R = P; vLLM's rules here do not
+  cache a trailing partial block and recompute the last block. The gap is predicted per prompt and
+  must match exactly.
 
 The runs are random but seeded (growth, mid-prompt edits, compaction-like resets, short prompts).
 Run (needs CLM): .venv-clm/bin/python tests/measure/clm_crosscheck.py [--from-calls <calls.jsonl> ...]
@@ -90,40 +93,53 @@ def from_calls(paths: list[str]) -> list[tuple[str, list[list[int]], list[int]]]
     return runs
 
 
+def covered(prompts: list[list[int]]) -> list[bool]:
+    """Prompts CLM's code counts as fully cached (R = P): an identical repeat, or an exact earlier prefix
+    ending on a block boundary. Only for these do our R (vLLM's rules) and CLM's differ."""
+    out = []
+    for i, p in enumerate(prompts):
+        earlier = prompts[:i]
+        out.append(any(p == q for q in earlier) or (len(p) % 16 == 0 and any(q[:len(p)] == p for q in earlier)))
+    return out
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--from-calls", nargs="*", help="real runs' calls.jsonl instead of synthetic runs")
     a = p.parse_args()
+    from measure.models import load
+    model = load()
     runs = from_calls(a.from_calls) if a.from_calls else synthetic_runs()
-    agree, failures, explained, decode = 0, 0, [], []
+    agree, failures, explained, decode, decode_total = 0, 0, [], [], []
     for name, prompts, gens in runs:
         ok, note = compare(name, prompts, gens)
         R = cached_prefix(prompts)
         ours_uncached = sum(map(len, prompts)) - sum(R)
         pf = accumulate_prefill([_units_from_token_ids(q, 16) for q in prompts])
         ours_decode = sum(g * len(q) + 0.5 * g * g for q, g in zip(prompts, gens))
-        decode.append(100 * (attention_flops_from_prefill(pf, sum(gens), L_ATTN, ATTN_WIDTH)["decode_attn_pairs"]
-                             - ours_decode) / ours_decode)
-        # The known difference: CLM also matches an identical repeat's trailing partial block.
-        partial = sum(len(q) % 16 for i, q in enumerate(prompts) if any(q == r for r in prompts[:i]))
+        clm_decode = attention_flops_from_prefill(pf, sum(gens), L_ATTN, ATTN_WIDTH)["decode_attn_pairs"]
+        ours_pairs = sum(0.5 * (len(q) ** 2 - r ** 2) for q, r in zip(prompts, R))
+        F = model["C_token"] * (ours_uncached + sum(gens)) + model["C_attn"] * (ours_pairs + ours_decode)
+        decode.append(100 * (clm_decode - ours_decode) / ours_decode)
+        decode_total.append(100 * model["C_attn"] * (clm_decode - ours_decode) / F)
+        expected_gap = sum(len(q) - r for q, r, c in zip(prompts, R, covered(prompts)) if c)
         if ours_uncached == pf.cache_aware_prefill_tokens and ok:      # ok: ΣP, Σ(P-R) and prefill pairs all equal
             agree += 1
-        elif ours_uncached == pf.cache_aware_prefill_tokens:
-            failures += 1
-            print("UNEXPLAINED (attention pairs)", note)
-        elif ours_uncached - pf.cache_aware_prefill_tokens == partial:
-            explained.append(partial)
+        elif expected_gap and ours_uncached - pf.cache_aware_prefill_tokens == expected_gap:
+            explained.append(expected_gap)
         else:
             failures += 1
             print("UNEXPLAINED", note)
         if a.from_calls:
             print(note)
-    decode.sort()
-    print(f"{len(runs)} runs: prefill exactly equal in {agree}; equal except identical repeats in {len(explained)}, "
-          f"where our extra uncached tokens equal Σ(P mod 16) of the repeats exactly ({explained}); "
-          f"unexplained differences: {failures}")
+    decode.sort(), decode_total.sort()
+    print(f"{len(runs)} runs: prefill exactly equal in {agree}; equal except fully covered prompts (identical repeats, "
+          f"or exact earlier prefixes on a block boundary) in {len(explained)}, where our extra uncached tokens equal "
+          f"the predicted gap exactly ({explained}); unexplained differences: {failures}")
     print(f"decode attention pairs, CLM's averaged formula vs per-call G_t: median {decode[len(decode) // 2]:+.1f}%, "
           f"range {decode[0]:+.1f}% to {decode[-1]:+.1f}%")
+    print(f"the same gap as a share of total F: median {decode_total[len(decode_total) // 2]:+.3f}%, "
+          f"range {decode_total[0]:+.3f}% to {decode_total[-1]:+.3f}%")
     return 1 if failures else 0
 
 

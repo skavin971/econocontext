@@ -45,7 +45,7 @@ def test_the_server_variant_uses_the_servers_own_ids():
     calls = [{"call_no": 1, "kind": "agent", "ids": a, "server_ids": a, "G": 1},
              {"call_no": 2, "kind": "agent", "ids": b, "server_ids": b_server, "G": 1}]
     rows = run_flops(calls, C_TOKEN, C_ATTN)["rows"]
-    assert (rows[1]["R"], rows[1]["R_server"]) == (48, 16)
+    assert (rows[1]["R"], rows[1]["R_server"]) == (32, 16)      # 48 tokens repeated: the last block recomputed
 
 
 def test_messages_are_parsed_as_vllm_030_parses_them():
