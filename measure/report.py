@@ -3,7 +3,8 @@
 Why it exists: the one report every experiment uses. It is given run folders, or label folders that
 hold them (each with the runner's summary.json), or a calls.jsonl directly. For each run it prints
 one row:
-- task, arm, pass, calls (agent and summary), retries;
+- task, arm, pass, calls (agent and summary), retries, repeats (duplicate computations: a prompt sent
+  again identically, e.g. a client's resend after a timeout);
 - ΣP, ΣR, ΣU, ΣG, hit share ΣR/ΣP;
 - PFLOPs: linear, attention, total;
 - the summary calls' PFLOPs and the CLM-convention variant;
@@ -29,7 +30,7 @@ from .flops import measure_log
 from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
-COLUMNS = ["run_id", "task", "arm", "pass", "calls", "summary_calls", "retries", "P", "R", "U", "G", "hit_share",
+COLUMNS = ["run_id", "task", "arm", "pass", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G", "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
 
@@ -67,7 +68,7 @@ def main() -> None:
         owner = s.get("owner") or {}
         table.append({"run_id": run_id, "task": parts[2] if len(parts) == 4 else "", "arm": parts[1] if len(parts) == 4 else "",
                       "pass": s.get("reward"), "calls": t["calls"], "summary_calls": t["summary_calls"],
-                      "retries": t["retries"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],
+                      "retries": t["retries"], "repeats": t["repeats"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],
                       "hit_share": round(t["hit_share"], 4), "PFLOPs_lin": t["F_lin"] / 1e15,
                       "PFLOPs_attn": t["F_attn"] / 1e15, "PFLOPs": t["F"] / 1e15, "PFLOPs_summary": t["F_summary"] / 1e15,
                       "PFLOPs_clm_aux": t["F_clm_aux"] / 1e15,
@@ -80,11 +81,11 @@ def main() -> None:
             check = checks[row["call_no"]]
             per_call.append({"run_id": run_id, **row, "dP": check["dP"], "validation": check["note"]})
         invalid += [(run_id, c) for c in result["validation"] if not c["ok"]]
-    print(f"{'run':44s} {'pass':>4s} {'calls':>7s} {'retry':>5s} {'ΣP':>9s} {'ΣR':>9s} {'ΣG':>7s} {'hit':>5s} "
+    print(f"{'run':44s} {'pass':>4s} {'calls':>7s} {'retry':>5s} {'rep':>3s} {'ΣP':>9s} {'ΣR':>9s} {'ΣG':>7s} {'hit':>5s} "
           f"{'PF lin':>7s} {'PF attn':>7s} {'PFLOPs':>7s} {'PF summ':>7s} {'PF CLM':>7s} {'PF Pur*':>7s} {'Jev':>7s} {'fb':>3s} {'ok':>5s}")
     for r in table:
         server = f"{r['PFLOPs_as_served_by_purdue']:7.3f}" if r["PFLOPs_as_served_by_purdue"] is not None else f"{'-':>7s}"
-        print(f"{r['run_id'][:44]:44s} {str(r['pass']):>4s} {r['calls']:4d}/{r['summary_calls']:<2d} {r['retries']:5d} "
+        print(f"{r['run_id'][:44]:44s} {str(r['pass']):>4s} {r['calls']:4d}/{r['summary_calls']:<2d} {r['retries']:5d} {r['repeats']:3d} "
               f"{r['P']:9,d} {r['R']:9,d} {r['G']:7,d} {r['hit_share']:5.3f} {r['PFLOPs_lin']:7.3f} {r['PFLOPs_attn']:7.3f} "
               f"{r['PFLOPs']:7.3f} {r['PFLOPs_summary']:7.3f} {r['PFLOPs_clm_aux']:7.3f} {server} "
               f"{str(r['jev_input_tokens'] or '-'):>7s} {str(r['jev_fallbacks'] if r['jev_fallbacks'] is not None else '-'):>3s} "

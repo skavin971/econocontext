@@ -117,3 +117,11 @@ The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had
 
 - Purdue's internal metadata (user and access-grant ids from `GET /api/models`) is trimmed before any push. `runs/purdue-smoke/models.json` keeps only the model ids and qwen3.8:27b's capabilities.
 - Keys live only in `.env`.
+
+## Decisions after the maven runs (2026-10-10)
+
+- **No EconoContext threshold changes yet.** The `harness` settings in `config/v2.yaml` stay as they are, including the 30k compaction minimum, even though Qwen3.8's prompts on maven peaked near 10k. A context profile of all 10 tasks comes first.
+- **The same `max_tokens` for every arm: 8,192.** That is our agent's value. CLM's agent gets `max_tokens=8192` through `agents/clm/run.sh` (its own default is 16,384).
+  - Duplicate computations are reported per run: `retries` (upstream retries, e.g. after a 600 s timeout) and `repeats` (a prompt sent again identically, e.g. a client's resend).
+  - On maven, CLM's call 10 timed out upstream and was resent as call 11.
+

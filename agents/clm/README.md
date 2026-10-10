@@ -15,7 +15,9 @@ agents/clm/run.sh tc1 acl-permissions-inheritance 32000      # label, task, cont
 - `context_budget_tokens`: CLM's context budget. A small budget forces the model to edit its context file.
 - `cost_metric=flops`, `flops_model_key=27b`, `flops_n_body=C_token/2` and `flops_tokenizer=<the measured model>`, so CLM's own FLOPs block (attached to `trajectory.ctx.json`) uses our constants.
 
-Everything else is CLM's default: 64 steps, `max_tokens` 16384, temperature 0.7, `top_p` 0.95, and thinking on.
+- `max_tokens=8192`: the same as every other arm (CLM's default is 16,384).
+
+Everything else is CLM's default: 64 steps, temperature 0.7, `top_p` 0.95, and thinking on.
 
 **Outputs**
 - `runs/<label>/clm-b<budget>/<task>-r<n>/` holds `command.txt`, `run.json` and `harbor.out`.

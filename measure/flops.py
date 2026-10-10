@@ -123,14 +123,18 @@ def run_flops(calls: list[dict], c_token: float, c_attn: float) -> dict:
     R_clm = [0 if c["kind"] == "summary" else agent_only.pop(0) for c in calls]   # CLM's aux convention
     server = [c["server_ids"] for c in calls]
     R_srv = cached_prefix(server) if all(ids is not None for ids in server) else None
-    rows, totals = [], {"calls": len(calls), "summary_calls": 0, "P": 0, "R": 0, "U": 0, "G": 0, "F_lin": 0.0,
+    seen_prompts: set[tuple] = set()
+    rows, totals = [], {"calls": len(calls), "summary_calls": 0, "repeats": 0, "P": 0, "R": 0, "U": 0, "G": 0, "F_lin": 0.0,
                         "F_attn": 0.0, "F": 0.0, "F_summary": 0.0, "F_clm_aux": 0.0, "F_server": 0.0 if R_srv else None}
     for i, c in enumerate(calls):
         P, G = len(c["ids"]), c["G"]
         lin, attn = eq9(P, R[i], G, c_token, c_attn)
         clm = sum(eq9(P, R_clm[i], G, c_token, c_attn))
+        repeat = tuple(c["ids"]) in seen_prompts           # the same prompt computed again (a duplicate)
+        seen_prompts.add(tuple(c["ids"]))
+        totals["repeats"] += repeat
         row = {"call_no": c["call_no"], "kind": c["kind"], "P": P, "R": R[i], "U": P - R[i], "G": G,
-               "F_lin": lin, "F_attn": attn, "F": lin + attn, "R_clm_aux": R_clm[i]}
+               "F_lin": lin, "F_attn": attn, "F": lin + attn, "R_clm_aux": R_clm[i], "repeat": repeat}
         row["P_server"], row["R_server"] = (len(server[i]), R_srv[i]) if R_srv else (None, None)
         if R_srv:
             totals["F_server"] += sum(eq9(len(server[i]), R_srv[i], G, c_token, c_attn))

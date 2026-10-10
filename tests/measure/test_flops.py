@@ -60,3 +60,9 @@ def test_messages_are_parsed_as_vllm_030_parses_them():
     assert [c["function"]["arguments"] for c in parsed[1]["tool_calls"]] == [{"command": "ls"}, {}]
     assert parsed[2] == {"role": "tool", "content": "a.txt", "tool_call_id": "c1"}
     assert parsed[3]["reasoning"] == parsed[3]["reasoning_content"] == "kept by vLLM"
+
+
+def test_a_prompt_sent_again_identically_is_counted_as_a_repeat():
+    calls = [{"call_no": n, "kind": "agent", "ids": ids(40), "server_ids": None, "G": 1} for n in (1, 2)]
+    result = run_flops(calls, C_TOKEN, C_ATTN)
+    assert result["totals"]["repeats"] == 1 and [r["repeat"] for r in result["rows"]] == [False, True]
