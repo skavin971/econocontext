@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = "https://genai.rcac.purdue.edu/api"
 MODEL = "qwen3.8:27b"
 PROMPT = "List the files in the current directory. Use one of your tools to do it."
-# Our agent's 4 tools, copied from adapters/harbor/econo_agent.py (TOOLS) on 2026-10-10.
+# Our agent's 4 tools, copied from agents/react/agent.py (TOOLS) on 2026-10-10.
 TOOLS = [
     {"type": "function", "function": {
         "name": "bash", "description": "Run a bash command in the container; returns its output and exit code.",

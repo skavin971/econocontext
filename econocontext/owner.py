@@ -1,4 +1,4 @@
-"""EconoContext acting on a conversation it owns (our own agent, adapters/harbor/econo_agent.py).
+"""EconoContext acting on a conversation it owns (our own agent, agents/react/agent.py).
 
 Why it exists: the full-control track. With no hooks in the way, EconoContext sees every tool
 call and result and may edit the conversation before every model call. It reuses the session
@@ -21,12 +21,11 @@ from pathlib import Path
 
 import yaml
 
-from .decide import TESTS
 from .predictor import chunks
 from .predictor.jev import Jev
 from .predictor.prior import Prior
 from .pricing import lifecycle
-from .session import Session, read_only_bash
+from .session import TESTS, Session, read_only_bash
 from .tokens import count_tokens
 
 CONFIG = Path(__file__).resolve().parents[1] / "config" / "v2.yaml"

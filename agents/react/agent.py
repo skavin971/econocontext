@@ -11,7 +11,7 @@ through unchanged and records each call's usage and cost). Vertex quirks (EconoC
 assistant message whole (it carries `extra_content.google.thought_signature`), never end the list
 on an assistant turn, and resend a call that ends with `malformed_function_call`.
 
-Use: harbor trial start -p <task> -e docker -a adapters.harbor.econo_agent:EconoAgent
+Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
      -m openai/google/gemini-3.6-flash --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
      [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>]
 """

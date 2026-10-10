@@ -1,4 +1,4 @@
-"""The full-control agent (adapters/harbor/econo_agent.py) with a fake model and a local shell.
+"""The full-control agent (agents/react/agent.py) with a fake model and a local shell.
 
 The fake environment runs the agent's real bash commands in a temporary directory (it only drops
 the `timeout` prefix, which macOS lacks), so tools, cwd persistence and the output cap are real.
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from openai.types.chat import ChatCompletion
 
-from adapters.harbor.econo_agent import NUDGE, EconoAgent, cap
+from agents.react.agent import NUDGE, EconoAgent, cap
 
 
 def reply(*calls, text=None, finish="tool_calls", extra=None):

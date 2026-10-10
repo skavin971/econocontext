@@ -1,152 +1,52 @@
 # EconoContext
 
-EconoContext is a cost optimizer for AI agents. It does not run agents itself. It watches
-an agent that someone else runs, prices the options for each step (for example: send a
-big tool result in full, or a short pointer to it), picks the cheapest correct one, and
-logs every choice next to what the step really cost.
+EconoContext is online declarative context optimization for LLM agents. Between an agent's steps, a predictor answers questions about the agent's context. The predictor is Jev (a classifier) or a set of fixed guesses. A price then decides what to keep, shrink, evict or summarize, and EconoContext applies it to the conversation.
 
-**New here?** Read this page, then [`docs/README.md`](docs/README.md) (six short chapters).
-How we use Omnigent, on one page: [`docs/html/omnigent.html`](docs/html/omnigent.html).
+The branch `tier-a-purdue` measures this on an open model: Qwen3.8-27B on Purdue's GenAI Studio. The cost is prefix-reuse FLOPs, following CLM (Shao et al., arXiv 2609.37725, Appendix C). The earlier Gemini-dollar results are in `docs/results/2026-10-06/`. Their code is at tag `econo-jev-final`.
 
-## Who is who
+## Layout
 
-| Piece | What it is | Where it lives | Ours? |
-|---|---|---|---|
-| **EconoContext** | The optimizer: decides, prices, logs | [`econocontext/`](econocontext/) | ✅ ours |
-| **Omnigent layer** | The glue that connects Omnigent to EconoContext | [`omnigent_layer/`](omnigent_layer/) | ✅ ours |
-| **Harness** | Runs an agent on Omnigent (specs, sessions, setup, labels, reports), whatever the benchmark | [`harness/`](harness/) | ✅ ours |
-| **Benchmarks** | Task loading and grading, one folder per benchmark (SWE-bench today) | [`benchmarks/`](benchmarks/) | ✅ ours |
-| **Omnigent** | The platform that runs agents: sessions, tools, sandboxes, UI | installed: `pip install omnigent==0.15.0` | ❌ Databricks, open source |
-| **The coding harness** | The agent loop that actually solves the task (think, call a tool, read the result, repeat) | the OpenAI Agents SDK (`openai-agents`), installed with Omnigent, chosen in [`harness/specs/openai_agents.yaml`](harness/specs/openai_agents.yaml) | ❌ OpenAI, open source |
-| **The model** | Gemini 3.6 Flash | Google Vertex AI (key in `.env`) | ❌ Google |
-| **SWE-bench** | Real GitHub bugs, their Docker images, the official grader | installed: `pip install swebench` | ❌ SWE-bench |
+**`econocontext/`** is the method.
+- `owner.py` edits the conversation of an agent that owns its context (rules 1–4, 6, 7, 9).
+- `session.py` is the run's session database: one empty SQLite file per run, deleted after it.
+- `predictor/` holds Jev and the fixed guesses.
+- `pricing/lifecycle.py` holds the decision prices.
 
-So the agent that fixes the bug is **the OpenAI Agents SDK, run by Omnigent, thinking
-with Gemini**. EconoContext only watches it and, when allowed, adjusts what it sends.
+It uses only the standard library and PyYAML, and imports nothing from the other folders.
 
-## The picture
+**`agents/`** holds the agents that Harbor runs.
+- `react/agent.py` is our small tool-calling agent (bash, read_file, write_file, submit), with the arms raw, jev and prior.
+- `clm/` (step 6) runs CLM's own agent through our gateway.
 
-```
- benchmarks/swebench/run.py ── starts one Omnigent session per SWE-bench task ──┐
-                                                                  ▼
- ┌──────────────── Omnigent (installed, not modified) ───────────────────┐
- │  the coding harness: OpenAI Agents SDK                                 │
- │    think ──► call a tool ──► read the result ──► think again ...       │
- └──────┬──────────────────────────────────────────────┬─────────────────┘
-        │ every model call                             │ every tool call and result
-        ▼                                              ▼
- ┌─ omnigent_layer/gateway.py ─┐              ┌─ omnigent_layer/policy.py ─┐
- │ sees the full prompt and    │              │ sees each tool result;     │
- │ the exact tokens billed     │              │ may shorten it             │
- └──────┬──────────▲───────────┘              └──────────────┬─────────────┘
-        │          └──► Gemini on Vertex                     │
-        ▼                                                    ▼
- ┌──────────────────── econocontext/ (the optimizer) ─────────────────────┐
- │  list options ─► drop wrong ones ─► price them ─► pick ─► log why      │
- └────────────────────────────────┬───────────────────────────────────────┘
-                                  ▼
-                   Agent DB: data/econocontext.sqlite3
-```
+Agents reach models only through `gateway/`.
 
-## One task, step by step
+**`gateway/`** (step 3) is one small OpenAI-compatible proxy. It holds the provider keys, enforces the rate limit and the caps, and logs every call to `calls.jsonl`.
 
-1. **`benchmarks/swebench/run.py`** takes one bug (say `pytest-dev__pytest-5809`), copies its repository to `data/work/…`, and starts the bug's Docker image so tests can run.
-2. It asks **Omnigent** to start a session with the agent in `harness/specs/openai_agents.yaml`.
-3. **The harness** (OpenAI Agents SDK) works on the bug: it reads and edits files, and runs tests with `testbed_shell` inside the Docker image.
-4. **Every model call** goes to `omnigent_layer/gateway.py`, which passes it on to Gemini and records the exact tokens. **Every tool result** goes through `omnigent_layer/policy.py`.
-5. Both hand what they see to **`econocontext/`**, which decides and writes everything to the Agent DB. In `observe` mode it only logs; in `autopilot` its choices are applied.
-6. When the agent is done, `benchmarks/swebench/run.py` takes the `git diff` and **SWE-bench's official grader** says pass or fail.
+**`measure/`** (step 4) measures cost, independently of the method:
+- model constants from a model's config (CLM Eq. 7);
+- a 16-token prefix-cache simulation;
+- prefix-reuse FLOPs per call and per run (Eq. 9).
 
-## Folders
+**`benchmarks/tblite/`** holds the TBLite runner (step 3) and two task folders for rule spikes.
 
-```
-econocontext/     the optimizer. Imports only Python's standard library and pyyaml.
-  planner/          lists the options for a step (and jev_planner.py: a slot for Jev)
-  optimizer/        gates (drop wrong options) and the choice
-  pricing/          the cost model, price cards, and the ledger (actual cost per call)
-  learn/            labels (what happened), replay (what we'd have chosen), learned H and p
-  assembler/ guard/ build the chosen request; fail safe
-  monitor/ store/   what exists, and the Agent DB
-omnigent_layer/   the glue, its own small package (pip install -e omnigent_layer)
-  gateway.py        model calls: full prompt in, exact usage out, hard caps
-  policy.py         tool calls and results
-  workspace.py      which files changed (so old results are not reused)
-  tools.py          testbed_shell: a shell inside the task's Docker image
-  wire.py           converts the model's message format to EconoContext's
-harness/          how an agent runs: session.py, specs/ (openai_agents.yaml with a worker, gemini/), learn.py, report.py
-benchmarks/       one folder per benchmark: swebench/ (run.py, tasks.py, evaluate.py)
-config/           every number the optimizer uses, and the price cards
-tests/            tests for the optimizer (omnigent_layer/tests/ for the glue)
-docs/             the guide, the Omnigent findings, how to run everything
-v0/               the earlier prototype (archive)
-```
+**`scripts/`** holds the probes of Purdue's API from step 1.
 
-**The rule that keeps it separate:** `econocontext/` never imports Omnigent, the
-harness or any provider, so it can be worked on alone (`pytest -q` needs nothing else
-installed). Only `harness/session.py` imports Omnigent. `tests/unit/test_isolation.py`
-fails if either rule is broken. The earlier Deep Agents version is in git under the tag
-`deepagents-host`; what we learned moving to Omnigent is in
-[`docs/omnigent-findings.md`](docs/omnigent-findings.md).
+**`config/`**
+- `v2.yaml` holds EconoContext's settings.
+- `billing_rates.yaml` holds the price card that EconoContext's decision prices read.
 
-## Omnigent: where to read about it
+**`third_party/context-language-models/`** is CLM's code as a pinned git submodule, unmodified. Its license is CC BY-NC 4.0; we use it and never copy it into our code.
 
-We use Omnigent **0.15.0**, pinned, because it is alpha and its event fields change
-between releases.
+**`tests/`** mirrors the folders above. Run them with `.venv/bin/python -m pytest -q`. No test calls a model.
 
-- [Omnigent on GitHub](https://github.com/omnigent-ai/omnigent): source, README, examples (Polly, the multi-agent coding orchestrator)
-- [Omnigent on Databricks](https://docs.databricks.com/aws/en/omnigent/): the managed version and quickstart
-- [Introducing Omnigent](https://www.databricks.com/blog/introducing-omnigent-meta-harness-combine-control-and-share-your-agents): what a meta-harness is
-- [Policies](https://github.com/omnigent-ai/omnigent/blob/main/docs/POLICIES.md): the hook `omnigent_layer/policy.py` uses
-- [Agent YAML spec](https://github.com/omnigent-ai/omnigent/blob/main/docs/AGENT_YAML_SPEC.md): the format of `harness/specs/openai_agents.yaml`
-- Ours: [how we use Omnigent, on one page](docs/html/omnigent.html) and [what we found wiring it up](docs/omnigent-findings.md)
+**`docs/`** holds the results, this branch's decisions (`tier-a-decisions.md`) and the restructure map.
 
-## Details: where EconoContext decides
+**`runs/`** holds every experiment's logs and results, kept where they were written.
 
-| Intercept | Seen at | Host default | Alternatives (exact / approximate) |
-|---|---|---|---|
-| `plan_prompt` | gateway | AS_IS | ZONED (exact); COMMIT_PENDING, RETRIEVE_FROM_STORE (approximate) |
-| `before_tool_call` | policy | RUN_TOOL | ANSWER_FROM_STORE: logged only (a policy cannot skip a tool) |
-| `admit_tool_result` | policy | KEEP_FULL | POINTER (approximate: the model must reopen the content) |
-| `plan_dispatch` | — | FRESH | REUSE_RESULT; not wired yet (see findings: sub-agents) |
-| `record`, `on_turn_end` | gateway | — | Measurement, per call |
-| `on_file_write` | policy | — | The write barrier |
+**`archive/`** holds the paused tracks and their docs (see `archive/README.md`). They don't run in place; tag `econo-jev-final` runs all of them.
 
-Gates run first (allowlist, quality risk, fidelity, version, side effects, window,
-pairing). Survivors are priced on four terms: prepare, work, integrate, and
-leaves_behind; latency is kept separate. The cheapest wins; ties go to lower latency,
-then to the host default. Every loser's `why_not` is written to `decisions`. `observe`
-logs decisions and changes nothing; `autopilot` applies them.
+## Environments
 
-**Open for the next person**
-- **`econocontext/pricing/ledger.py`: actual cost per call and per run.**
-  - It saves token counts today; the cost columns are empty.
-  - The file's docstring is the spec, and `tests/unit/test_ledger.py` holds the acceptance tests.
-  - Until it is built, only the step limit caps a paid run.
-
-**Jev predictor:** `econocontext/planner/jev_planner.py` sends all its inputs,
-including the full context window, as structured state to TypeSafe's HTTP API.
-Enable it with `--jev` and set `TYPESAFE_API_KEY` in the environment (or `.env`
-when using the run scripts). Model and timeout are in `config/econocontext.yaml`.
-It makes one request without truncation or retries; failures use the fixed guess.
-See `tests/test_planner_jev.py` for mocked tests and an optional live check.
-
-Cost tracking, runtime spans, and text/JSON/CSV reporting are documented in
-[`docs/COST_TRACKING.md`](docs/COST_TRACKING.md).
-
-## Running
-
-Step by step, with what each step proves and costs: [`docs/TESTING.md`](docs/TESTING.md).
-
-```sh
-.venv/bin/pip install -e ".[swebench,dev]" -e omnigent_layer
-.venv/bin/python -m pytest -q && .venv/bin/python -m pytest -q omnigent_layer   # free
-.venv/bin/omnigent start --no-open --non-interactive     # Omnigent server + runner host
-.venv/bin/python -m omnigent_layer.gateway               # the gateway (localhost:8787)
-.venv/bin/python benchmarks/swebench/run.py --label dev1 --instance pytest-dev__pytest-5809 --arm econo --mode observe
-.venv/bin/python harness/report.py --label dev1
-```
-
-Credentials come from `.env` (`AGENT_PLATFORM_API_KEY`). Only the gateway reads the key;
-agents get a placeholder. The gateway caps every run (60 model calls) and every day
-(3M input tokens). `data/` and `logs/` hold full prompts and are gitignored. Runs so far
-are pipeline checks, not a savings comparison.
+- **`.venv`** (Python 3.12): the method, the agents, Harbor and the tests (`pip install -e ".[dev]"`).
+- **`.venv-clm`** (Python 3.12): CLM (`pip install -e third_party/context-language-models`) and transformers, for the CLM cross-checks.
+- **Keys:** they live only in `.env`, which is git-ignored, and only the gateway reads model keys.

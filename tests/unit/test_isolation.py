@@ -1,4 +1,5 @@
-"""The boundaries: the optimizer stands alone, and only one file imports Omnigent."""
+"""The boundaries: the method stands alone, measurement never imports it, and agents reach models
+only through the gateway."""
 
 import ast
 import sys
@@ -6,7 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_THIRD_PARTY = {"yaml"}
-OMNIGENT = {"omnigent", "omnigent_client"}
+# Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/).
+PROVIDER_HOSTS = ("genai.rcac.purdue.edu", "googleapis.com", "anthropic.com", "openai.com")
+PROVIDER_KEYS = ("GENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                 "ECONOCONTEXT_ANTHROPIC_KEY", "AGENT_PLATFORM_API_KEY")
 
 
 def imports(path: Path) -> set[str]:
@@ -27,11 +31,15 @@ def test_core_imports_only_stdlib_yaml_and_itself():
             assert ok, f"{path.relative_to(ROOT)} imports {name}"
 
 
-def test_only_the_session_runner_imports_omnigent():
-    # The Omnigent layer reads Omnigent's events as plain dicts (policy.py) and speaks HTTP
-    # (gateway.py); only harness/session.py uses Omnigent's own code, to start sessions.
-    for folder in ("omnigent_layer/src", "harness", "benchmarks"):
-        for path in (ROOT / folder).rglob("*.py"):
-            if path.relative_to(ROOT).as_posix() == "harness/session.py":
-                continue
-            assert not imports(path) & OMNIGENT, f"{path.relative_to(ROOT)} imports Omnigent"
+def test_measure_never_imports_the_method():
+    for path in (ROOT / "measure").rglob("*.py"):
+        assert "econocontext" not in imports(path), f"{path.relative_to(ROOT)} imports econocontext"
+
+
+def test_agents_reach_models_only_through_the_gateway():
+    # An agent is given an api_base on gateway/ and a placeholder key; it never names a provider's
+    # host or reads a provider's key.
+    for path in (ROOT / "agents").rglob("*.py"):
+        text = path.read_text()
+        named = [name for name in PROVIDER_HOSTS + PROVIDER_KEYS if name in text]
+        assert not named, f"{path.relative_to(ROOT)} names {named}"

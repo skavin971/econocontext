@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -55,6 +56,9 @@ def read_only_bash(command: str) -> bool:
         if words[0] not in READ_ONLY:
             return False
     return True
+
+
+TESTS = re.compile(r"^\s*(python3? -m pytest|pytest|npm test|make test|go test|cargo test)\b")
 
 
 class Session:
