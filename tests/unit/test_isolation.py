@@ -40,9 +40,11 @@ def test_measure_never_imports_the_method():
 
 def test_agents_reach_models_only_through_the_gateway():
     # An agent is given an api_base on gateway/ and a placeholder key; it never names a provider's
-    # host or reads a provider's key.
-    for path in (ROOT / "agents").rglob("*.py"):
-        text = path.read_text()
+    # host or reads a provider's key. Every file under agents/ (code, scripts, docs) is checked.
+    for path in (ROOT / "agents").rglob("*"):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        text = path.read_text(errors="ignore")
         named = [name for name in PROVIDER_HOSTS + PROVIDER_KEYS if name in text]
         assert not named, f"{path.relative_to(ROOT)} names {named}"
 

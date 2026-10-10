@@ -1,0 +1,47 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 2,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "id; getent group research alice bob; which setfacl getfacl; ls -ld /srv/shared 2>&1"
+  },
+  {
+    "step": 2,
+    "llm_s": 2.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "mkdir -p /srv/shared && chgrp research /srv/shared && chmod 2770 /srv/shared && setfacl -m g:research:rwx,u:alice:rwx,u:bob:rwx,o::---,m::rwx /srv/shared && setfacl -d -m g:research:rwx,u:alice:rwx,u:"
+  },
+  {
+    "step": 3,
+    "llm_s": 2.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "runuser -u alice -- touch /srv/shared/t1 && runuser -u bob -- bash -c 'echo data > /srv/shared/t1 && cat /srv/shared/t1' && ls -l /srv/shared && runuser -u alice -- mkdir /srv/shared/sub && runuser -u"
+  },
+  {
+    "step": 4,
+    "llm_s": 1.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /srv/shared; runuser -u bob -- ls /srv/shared >/dev/null && echo \"bob ok\"; id nobody >/dev/null && runuser -u nobody -- ls /srv/shared 2>&1 | head -2"
+  },
+  {
+    "step": 5,
+    "llm_s": 2.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

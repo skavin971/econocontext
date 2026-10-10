@@ -1,0 +1,52 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "id; getent group research; id alice 2>&1; id bob 2>&1; which setfacl getfacl; ls -ld /srv 2>&1"
+  },
+  {
+    "step": 2,
+    "context_budget_nudge": 0.25,
+    "tokens": 2010
+  },
+  {
+    "step": 2,
+    "llm_s": 2.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "mkdir -p /srv/shared && chown root:research /srv/shared && chmod 2770 /srv/shared && \\\nsetfacl -m u::rwx,g:research:rwx,o::---,m::rwx /srv/shared && \\\nsetfacl -m d:u::rwx,d:g::rwx,d:g:research:rwx,d:u"
+  },
+  {
+    "step": 3,
+    "llm_s": 3.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "su -s /bin/bash alice -c 'echo hi > /srv/shared/alice.txt && mkdir /srv/shared/adir && echo sub > /srv/shared/adir/f.txt' && \\\nsu -s /bin/bash bob -c 'cat /srv/shared/alice.txt && cat /srv/shared/adir"
+  },
+  {
+    "step": 4,
+    "llm_s": 2.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "rm -rf /srv/shared/alice.txt /srv/shared/adir && ls -la /srv/shared && getfacl -p /srv/shared && stat -c '%A %U %G' /srv/shared"
+  },
+  {
+    "step": 5,
+    "llm_s": 3.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]
