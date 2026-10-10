@@ -8,17 +8,54 @@ answers come back under the same keys: noul -> {"noul": p}; choice -> {"choice",
 
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from ..tokens import count_tokens
 from . import LIFETIMES, PHASES
 
 URL = "https://api.typesafe.ai/v1/systemone"
+# Jev's own tokens are smaller than chars/4: real states measured 2.55-2.67 characters per Jev token
+# (2026-10-10, runs/2026-10-10-jev400/), and the 2026-10-06 probe accepted 60,000 characters (30,290
+# Jev tokens) and refused 100,000. Budgeting at 2.5 keeps a margin.
+CHARS_PER_JEV_TOKEN = 2.5
+ERROR_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")   # an identifier like max_tokens_exceeded, never content
 
 
 def numbered(text: str) -> str:
     return "\n".join(f"{i}\t{line}" for i, line in enumerate(text.splitlines(), 1))
+
+
+def error_type(exc: HTTPError) -> str | None:
+    """Jev's error type from an error reply ({"detail": {"error_type": ...}}), only if it is an identifier."""
+    try:
+        kind = (json.loads(exc.read() or b"{}").get("detail") or {}).get("error_type")
+    except (ValueError, AttributeError, OSError):
+        return None
+    return kind if isinstance(kind, str) and ERROR_TYPE.match(kind) else None
+
+
+def shorten_lines(text: str, room: int) -> str:
+    """The head and tail lines of `text` that fit in `room` characters, with a note of what was cut."""
+    lines, head, tail, used = text.split("\n"), [], [], 0
+    room -= 40                                           # the note
+    while len(head) + len(tail) < len(lines):
+        line = lines[len(head)] if len(head) <= len(tail) else lines[-1 - len(tail)]
+        if used + len(line) + 1 > room:
+            break
+        (head if len(head) <= len(tail) else tail).append(line)
+        used += len(line) + 1
+    cut = len(lines) - len(head) - len(tail)
+    return "\n".join(head + [f"... [{cut} lines cut to fit] ..."] + tail[::-1]) if cut else text
+
+
+def shorten_text(text: str, room: int) -> str:
+    """The head and tail of `text` within `room` characters, with a note of what was cut."""
+    room = max(0, room - 50)                              # the note is at most 41 characters
+    if len(text) <= room:
+        return text
+    half = room // 2
+    return f"{text[:half]} ... [{len(text) - room} characters cut to fit] ... {text[len(text) - (room - half):]}"
 
 
 class Jev:
@@ -27,31 +64,39 @@ class Jev:
     def __init__(self, model: str = "jev-latest", timeout: float = 20, max_input_tokens: int = 28_000):
         self.model, self.timeout, self.max_input_tokens = model, timeout, max_input_tokens
 
-    def fit(self, state: dict) -> dict:
-        """Keep the request under Jev's input limit (probe 2026-10-06: about 30,290 input tokens was
-        accepted, about 50k was refused with max_tokens_exceeded). Cut the conversation from the front
-        first (recent turns matter most), then shorten a long tool result to its head and tail. Lines
-        cut from a tool result cannot be chosen as relevant, so a slice never contains them."""
+    def fit(self, state: dict, questions: dict | None = None) -> dict:
+        """Keep the request under Jev's input limit, budgeted in Jev's own units: max_input_tokens Jev
+        tokens of CHARS_PER_JEV_TOKEN characters each (28,000 -> 70,000 characters). The whole request
+        counts: the state and the questions. Cuts, in order, until it fits:
+          1. the conversation from the front, keeping the last two turns (recent turns matter most);
+          2. a long new tool result to its head and tail lines (lines cut cannot be chosen as relevant,
+             so a slice never contains them);
+          3. the remaining turns' texts and tool-call arguments, oldest first, to their head and tail."""
+        limit = int(self.max_input_tokens * CHARS_PER_JEV_TOKEN)
+        extra = len(json.dumps(questions)) if questions else 0
+
         def size() -> int:
-            return count_tokens(json.dumps(state))
+            return len(json.dumps(state)) + extra
         convo = state.get("conversation")
-        while isinstance(convo, list) and len(convo) > 2 and size() > self.max_input_tokens:
+        while isinstance(convo, list) and len(convo) > 2 and size() > limit:
             del convo[0]
         result = state.get("new_tool_result")
-        if isinstance(result, dict) and isinstance(result.get("lines"), str) and size() > self.max_input_tokens:
-            lines = result["lines"].split("\n")
-            excess = size() - self.max_input_tokens
-            keep = max(20, len(lines) - int(len(lines) * excess / max(1, count_tokens(result["lines"]))) - 10)
-            head = keep // 2
-            result["lines"] = "\n".join(lines[:head] + [f"... [{len(lines) - keep} lines cut to fit] ..."]
-                                        + lines[-(keep - head):])
+        if isinstance(result, dict) and isinstance(result.get("lines"), str) and size() > limit:
+            result["lines"] = shorten_lines(result["lines"], len(result["lines"]) - (size() - limit))
+        for turn in convo if isinstance(convo, list) else []:
+            if not isinstance(turn, dict):
+                continue
+            for holder, key in [(turn, "text")] + [(call, "arguments") for call in turn.get("tool_calls") or []
+                                                   if isinstance(call, dict)]:
+                if size() > limit and isinstance(holder.get(key), str):
+                    holder[key] = shorten_text(holder[key], len(holder[key]) - (size() - limit))
         return state
 
     def ask(self, state: dict, questions: dict) -> tuple[dict, dict]:
         key = os.environ.get("TYPESAFE_API_KEY")
         if not key:
             raise RuntimeError("TYPESAFE_API_KEY is not set")
-        state = self.fit(state)
+        state = self.fit(state, questions)
         body = json.dumps({"model": self.model, "state": state, "questions": questions},
                           allow_nan=False).encode()
         request = Request(URL, data=body, method="POST", headers={
@@ -59,8 +104,8 @@ class Jev:
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 reply = json.load(response)
-        except HTTPError as exc:  # never include response bodies or the key in errors
-            raise RuntimeError(f"Jev HTTP {exc.code}") from None
+        except HTTPError as exc:  # never the key, never content: only Jev's error type, if it is one
+            raise RuntimeError(f"Jev HTTP {exc.code}" + (f" {kind}" if (kind := error_type(exc)) else "")) from None
         except (URLError, TimeoutError):
             raise RuntimeError("Jev request failed or timed out") from None
         answers = reply.get("answers")
