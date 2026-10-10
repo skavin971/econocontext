@@ -61,6 +61,23 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
   - Each run's summary-call FLOPs, on a line of their own.
   - A CLM-convention variant. Summary calls are charged as a full prefill with no cache hit, and they don't enter the cache, as CLM's code treats auxiliary calls (`aux_prefill_tokens`). The difference between the two conventions is then visible.
 
+## The measurement as built (step 4)
+
+- **Constants.** From Qwen/Qwen3.8-27B-FP8's config (Eq. 7): C_token = 48,701,112,320 and C_attn = 393,216.
+  - The text config is identical to Qwen3.6-27B's, field by field.
+  - Counting the real linear layers on the meta device gives the same C_token exactly.
+  - CLM's code table (2 × 24.3532e9) is 0.011% higher because it also counts the 2.65M non-matmul body parameters: short convolutions, norms, and the DeltaNet's A and dt.
+- **Cache simulation vs CLM's code.** On 60 seeded synthetic runs, ΣP, Σ(P − R) and the prefill attention pairs are exactly equal, except in runs with identical repeats. There our extra uncached tokens equal Σ(P mod 16) of the repeats, exactly.
+- **Decode.** Decode attention differs by design: Eq. 9 uses each call's G_t, while CLM's code averages generation over turns (median −9% on the synthetic runs).
+- **Identical repeats at a block boundary.** A repeat whose length is a multiple of 16 counts as fully cached here. A real vLLM server recomputes at least one token. This is rare: only resent calls.
+- **Validation on the saved Purdue prompts** (11 with the server's own ids, steps 1 and 3):
+  - 2 are identical;
+  - 7 differ only in the tools block (ΔP 0 or −1);
+  - the `reasoning` probe is caught;
+  - the step-3 live call is rejected: Purdue reordered the keys of three tool schemas there (ΔP −2).
+
+  Purdue reorders some tool's keys in 9 of 11 requests, so the actual-ids variant will see the real prefix cache break inside the tools block on most calls.
+
 ## Validation
 
 Each rebuilt prompt is compared with the server's ids, token by token. A mismatch is accepted only if it is confined to the tools block of the system prompt (before the first user message) and |ΔP| ≤ 1. Anything else stops the measurement for review.

@@ -22,7 +22,7 @@ Agents reach models only through `gateway/`.
 
 **`gateway/`** is one small OpenAI-compatible proxy (`.venv/bin/python -m gateway.server --provider purdue`). It holds the provider keys, paces requests to the provider's limit, enforces the caps, pins the request fields the measurement depends on, and logs every call to `runs/gateway/<run_id>/calls.jsonl`.
 
-**`measure/`** (step 4) measures cost, independently of the method:
+**`measure/`** measures cost, independently of the method (`.venv/bin/python -m measure.report runs/<label>`):
 - model constants from a model's config (CLM Eq. 7);
 - a 16-token prefix-cache simulation;
 - prefix-reuse FLOPs per call and per run (Eq. 9).
