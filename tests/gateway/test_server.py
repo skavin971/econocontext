@@ -58,10 +58,11 @@ def test_a_call_is_forwarded_with_the_pins_and_without_earlier_reasoning(stack):
     sent = s.upstream.requests[0]["body"]
     expected = json.loads(json.dumps(messages))
     for m in expected:
-        m.pop("reasoning_content", None), m.pop("reasoning", None)
-        (m.get("provider_specific_fields") or {}).pop("reasoning", None)
+        m.pop("reasoning_content", None), m.pop("reasoning", None), m.pop("provider_specific_fields", None)
     assert sent == {"model": "qwen3.8:27b", "messages": expected, "tools": [], "max_tokens": 64, **PINS}
-    assert "removed earlier reasoning from 2 assistant message(s)" in log_rows(s.log_dir, "r1")[0]["edits"]
+    row = log_rows(s.log_dir, "r1")[0]
+    assert row["request"] == sent                       # the log holds the body as sent, after the edits
+    assert "removed earlier reasoning from 2 assistant message(s)" in row["edits"]
 
 
 def test_pins_override_what_the_client_sent(stack):
@@ -140,6 +141,8 @@ def test_the_log_line_has_every_field(stack):
     post(s.url, chat())
     post(s.url, chat(), kind="summary")
     first, second = log_rows(s.log_dir, "r1")
+    for request in s.upstream.requests:                 # the kind is ours: it never goes upstream
+        assert "x-econo-call-kind" not in {name.lower() for name in request["headers"]}
     for row in (first, second):
         assert {"run_id", "call_no", "kind", "provider", "model", "t_start", "latency_ms", "status", "retries",
                 "request", "response", "usage"} <= set(row)
@@ -166,3 +169,11 @@ def test_streaming_unknown_paths_and_bad_run_ids_are_refused(stack):
         connection.request("POST", path, body=json.dumps(chat()), headers={"Content-Type": "application/json"})
         assert connection.getresponse().status == 404
     assert s.upstream.requests == []
+
+
+def test_health_reports_the_caps_and_todays_requests(stack):
+    s = stack(lambda body: (200, OK), max_calls_per_run=150, max_requests_per_day=8000)
+    post(s.url, chat()), post(s.url, chat(), run="r2")
+    with urllib.request.urlopen(f"{s.url}/health", timeout=5) as response:
+        health = json.load(response)
+    assert (health["requests_today"], health["max_requests_per_day"], health["max_calls_per_run"]) == (2, 8000, 150)

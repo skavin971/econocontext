@@ -11,11 +11,11 @@ Why it exists: every agent, ours and CLM's, reaches models only through here. So
 Routes (run ids: letters, digits and . _ + -, starting with a letter or digit):
   POST /run/<run_id>/v1/chat/completions   non-streaming only; header X-Econo-Call-Kind (default agent)
   GET  /run/<run_id>/v1/models              the provider's model list
-  GET  /health                              {"ok", "provider", "log_dir"}
+  GET  /health                              provider, log dir, caps and today's request count
 
 Before a chat request goes upstream (docs/tier-a-decisions.md):
 - earlier reasoning is removed from every assistant message (`reasoning`, `reasoning_content`, and
-  the copy in `provider_specific_fields`), for every agent and every provider;
+  the whole `provider_specific_fields`, which echoes it), for every agent and every provider;
 - the provider's pins are set: Purdue gets reasoning_effort=medium and return_token_ids=true.
 
 Upstream failures (a JSON null or empty body, 429, 5xx, a timeout) are retried with backoff, 6
@@ -92,7 +92,7 @@ class Limiter:
 
 class Gateway:
     def __init__(self, provider: Provider, key: str, log_dir: Path, max_calls_per_run: int = 150,
-                 max_requests_per_day: int = 2000, rpm: int = 20, window_s: float = 60.0, tries: int = 6,
+                 max_requests_per_day: int = 8000, rpm: int = 20, window_s: float = 60.0, tries: int = 6,
                  backoff_s: float = 2.0, timeout_s: float = 600.0, sleep=time.sleep):
         self.provider, self.key, self.log_dir = provider, key, Path(log_dir)
         self.max_run, self.max_day, self.tries, self.backoff, self.timeout = \
@@ -113,17 +113,22 @@ class Gateway:
         return sum(1 for path in self.log_dir.glob("*/calls.jsonl") for line in path.read_text().splitlines()
                    if (row := json.loads(line)).get("call_no") and row["t_start"].startswith(self.today()))
 
+    def health(self) -> dict:
+        with self.lock:
+            if self.day != self.today():
+                self.day, self.day_count = self.today(), 0
+            return {"ok": True, "provider": self.provider.name, "log_dir": str(self.log_dir), "day": self.day,
+                    "requests_today": self.day_count, "max_requests_per_day": self.max_day,
+                    "max_calls_per_run": self.max_run}
+
     def prepare(self, body: dict) -> tuple[dict, list[str]]:
         """The body sent upstream: earlier reasoning removed, the provider's pins set."""
         sent, edits, stripped = copy.deepcopy(body), [], 0
         for message in sent.get("messages") or []:
             if message.get("role") != "assistant":
                 continue
-            extra = message.get("provider_specific_fields")
-            had = [f for f in ("reasoning", "reasoning_content") if message.pop(f, None) is not None]
-            if isinstance(extra, dict) and extra.pop("reasoning", None) is not None:
-                had.append("provider_specific_fields.reasoning")
-            stripped += bool(had)
+            stripped += any([message.pop(f, None) is not None
+                             for f in ("reasoning", "reasoning_content", "provider_specific_fields")])
         if stripped:
             edits.append(f"removed earlier reasoning from {stripped} assistant message(s)")
         for name, value in self.provider.pins.items():
@@ -229,8 +234,7 @@ def make_server(gateway: Gateway, port: int = 8787) -> ThreadingHTTPServer:
 
         def do_GET(self):
             if self.path == "/health":
-                return self.reply(200, json.dumps({"ok": True, "provider": gateway.provider.name,
-                                                   "log_dir": str(gateway.log_dir)}).encode())
+                return self.reply(200, json.dumps(gateway.health()).encode())
             if not MODELS.match(self.path):
                 return self.error(404, f"unknown path {self.path}")
             gateway.limiter.acquire()
@@ -248,7 +252,7 @@ def main() -> None:
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--log-dir", default=str(ROOT / "runs" / "gateway"))
     p.add_argument("--max-calls-per-run", type=int, default=150)
-    p.add_argument("--max-requests-per-day", type=int, default=2000)
+    p.add_argument("--max-requests-per-day", type=int, default=8000)
     p.add_argument("--rpm", type=int, default=20, help="upstream requests per rolling 60 s (Purdue: 20)")
     a = p.parse_args()
     if a.provider == "vertex":

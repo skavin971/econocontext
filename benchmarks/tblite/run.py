@@ -8,7 +8,9 @@ Start the gateway first (.venv/bin/python -m gateway.server --provider purdue). 
 to <its log dir>/<run_id>/calls.jsonl, the input of measure/. Each trial writes
 runs/<label>/<arm>/<task>-r<n>/summary.json: reward, calls (from that log), exit, seconds, the
 owner's report, and Jev fallbacks (questions the fixed guesses answered because Jev failed). No
-dollars anywhere.
+dollars anywhere. A trial never starts unless the gateway's daily budget still has a full run's
+calls left (its per-run cap) after reserving the same for every trial already running: a run is
+never cut off midway by the daily cap (the Gemini runs lost 9 trials that way).
 
 Run: .venv/bin/python benchmarks/tblite/run.py --label ta1 --arm raw --tasks acl-permissions-inheritance \
        --model qwen3.8:27b --gateway http://127.0.0.1:8787 [--repeats 1] [--workers 1]
@@ -20,6 +22,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from collections import Counter
@@ -32,6 +35,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from tasks import FROZEN, TBLITE  # noqa: E402
 
 ECONO = {"raw": "off", "econo+jev": "jev", "econo+prior": "prior"}
+budget = threading.Lock()
+running = [0]   # trials started and not finished; each may still need a full run's calls
 
 
 def env_value(name: str) -> str | None:
@@ -56,9 +61,29 @@ def jev_fallbacks(session: Path) -> dict:
     return {"asked": asked, "fell_back": fell_back}
 
 
+def health(gateway: str) -> dict:
+    with urllib.request.urlopen(f"{gateway}/health", timeout=5) as response:
+        return json.load(response)
+
+
 def trial(a, log_dir: Path, task: str, repeat: int) -> dict:
     run_id = f"{a.label}.{a.arm}.{task}.r{repeat}"
     out = ROOT / "runs" / a.label / a.arm / f"{task}-r{repeat}"
+    with budget:
+        h = health(a.gateway)
+        left = h["max_requests_per_day"] - h["requests_today"] - running[0] * h["max_calls_per_run"]
+        if left < h["max_calls_per_run"]:
+            return {"run_id": run_id, "skipped": f"daily budget: {left} requests left after reserving "
+                                                 f"{running[0]} running trial(s); a run may need {h['max_calls_per_run']}"}
+        running[0] += 1
+    try:
+        return run_trial(a, log_dir, task, repeat, run_id, out)
+    finally:
+        with budget:
+            running[0] -= 1
+
+
+def run_trial(a, log_dir: Path, task: str, repeat: int, run_id: str, out: Path) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     name = f"{a.arm.replace('+', '-')}-{task}-r{repeat}"[:60]
     command = [str(ROOT / ".venv" / "bin" / "harbor"), "trial", "start", "-p", str(TBLITE / task), "-e", "docker",
@@ -107,13 +132,12 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--timeout-multiplier", type=float, default=4)
     a = p.parse_args()
-    with urllib.request.urlopen(f"{a.gateway}/health", timeout=5) as response:   # the gateway must be up
-        health = json.load(response)
-    log_dir = Path(health["log_dir"])
+    h = health(a.gateway)   # the gateway must be up
+    log_dir = Path(h["log_dir"])
     tasks = FROZEN if a.tasks == "frozen" else a.tasks.split(",")
     jobs = [(task, r) for r in range(1, a.repeats + 1) for task in tasks]
-    print(f"== {a.label} {a.arm}: {len(jobs)} trials, {a.workers} workers, gateway {health['provider']} "
-          f"(log {log_dir})", flush=True)
+    print(f"== {a.label} {a.arm}: {len(jobs)} trials, {a.workers} workers, gateway {h['provider']} "
+          f"(log {log_dir}; {h['requests_today']} of {h['max_requests_per_day']} requests used today)", flush=True)
     with ThreadPoolExecutor(max_workers=a.workers) as pool:
         for summary in pool.map(lambda job: trial(a, log_dir, *job), jobs):
             print(json.dumps(summary), flush=True)

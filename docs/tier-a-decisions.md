@@ -31,16 +31,18 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 
 ## How the gateway behaves (step 3)
 
-- **Rate limit.** At most 20 upstream requests in any rolling 60 s, with retries counted too. Callers wait; they are never refused.
+- **Rate limit.** At most 20 upstream requests in any rolling 60 s. Every upstream attempt counts, retries included (tested). Callers wait; they are never refused.
 - **Retries.** A JSON `null` or empty body, a 429, a 5xx, or a timeout or connection error is retried with backoff (2, 4, 8, 16, 32 s), 6 tries at most. The count goes in `retries`.
 - **Caps.**
-  - The defaults are 150 calls per run and 2,000 requests per UTC day.
+  - The defaults are 150 calls per run and 8,000 requests per UTC day.
+  - `/health` reports both caps and today's count. The runner starts a trial only if the day still has a full run's calls left (150) after reserving 150 for every trial already running. So no run is cut off midway, as 9 Gemini trials were on 2026-10-06.
   - A refusal is an HTTP 429 whose message contains "reached", so our agent stops.
   - A refusal is logged with `call_no` null.
   - The counts are rebuilt from the log when the gateway restarts.
-- **Earlier reasoning.** Removed from every assistant message: `reasoning`, `reasoning_content`, and the copy our agent echoes inside `provider_specific_fields`.
+- **Earlier reasoning.** Removed from every assistant message: `reasoning`, `reasoning_content`, and the whole `provider_specific_fields` key (our agent echoes it, and it carries a copy of the reasoning).
 - **The log.**
-  - One line per call, with `run_id`, `call_no`, `kind`, `provider`, `model`, `t_start`, `latency_ms`, `limiter_wait_ms`, `status`, `retries`, `edits`, `request` (exactly as sent upstream), `response` (exactly as returned) and `usage`.
+  - One line per call, with `run_id`, `call_no`, `kind`, `provider`, `model`, `t_start`, `latency_ms`, `limiter_wait_ms`, `status`, `retries`, `edits`, `request` (exactly as sent upstream, after the gateway's edits), `response` (exactly as returned) and `usage`.
+  - `X-Econo-Call-Kind` is ours: it is logged, never forwarded (tested).
   - The key never appears; it is redacted if a provider ever echoes it.
   - Model-list calls are not logged.
 - **Streaming.** Neither agent streams: ours sends no `stream`, and CLM's `litellm.completion` call sends none either (checked through the gateway). A `stream: true` request gets a 400.
@@ -51,6 +53,13 @@ These are the settings the Purdue/Qwen3.8 measurement depends on, with the evide
 
 - **Headline:** our request, rendered as above. This is an ideal vLLM server that receives exactly what we send.
 - **Beside it:** the same computation on Purdue's actual prompt ids. These include Purdue's random reordering of the `write_file` tool-schema keys, which breaks the real prefix cache at about token 213 for reasons that have nothing to do with any agent setup.
+
+## Summary calls (EconoContext's compaction summaries)
+
+- **Headline.** Summary calls stay in the run's cache sequence, in order with the agent calls. This is realistic: their prompt is the agent's conversation plus one request, so it shares the agent's prefix on a prefix-caching server.
+- **Reported apart.**
+  - Each run's summary-call FLOPs, on a line of their own.
+  - A CLM-convention variant. Summary calls are charged as a full prefill with no cache hit, and they don't enter the cache, as CLM's code treats auxiliary calls (`aux_prefill_tokens`). The difference between the two conventions is then visible.
 
 ## Validation
 
