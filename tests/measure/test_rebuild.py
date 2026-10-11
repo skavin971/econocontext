@@ -38,6 +38,8 @@ def saved_pairs():
     for request in sorted((SMOKE / "template-probe").glob("request-*.json")):
         body = json.loads(request.read_text())
         response = json.loads(request.with_name(request.name.replace("request", "response")).read_text())
+        if "prompt_token_ids" not in response:                     # the top_p probes don't ask for the ids
+            continue
         if "reasoning_effort" not in body and "reasoning_effort" not in (body.get("chat_template_kwargs") or {}):
             body = {**body, "reasoning_effort": "medium"}              # the server's default, as measured
         pairs.append((f"probe {request.name}", body, response["prompt_token_ids"]))

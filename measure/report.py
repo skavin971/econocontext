@@ -11,6 +11,8 @@ one row:
 - the total as served by Purdue: computed on Purdue's actual prompt ids, which include its front
   end's random key reordering. Informational, not for comparing arms;
 - Jev input tokens and fallbacks;
+- how many calls hit the output cap (completion_tokens >= the request's max_tokens). vLLM reports such a
+  reply as tool_calls when it holds a tool call (step 10b), so the cap is detected from the counts;
 - how many calls passed validation.
 
 It then prints a per-task x arm summary: the mean and per-repeat values of pass, calls, ΣP, ΣU, ΣG
@@ -43,7 +45,8 @@ from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
 ARM_ORDER = ["raw", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
-COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "overflow", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G", "hit_share",
+COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "overflow", "capped", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
+           "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
 
@@ -67,14 +70,18 @@ def runs(paths: list[str]) -> list[dict]:
 
 
 def run_actions(run: dict) -> dict:
-    """One run's overflow flag, and what its context manager did: EconoContext (from the session
-    database) or CLM (from its usage.json). Read directly; measure/ never imports the method."""
-    acts = {"overflow": False, "arrival": Counter(), "evictions": 0, "compactions": 0, "jev_asked": 0,
+    """One run's overflow flag, its calls that hit the output cap, and what its context manager did:
+    EconoContext (from the session database) or CLM (from its usage.json). Read directly; measure/
+    never imports the method."""
+    acts = {"overflow": False, "capped": 0, "arrival": Counter(), "evictions": 0, "compactions": 0, "jev_asked": 0,
             "jev_fallbacks": 0, "jev_errors": Counter(), "clm_edits": None, "clm_rollbacks": None}
     for line in Path(run["calls_log"]).read_text().splitlines():
         row = json.loads(line)
         if row.get("status") == 400 and "ContextWindowExceeded" in json.dumps(row.get("response")):
             acts["overflow"] = True
+        cap = (row.get("request") or {}).get("max_tokens")
+        if row.get("call_no") and row.get("status") == 200 and cap:
+            acts["capped"] += ((row.get("usage") or {}).get("completion_tokens") or 0) >= cap
     folder = run.get("dir")
     db = next(folder.glob("harbor/*/agent/session.sqlite3"), None) if folder else None
     if db:
@@ -124,7 +131,8 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             "G_mean": round(mean("G")), "PFLOPs_lin_mean": round(mean("PFLOPs_lin"), 4),
             "PFLOPs_attn_mean": round(mean("PFLOPs_attn"), 4), "PFLOPs_mean": round(mean("PFLOPs"), 4),
             "PFLOPs_by_repeat": " ".join(f"{r['PFLOPs']:.3f}" for r in runs_),
-            "overflows": sum(e["overflow"] for e in acts), "retries": sum(r["retries"] for r in runs_),
+            "overflows": sum(e["overflow"] for e in acts), "capped": sum(e["capped"] for e in acts),
+            "retries": sum(r["retries"] for r in runs_),
             "repeats": sum(r["repeats"] for r in runs_),
             "arrival_full_slice_preview": f"{arrival['full']}/{arrival['slice']}/{arrival['preview']}" if arrival else "",
             "evictions": sum(e["evictions"] for e in acts), "compactions": sum(e["compactions"] for e in acts),
@@ -133,7 +141,7 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             "clm_edits": sum(e["clm_edits"] or 0 for e in acts) if any(e["clm_edits"] is not None for e in acts) else "",
             "clm_rollbacks": sum(e["clm_rollbacks"] or 0 for e in acts) if any(e["clm_rollbacks"] is not None for e in acts) else ""})
     print(f"\n{'task':34s} {'arm':10s} {'pass':>5s} {'by rep':>7s} {'calls':>6s} {'ΣP':>9s} {'ΣU':>7s} {'ΣG':>7s} "
-          f"{'PFLOPs':>7s} {'by repeat':>20s} {'ovf':>3s} {'ret':>3s} {'rep':>3s}  context manager")
+          f"{'PFLOPs':>7s} {'by repeat':>20s} {'ovf':>3s} {'cap':>3s} {'ret':>3s} {'rep':>3s}  context manager")
     for r in rows:
         if r["arm"].startswith("econo"):
             manager = (f"arrival f/s/p {r['arrival_full_slice_preview'] or '0/0/0'}, evict {r['evictions']}, compact "
@@ -145,7 +153,7 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             manager = ""
         print(f"{r['task'][:34]:34s} {r['arm']:10s} {r['passes']:>2d}/{r['graded']:<2d} {r['pass_by_repeat']:>7s} "
               f"{r['calls_mean']:6.1f} {r['P_mean']:9,d} {r['U_mean']:7,d} {r['G_mean']:7,d} {r['PFLOPs_mean']:7.3f} "
-              f"{r['PFLOPs_by_repeat']:>20s} {r['overflows']:3d} {r['retries']:3d} {r['repeats']:3d}  {manager}")
+              f"{r['PFLOPs_by_repeat']:>20s} {r['overflows']:3d} {r['capped']:3d} {r['retries']:3d} {r['repeats']:3d}  {manager}")
     if rows:
         with (out / "arms.csv").open("w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -173,6 +181,7 @@ def main() -> None:
         repeat = parts[3][1:] if len(parts) == 4 and parts[3][1:].isdigit() else None
         table.append({"run_id": run_id, "task": parts[2] if len(parts) == 4 else "", "arm": parts[1] if len(parts) == 4 else "",
                       "repeat": int(repeat) if repeat else None, "pass": s.get("reward"), "overflow": acts["overflow"],
+                      "capped": acts["capped"],
                       "calls": t["calls"], "summary_calls": t["summary_calls"],
                       "retries": t["retries"], "repeats": t["repeats"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],
                       "hit_share": round(t["hit_share"], 4), "PFLOPs_lin": t["F_lin"] / 1e15,

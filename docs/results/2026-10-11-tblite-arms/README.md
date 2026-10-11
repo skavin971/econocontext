@@ -79,14 +79,14 @@ Passes out of the repeats (an overflow is a FAIL; NG = not graded), mean PFLOPs 
 
 ## 3. Per arm
 
-Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 22 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320.
+Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 22 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320. Calls at the cap: replies whose completion_tokens reached the request's max_tokens (8,192 in tc9).
 
-| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 22 all-pass cells | calls |
-|---|---|---|---|---|---|---|---|---|---|
-| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 34.43 | 468 |
-| econo+jev | 27 | 30 | 1 | 60.08 | 24.80 | 28.36 | 6.93 | 33.69 | 554 |
-| clm-32k | 29 | 30 | 0 | 45.48 | 26.52 | 15.35 | 3.60 | 29.61 | 423 |
-| clm-full | 26 | 29 | 0 | 49.23 | 27.08 | 17.01 | 5.14 | 31.84 | 430 |
+| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 22 all-pass cells | calls | calls at the cap |
+|---|---|---|---|---|---|---|---|---|---|---|
+| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 34.43 | 468 | 15 |
+| econo+jev | 27 | 30 | 1 | 60.08 | 24.80 | 28.36 | 6.93 | 33.69 | 554 | 14 |
+| clm-32k | 29 | 30 | 0 | 45.48 | 26.52 | 15.35 | 3.60 | 29.61 | 423 | 0 |
+| clm-full | 26 | 29 | 0 | 49.23 | 27.08 | 17.01 | 5.14 | 31.84 | 430 | 3 |
 
 ## 4. The three long-context tasks
 

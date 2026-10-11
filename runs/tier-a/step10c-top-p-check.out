@@ -1,0 +1,60 @@
+$ .venv-clm/bin/python scripts/purdue_template_probe.py --live 10,11,12,13
+unparsed tool-call arguments: transformers fails (TypeError: Can only get item pairs from a mapping.); the rebuild must parse them as vLLM does
+
+== 1. tool turn: from the saved request and response, prompt_tokens 562, completion_tokens 58 (max_tokens 64), finish_reason stop
+   local preserve_thinking unset    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=True     P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local preserve_thinking=False    P  583: DIFFERENT after the first user message (P 562 vs 583); at +26: server '\n\n</think>\n\n<tool_call>\n<function=bash>\n<' vs local '\nThe user is asking to list the files in the current'
+   local reasoning dropped, unset   P  562: tools block only (dP = +0)
+
+== 2. follow-up: from the saved request and response, prompt_tokens 536, completion_tokens 64 (max_tokens 64), finish_reason tool_calls
+   local preserve_thinking unset    P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=True     P  552: DIFFERENT after the first user message (P 536 vs 552); at +26: server '\n\n</think>\n\nThe directory has two files: a.txt and' vs local '\nThe user wants the files listed. I ran ls;'
+   local preserve_thinking=False    P  532: DIFFERENT after the first user message (P 536 vs 532); at +25: server '<think>\n\n</think>\n\nThe directory has two files: a.txt' vs local 'The directory has two files: a.txt and b.txt.'
+   local reasoning dropped, unset   P  536: tools block only (dP = +0)
+
+== 3. effort low (top-level field): from the saved request and response, prompt_tokens 531, completion_tokens 55 (max_tokens 64), finish_reason tool_calls
+   local effort=low                 P  532: tools block only (dP = -1)
+   local effort=medium              P  506: DIFFERENT in the system block before the first user message (dP = +25)
+
+== 4. effort low (chat_template_kwargs): from the saved request and response, prompt_tokens 532, completion_tokens 54 (max_tokens 64), finish_reason tool_calls
+   local effort=low                 P  532: identical
+   local effort=medium              P  506: DIFFERENT in the system block before the first user message (dP = +26)
+
+== 5. effort medium (top-level field): from the saved request and response, prompt_tokens 505, completion_tokens 43 (max_tokens 64), finish_reason tool_calls
+   local effort=low                 P  532: DIFFERENT in the system block before the first user message (dP = -27)
+   local effort=medium              P  506: tools block only (dP = -1)
+
+== 6. follow-up, field `reasoning`: from the saved request and response, prompt_tokens 536, completion_tokens 57 (max_tokens 64), finish_reason tool_calls
+   local preserve_thinking unset    P  536: identical
+   local preserve_thinking=True     P  536: identical
+   local preserve_thinking=False    P  532: DIFFERENT after the first user message (P 536 vs 532); at +25: server '<think>\n\n</think>\n\nThe directory has two files: a.txt' vs local 'The directory has two files: a.txt and b.txt.'
+   local reasoning dropped, unset   P  536: identical
+
+== 7. thinking on (chat_template_kwargs), smoke prompt: from the saved request and response, prompt_tokens 506, completion_tokens 54 (max_tokens 64), finish_reason tool_calls
+   local enable_thinking unset      P  506: tools block only (dP = +0)
+   local enable_thinking=True       P  506: tools block only (dP = +0)
+   local enable_thinking=False      P  508: DIFFERENT after the first user message (P 506 vs 508); at +26: server '\n' vs local '\n\n</think>\n\n'
+
+== 8. thinking on (chat_template_kwargs), tool turn without reasoning: from the saved request and response, prompt_tokens 562, completion_tokens 43 (max_tokens 64), finish_reason tool_calls
+   local enable_thinking unset      P  562: identical
+   local enable_thinking=True       P  562: identical
+   local enable_thinking=False      P  564: DIFFERENT after the first user message (P 562 vs 564); at +82: server '\n' vs local '\n\n</think>\n\n'
+
+== 9. thinking off and max_tokens 8 (controls), smoke prompt: from the saved request and response, prompt_tokens 508, completion_tokens 8 (max_tokens 8), finish_reason tool_calls
+   local enable_thinking unset      P  506: DIFFERENT after the first user message (P 508 vs 506); at +26: server '\n\n</think>\n\n' vs local '\n'
+   local enable_thinking=True       P  506: DIFFERENT after the first user message (P 508 vs 506); at +26: server '\n\n</think>\n\n' vs local '\n'
+   local enable_thinking=False      P  508: tools block only (dP = +0)
+
+== 10. sampling: top_p 0.01, reply A: HTTP 200, 3.14 s, prompt_tokens 23, completion_tokens 256 (max_tokens 256), finish_reason length
+
+== 11. sampling: top_p 0.01, reply B: HTTP 200, 3.1 s, prompt_tokens 23, completion_tokens 256 (max_tokens 256), finish_reason length
+
+== 12. sampling: top_p 1.0, reply A: HTTP 200, 3.03 s, prompt_tokens 23, completion_tokens 256 (max_tokens 256), finish_reason length
+
+== 13. sampling: top_p 1.0, reply B: HTTP 200, 3.03 s, prompt_tokens 23, completion_tokens 256 (max_tokens 256), finish_reason length
+
+== top_p 0.01: the two replies are different from character 766 of 1015/985: ', indifferent, backs\nagainst the rocks. ' vs ' answers, wave by wave,\nwith its long, s'
+
+== top_p 1.0: the two replies are different from character 115 of 989/1049: 'lighthouse at night evocative: the beam ' vs 'good short poem about this subject.\n\nKey'
+exit 0

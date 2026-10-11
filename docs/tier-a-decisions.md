@@ -226,3 +226,21 @@ The full list is in `docs/cleanup-map.md`.
   - `enable_thinking`, `reasoning_effort` and `return_token_ids` are seen in the server's prompt ids; `max_tokens` in the completion length.
   - `temperature` and `top_p` were accepted (HTTP 200). Their effect on sampling cannot be seen in single calls.
 - **Finding: a reply cut by `max_tokens` is not reported as `length`.** Cut inside a tool call, it came back with `finish_reason` `tool_calls` and the call's arguments lost (`bash` with `{}`; probe 9). With the 2,048 cap, the only reliable sign of a cut reply is `completion_tokens` = `max_tokens`. The gateway log has both.
+
+### Before the budget rule (after 10b)
+
+- **A reply cut by `max_tokens` is served as plain vLLM 0.30 serves it: no gateway change (Kavin, 2026-10-11).** Purdue runs vLLM 0.30.0 (`system_fingerprint` `vllm-0.30.0-…`). vLLM 0.30.0 itself (tag `v0.30.0`, commit `ced6857`) presents a reply cut inside a tool call as `tool_calls`:
+  - **The reply is labelled `tool_calls` whenever a call was extracted.** `vllm/entrypoints/openai/chat_completion/serving.py:1031` sets `auto_tools_called = tool_calls is not None and len(tool_calls) > 0`, and `:1071–1090` set `finish_reason="tool_calls" if is_finish_reason_tool_calls else output.finish_reason`. So the label is `tool_calls` even when generation stopped at the length limit.
+  - **The parser closes the open call.** When the output ends inside a tool call, `vllm/parser/engine/streaming_parser_engine.py:304–313` (`finish()`) emits `TOOL_CALL_END`. The call is kept, not dropped.
+  - **The cut parameter is dropped.** Its arguments are built with `converter(raw_body, False)` (`vllm/parser/engine/parser_engine.py:1092`). With `partial=False`, `_qwen3_arg_converter` (`vllm/parser/qwen3.py:69`) keeps only complete `<parameter=…>` blocks, so a call cut before any complete parameter has the arguments `{}`.
+
+  Purdue's front end hides nothing here; it returns what plain vLLM returns, and that is CLM's serving condition too.
+  - Our logs agree. Of the 40 logged replies that reached the 8,192 cap, the 24 without a tool call say `length`. The 16 with a cut call say `tool_calls` and carry the call without its cut parameter, for example `bash` with `{}`, or `write_file` without `content`.
+  - Neither agent reads `finish_reason` (CLM's harness never does; ours only for Gemini's `malformed_function_call`). What matters is that a cut call is presented, and both agents run it with its missing arguments. Our `write_file` then writes an empty file.
+  - The reports count calls at the cap per run and per arm (`capped`: `completion_tokens` ≥ the request's `max_tokens`). Step 10d shows one cut call per arm and what the agent did next.
+- **`top_p` reaches the sampler.** The check was 4 calls direct to Purdue (probes 10–13), all with the same prompt and the run settings: temperature 0.7, thinking on, 256 tokens.
+  - At `top_p` 0.01 the two replies were identical for their first 766 characters (of about 1,000).
+  - At `top_p` 1.0 the two replies differed from character 115.
+
+  The late difference at 0.01 is consistent with vLLM not being bitwise reproducible across batches.
+- **Harbor's output count is `completion_tokens` only.** vLLM's `completion_tokens` already includes the thinking; `reasoning_tokens` is a detail of it. The agent used to add the two together, which was right for Gemini. This was Harbor's own count only; the FLOPs and the reports read the gateway log.

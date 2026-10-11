@@ -166,3 +166,13 @@ def test_the_defaults_match_every_other_arm(tmp_path):
     # 64 steps (CLM's default); CLM's TBLite sampling and 2,048 output tokens for every arm (step 10b).
     agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
     assert (agent.max_steps, agent.max_tokens, agent.temperature, agent.top_p) == (64, 2048, 0.7, 0.95)
+
+
+def test_harbor_output_count_is_completion_tokens_only(tmp_path):
+    # vLLM's completion_tokens already includes the thinking; reasoning_tokens is a detail of it.
+    agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
+    agent.calls = [{"usage": {"prompt_tokens": 562, "completion_tokens": 44,
+                              "completion_tokens_details": {"reasoning_tokens": 14}}}]
+    context = SimpleNamespace(n_input_tokens=0, n_cache_tokens=0, n_output_tokens=0)
+    agent._account(context)
+    assert (context.n_input_tokens, context.n_output_tokens) == (562, 44)

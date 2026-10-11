@@ -52,7 +52,8 @@ def load_runs(label_dir: Path) -> dict:
                "exception": s.get("exception"), "calls_log": s.get("calls_log"), "measured": m is not None}
         if m:
             rec.update({k: float(m[k]) for k in ("PFLOPs", "PFLOPs_lin", "PFLOPs_attn")},
-                       **{k: int(m[k]) for k in ("calls", "P", "U", "G", "valid", "invalid", "retries", "repeats")})
+                       **{k: int(m[k]) for k in ("calls", "P", "U", "G", "valid", "invalid", "retries", "repeats")},
+                       capped=int(m.get("capped") or 0))
             rec["peak_P"] = int(profile[s["run_id"]]["peak_P"]) if s["run_id"] in profile else None
         runs[(s["task"], s["arm"], int(s["repeat"]))] = rec
     return runs
@@ -96,9 +97,11 @@ def tables(label_dir: Path) -> str:
     out += ["", "## Per arm", "",
             f"Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output "
             f"(C_token·ΣG) and attention; and PFLOPs on the {len(all_pass)} cells (task, repeat) where all four arms passed "
-            f"(like-for-like work). C_token = {model['C_token']:,}.", "",
+            f"(like-for-like work). C_token = {model['C_token']:,}. Calls at the cap: replies whose completion_tokens "
+            f"reached the request's max_tokens.", "",
             "| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | "
-            f"PFLOPs on the {len(all_pass)} all-pass cells | calls |", "|---|---|---|---|---|---|---|---|---|---|"]
+            f"PFLOPs on the {len(all_pass)} all-pass cells | calls | calls at the cap |",
+            "|---|---|---|---|---|---|---|---|---|---|---|"]
     for arm in ARMS:
         recs = [r for k, r in runs.items() if k[1] == arm]
         m = [r for r in recs if r["measured"]]
@@ -107,7 +110,8 @@ def tables(label_dir: Path) -> str:
         common = sum(runs[(t, arm, r)]["PFLOPs"] for t, r in all_pass)
         out.append(f"| {arm} | {p} | {graded} | {sum(r['outcome'] == 'OVF' for r in recs)} | {fmt(sum(r['PFLOPs'] for r in m), 2)} | "
                    f"{fmt(model['C_token'] * U / 1e15, 2)} | {fmt(model['C_token'] * G / 1e15, 2)} | "
-                   f"{fmt(sum(r['PFLOPs_attn'] for r in m), 2)} | {fmt(common, 2)} | {sum(r['calls'] for r in m)} |")
+                   f"{fmt(sum(r['PFLOPs_attn'] for r in m), 2)} | {fmt(common, 2)} | {sum(r['calls'] for r in m)} | "
+                   f"{sum(r['capped'] for r in m)} |")
     # 4. the long-context tasks
     out += ["", "## The three long-context tasks", "",
             "| task | arm | passes | overflows | mean peak P | PFLOPs mean | PFLOPs by repeat |", "|---|---|---|---|---|---|---|"]

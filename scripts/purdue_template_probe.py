@@ -19,7 +19,10 @@ through chat_template_kwargs.enable_thinking, with top_p 0.95, as the gateway no
 the smoke prompt; probe 8 uses the tool turn with its reasoning removed, as the gateway removes it. Each
 is judged with enable_thinking unset, true and false. Probe 9 is the control: thinking off and max_tokens 8.
 If both fields reach the server, its prompt ends in an empty think block and the reply stops at 8 tokens.
-Requests are spaced under the 20-per-minute limit.
+Probes 10-13 check that top_p reaches the sampler. They send the same prompt with the run settings
+(temperature 0.7, thinking on, reasoning_effort medium), twice at top_p 0.01 and twice at top_p 1.0.
+At 0.01 only the most likely token survives, so the two replies should be identical; at 1.0 they
+should differ. Requests are spaced under the 20-per-minute limit.
 The key is read from .env, never printed, and redacted from saved files.
 
 It is the one script besides gateway/ that calls a model provider directly. Its helpers (ROOT to
@@ -204,6 +207,12 @@ def main() -> None:
                 {**base, "messages": without_reasoning, **thinking}),
                ("thinking off and max_tokens 8 (controls), smoke prompt",
                 {**base, "messages": smoke, **thinking, "max_tokens": 8, "chat_template_kwargs": {"enable_thinking": False}})]
+    verse = [{"role": "user", "content": "Write four short lines of verse about a lighthouse at night."}]
+    probes += [(f"sampling: top_p {top_p}, reply {ab}",
+                {"model": MODEL, "messages": verse, "max_tokens": 256, "temperature": 0.7, "top_p": top_p, "stream": False,
+                 "reasoning_effort": "medium", "chat_template_kwargs": {"enable_thinking": True}})
+               for top_p in (0.01, 1.0) for ab in ("A", "B")]
+    replies = {}
     live = None if a.live == "all" else {int(x) for x in a.live.split(",")}
     for n, (name, body) in enumerate(probes, 1):
         if live is None or n in live:
@@ -222,6 +231,10 @@ def main() -> None:
         usage, choice = (result["body"] or {}).get("usage") or {}, ((result["body"] or {}).get("choices") or [{}])[0]
         print(f"\n== {n}. {name}: {how}, prompt_tokens {usage.get('prompt_tokens')}, completion_tokens "
               f"{usage.get('completion_tokens')} (max_tokens {body.get('max_tokens')}), finish_reason {choice.get('finish_reason')}")
+        if name.startswith("sampling"):
+            message = choice.get("message") or {}
+            replies[name] = (message.get("reasoning_content") or message.get("reasoning") or "") + "\n" + (message.get("content") or "")
+            continue
         if not server:
             print(f"   no prompt_token_ids; body starts {result['raw'][:300]!r}")
             continue
@@ -240,6 +253,13 @@ def main() -> None:
         for label, options_ in options.items():
             local = local_ids(tokenizer, body["messages"], **options_)
             print(f"   {label:32s} P {len(local):4d}: {verdict(tokenizer, server, local)}")
+    for top_p in (0.01, 1.0):
+        a, b = replies.get(f"sampling: top_p {top_p}, reply A"), replies.get(f"sampling: top_p {top_p}, reply B")
+        if a is None or b is None:
+            continue
+        at = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), None if len(a) == len(b) else min(len(a), len(b)))
+        print(f"\n== top_p {top_p}: the two replies are " + ("identical" if at is None else
+              f"different from character {at} of {len(a)}/{len(b)}: {a[at:at + 40]!r} vs {b[at:at + 40]!r}"))
 
 
 if __name__ == "__main__":

@@ -221,9 +221,8 @@ class EconoAgent(BaseAgent):
         usages = [c["usage"] for c in self.calls if c["usage"]]
         context.n_input_tokens = sum(u.get("prompt_tokens") or 0 for u in usages)
         context.n_cache_tokens = sum((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0 for u in usages)
-        context.n_output_tokens = sum((u.get("completion_tokens") or 0)
-                                      + ((u.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0)
-                                      for u in usages)
+        # completion_tokens already includes the thinking on vLLM (reasoning_tokens is a detail of it).
+        context.n_output_tokens = sum(u.get("completion_tokens") or 0 for u in usages)
 
     def _save(self) -> None:
         Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
