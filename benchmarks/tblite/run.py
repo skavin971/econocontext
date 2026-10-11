@@ -1,16 +1,18 @@
-"""Run TBLite tasks through gateway/ on one or more arms: our agent's and CLM's.
+"""Run TBLite tasks through gateway/ on one or more policies: our harness's and CLM's own agent.
 
 Why it exists: one runner for every arm, so each arm gets the same tasks, settings, gateway and
-records. The arms:
-  raw          our agent (agents/react/agent.py); it sends its whole conversation every call. With
-               --budget it is CLM's Base: over budget - 2,048, one final turn, then the run ends (step 10c)
-  summary      our agent with Codex-style compaction at 75% of the budget (CLM's Summary baseline); needs --budget
-  econo+jev    our agent with EconoContext, Jev answering its questions
+records. --policy picks the arms (step 11); every policy but clm runs in our harness (harness/), with
+the same interface (--interface ours, or legacy to reproduce the runs of steps 9 and 10):
+  base         no context management (baselines/base). With --budget it is CLM's Base: over budget -
+               2,048, one final turn, then the run ends (step 10c); without one, the raw arm of steps 5-9
+  summary      Codex-style compaction at 75% of the budget, CLM's Summary baseline (baselines/summary); needs --budget
+  econo+jev    EconoContext (econocontext/policy.py), Jev answering its questions
   econo+prior  the same rules with fixed guesses (no Jev)
+  directed     a stub: it refuses to run
   clm          CLM's own agent (baselines/clm/run.sh); needs --budget, its context_budget_tokens
---budget N gives every arm in the run the same token budget, and names the arm <arm>-<N/1000>k in run
-ids and folders (raw at 32,000 is raw-32k). EconoContext has no budget mechanism yet, so its arms
-refuse one. Earlier labels keep their arm names (tc9's clm-32k and clm-full).
+--budget N gives every arm in the run the same token budget, and names the arm <policy>-<N/1000>k in run
+ids and folders (base at 32,000 is base-32k). EconoContext has no budget mechanism yet, so its policies
+refuse one. Earlier labels keep their arm names (tc9's raw, clm-32k and clm-full; tc10s's raw-32k).
 Start the gateway first (.venv/bin/python -m gateway.server --provider purdue). Every call is logged
 to <gateway log dir>/<run_id>/calls.jsonl (run id <label>.<arm>.<task>.r<n>), the input of measure/.
 Each trial writes runs/<label>/<arm>/<task>-r<n>/summary.json. Several arms run interleaved (for each
@@ -28,11 +30,12 @@ Stops cleanly between trials, never mid-trial:
   summary would quietly weaken the baseline, so the run stops for a look).
 With --progress, one line per finished trial and every gate decision are appended to that file.
 
-Run: .venv/bin/python benchmarks/tblite/run.py --label tc10s --arm raw,clm --budget 32000 --tasks frozen \
-       --repeats 1 --model qwen3.8:27b --workers 2 --gates --progress runs/tier-a/step10d-progress.md
+Run: .venv/bin/python benchmarks/tblite/run.py --label tc11v --policy base,summary,clm --budget 32000 \
+       --tasks frozen --repeats 1 --model qwen3.8:27b --workers 1 --gates --progress runs/tier-a/step11-progress.md
 """
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -52,10 +55,13 @@ sys.path.insert(0, str(ROOT))
 
 from tasks import FROZEN, TBLITE  # noqa: E402
 
-ECONO = {"raw": "off", "summary": "off", "econo+jev": "jev", "econo+prior": "prior"}
-COMPACTION = {"summary": "codex"}
-NEEDS_BUDGET = ("summary", "clm")
-ARMS = list(ECONO) + ["clm"]
+# --policy -> the class our harness runs (by name; the harness names no policy package) and its arguments.
+POLICIES = {"base": ("baselines.base.policy:Base", {}),
+            "summary": ("baselines.summary.policy:Summary", {}),
+            "econo+jev": ("econocontext.policy:Econo", {"mode": "jev"}),
+            "econo+prior": ("econocontext.policy:Econo", {"mode": "prior"}),
+            "directed": ("econocontext.policy:Directed", {})}
+ARMS = list(POLICIES) + ["clm"]
 BATTERY_STOP = 20                     # percent, while discharging
 budget = threading.Lock()             # guards the counters below and the progress file
 running = [0]                         # trials started and not finished; each may still need a full run's calls
@@ -127,6 +133,13 @@ def halt(a, run_id: str, reason: str) -> dict:
     return {"run_id": run_id, "skipped": f"stopped: {stop['reason']}"}
 
 
+def policy(name: str):
+    """The policy our harness would run for --policy `name` (built here to check it before any trial)."""
+    path, args = POLICIES[name]
+    module, _, cls = path.partition(":")
+    return getattr(importlib.import_module(module), cls)(**args)
+
+
 def arm_name(arm: str, budget: int | None) -> str:
     """The arm as run ids and folders name it: with a budget, raw at 32,000 is raw-32k."""
     if not budget:
@@ -173,16 +186,17 @@ def run_trial(a, log_dir: Path, arm: str, task: str, repeat: int, run_id: str, o
                                   stderr=subprocess.STDOUT, cwd=ROOT).returncode
     else:
         name = f"{label.replace('+', '-')}-{task}-r{repeat}"[:60]
+        path, args = POLICIES[arm]
         command = [str(ROOT / ".venv" / "bin" / "harbor"), "trial", "start", "-p", str(TBLITE / task), "-e", "docker",
-                   "-a", "agents.react.agent:EconoAgent", "-m", f"openai/{a.model}",
-                   "--agent-kwarg", f"api_base={a.gateway}/run/{run_id}/v1",
-                   "--agent-kwarg", f"econo={ECONO[arm]}", "--agent-kwarg", f"econo_run={run_id}",
+                   "-a", "harness.agent:Agent", "-m", f"openai/{a.model}",
+                   "--agent-kwarg", f"api_base={a.gateway}/run/{run_id}/v1", "--agent-kwarg", f"run_id={run_id}",
+                   "--agent-kwarg", f"policy={path}", "--agent-kwarg", f"interface={a.interface}",
+                   *(["--agent-kwarg", f"policy_args={json.dumps(args)}"] if args else []),
                    *(["--agent-kwarg", f"budget={a.budget}"] if a.budget else []),
-                   *(["--agent-kwarg", f"compaction={COMPACTION[arm]}"] if arm in COMPACTION else []),
                    "--agent-timeout-multiplier", str(a.timeout_multiplier),
                    "--trials-dir", str(out / "harbor"), "--trial-name", name]
         (out / "command.txt").write_text(" ".join(command) + "\n")
-        if ECONO[arm] == "jev" and "TYPESAFE_API_KEY" not in env and env_value("TYPESAFE_API_KEY"):
+        if args.get("mode") == "jev" and "TYPESAFE_API_KEY" not in env and env_value("TYPESAFE_API_KEY"):
             env["TYPESAFE_API_KEY"] = env_value("TYPESAFE_API_KEY")
         with (out / "harbor.out").open("w") as log:
             code = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT).returncode
@@ -218,10 +232,12 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
                           "call_cap" if usage.get("hit_lm_call_cap") else None)
     else:
         traj = json.loads((agent / "trajectory.json").read_text()) if (agent / "trajectory.json").exists() else {}
-        summary.update(agent_calls=len(traj.get("calls") or []), owner=traj.get("owner"),
+        report = traj.get("report") if isinstance(traj.get("report"), dict) else {}
+        summary.update(agent_calls=len(traj.get("calls") or []), policy=traj.get("policy"),
+                       interface=traj.get("interface"), owner=report if traj.get("policy") == "econo" else None,
                        jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"), budget=traj.get("budget"),
                        end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"),
-                       compactions=traj.get("compactions"))
+                       compactions=report.get("compactions"))
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 
@@ -295,7 +311,9 @@ def keep_awake() -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--label", required=True)
-    p.add_argument("--arm", required=True, help=f"one arm or a comma-separated list of: {', '.join(ARMS)}")
+    p.add_argument("--policy", required=True, help=f"one policy or a comma-separated list of: {', '.join(ARMS)}")
+    p.add_argument("--interface", default="ours", choices=["ours", "legacy"],
+                   help="what our harness shows the model (legacy: steps 9 and 10, to reproduce old runs)")
     p.add_argument("--tasks", required=True, help="comma-separated task names, or 'frozen' for the 10")
     p.add_argument("--model", required=True, help="the provider's model id, e.g. qwen3.8:27b")
     p.add_argument("--gateway", default="http://127.0.0.1:8787")
@@ -307,15 +325,23 @@ def main() -> None:
     p.add_argument("--progress", help="append one line per finished trial and every gate decision here")
     p.add_argument("--budget", type=int, help="a token budget for every arm (step 10c: 32000)")
     a = p.parse_args()
-    arms = a.arm.split(",")
+    arms = a.policy.split(",")
     unknown = [arm for arm in arms if arm not in ARMS]
     if unknown:
-        raise SystemExit(f"unknown arm(s) {unknown}; choose from {ARMS}")
-    if a.budget and [arm for arm in arms if ECONO.get(arm, "off") != "off"]:
-        raise SystemExit("EconoContext has no budget mechanism yet")
+        raise SystemExit(f"unknown policy {unknown}; choose from {ARMS}")
     for arm in arms:
-        if arm in NEEDS_BUDGET and not a.budget:
-            raise SystemExit(f"the {arm} arm needs --budget ({'its context_budget_tokens' if arm == 'clm' else 'it compacts at 75% of it'})")
+        if arm == "clm":
+            if not a.budget:
+                raise SystemExit("the clm arm needs --budget (its context_budget_tokens)")
+            continue
+        try:
+            rule = getattr(policy(arm), "budget", "allowed")
+        except NotImplementedError as exc:
+            raise SystemExit(f"the {arm} policy refuses to run: {exc}")
+        if a.budget and rule == "refused":
+            raise SystemExit(getattr(policy(arm), "budget_refusal", f"the {arm} policy refuses a budget"))
+        if not a.budget and rule == "required":
+            raise SystemExit(f"the {arm} arm needs --budget (it compacts at 75% of it)")
     keep_awake()
     h = health(a.gateway)
     if h is None:
@@ -325,6 +351,7 @@ def main() -> None:
     jobs = jobs_for(arms, tasks, a.repeat_from, a.repeats)
     with budget:
         progress(a, f"START | {a.label}: {len(jobs)} trials ({', '.join(arm_name(arm, a.budget) for arm in arms)}; "
+                    f"interface {a.interface}; "
                     f"{len(tasks)} tasks; repeats "
                     f"{a.repeat_from}-{a.repeat_from + a.repeats - 1}), {a.workers} workers; {h['requests_today']} of "
                     f"{h['max_requests_per_day']} requests used today")
