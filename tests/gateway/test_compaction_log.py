@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from agents.react.agent import EconoAgent
 from econocontext.owner import SUMMARIZE
 from tests.agents.test_react_agent import LocalEnv
-from tests.gateway.fakes import PINS, completion, log_rows, start
+from tests.gateway.fakes import PINS, TEMPLATE, completion, log_rows, start
 
 
 def provider():
@@ -69,5 +69,7 @@ def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary
     for r in rows:
         assert all("reasoning_content" not in m and "reasoning" not in m
                    for m in r["request"]["messages"] if m["role"] == "assistant")
-        assert {k: r["request"][k] for k in PINS} == PINS
+        assert {k: r["request"][k] for k in PINS} == PINS and r["request"]["chat_template_kwargs"] == TEMPLATE
+        # Our agent sends the pinned sampling itself: the gateway only adds return_token_ids.
+        assert [e for e in r["edits"] if not e.startswith("removed earlier reasoning")] == ["set return_token_ids=True"]
     assert agent.owner.s.get("compactions") == 1

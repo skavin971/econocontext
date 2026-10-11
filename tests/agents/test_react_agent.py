@@ -163,6 +163,6 @@ def test_without_an_api_base_the_agent_refuses_to_start(tmp_path):
 
 
 def test_the_defaults_match_every_other_arm(tmp_path):
-    # 64 steps (CLM's default) and 8,192 output tokens for every arm (step 9).
+    # 64 steps (CLM's default); CLM's TBLite sampling and 2,048 output tokens for every arm (step 10b).
     agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
-    assert (agent.max_steps, agent.max_tokens) == (64, 8192)
+    assert (agent.max_steps, agent.max_tokens, agent.temperature, agent.top_p) == (64, 2048, 0.7, 0.95)

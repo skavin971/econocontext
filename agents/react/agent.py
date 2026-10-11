@@ -13,7 +13,9 @@ Vertex quirks (EconoCLM): echo each assistant message whole (it carries
 `extra_content.google.thought_signature`), never end the list on an assistant turn, and resend a
 call that ends with `malformed_function_call`.
 
-The step limit is 64 for every arm (CLM's default; Kavin, step 9), max_tokens 8,192.
+The step limit is 64 for every arm (CLM's default; Kavin, step 9). Every call asks for CLM's TBLite
+sampling and output cap (step 10b): temperature 0.7, top_p 0.95, thinking on, reasoning_effort medium,
+max_tokens 2,048. These are the values the gateway pins for every agent, so it changes none of them here.
 
 Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
      -m openai/qwen3.8:27b --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
@@ -65,7 +67,7 @@ def cap(text: str, limit: int) -> str:
 
 class EconoAgent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, econo="off", econo_run=None,
-                 max_steps=64, max_tokens=8192, temperature=0.7, command_timeout=180,
+                 max_steps=64, max_tokens=2048, temperature=0.7, top_p=0.95, command_timeout=180,
                  output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.model = (model_name or "").removeprefix("openai/")
@@ -73,6 +75,7 @@ class EconoAgent(BaseAgent):
         self.force = set(force or [])  # spike only: rules applied whenever they apply
         self.econo_cache = str(econo_cache).lower() not in ("off", "false", "0", "none")
         self.max_steps, self.max_tokens, self.temperature = int(max_steps), int(max_tokens), float(temperature)
+        self.top_p = float(top_p)
         self.command_timeout, self.output_chars = int(command_timeout), int(output_chars)
         if client is None:
             if not api_base:
@@ -139,7 +142,9 @@ class EconoAgent(BaseAgent):
             try:
                 reply = await self.client.chat.completions.create(
                     model=self.model, messages=messages, tools=TOOLS, max_tokens=self.max_tokens,
-                    temperature=self.temperature, extra_headers={"X-Econo-Call-Kind": kind})
+                    temperature=self.temperature, top_p=self.top_p, reasoning_effort="medium",
+                    extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                    extra_headers={"X-Econo-Call-Kind": kind})
             except Exception as exc:  # openai's error types carry status_code; others are transport errors
                 status = getattr(exc, "status_code", None)
                 if status is not None and status not in RETRYABLE:

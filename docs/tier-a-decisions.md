@@ -202,3 +202,27 @@ The full list is in `docs/cleanup-map.md`.
   - The failed attempts are kept in `runs/tc9-envfail/`, and the results README notes the reruns.
 - **tc9 is the pre-alignment baseline.** It ran with each agent's own sampling (ours: temperature 0.7 and no `top_p`; CLM: 0.7 with `top_p` 0.95 and thinking on), `max_tokens` 8,192 and CLM's 120 s command timeout. It will be re-run under the aligned settings after step 10. Until then, its numbers are not compared with step-10 runs.
 - **Stalls are caught from the call log, not the lid.** The runner prints a plain reminder to keep the lid open; it no longer reports the lid state, which reads "closed" in clamshell mode on power while the Mac stays awake. Live runs are watched by a stall monitor, which warns when a trial's `calls.jsonl` gets no new call for 10 minutes.
+
+### The same sampling for every arm (10b)
+
+- **What the gateway pins.** On every chat request, for every agent, the gateway sets:
+  - `temperature` 0.7;
+  - `top_p` 0.95;
+  - `max_tokens` 2,048 (the flag `--max-tokens` sets the later 8,192 sensitivity run);
+  - `chat_template_kwargs.enable_thinking` true, keeping the client's other `chat_template_kwargs`;
+  - `reasoning_effort` "medium" and `return_token_ids` true, as before.
+
+  A client's `max_completion_tokens` is removed, because vLLM would use it instead of `max_tokens`. Every change is listed in the call's `edits`. The values are CLM's TBLite setting: `SAMPLING` in `gateway/server.py`.
+- **Our agent sends the same values itself.** Through the gateway, the only edit on its calls is `return_token_ids`.
+- **CLM's agent.** It already sends temperature 0.7, `top_p` 0.95 and `enable_thinking` true. `baselines/clm/run.sh` now passes `max_tokens=2048`, and the gateway adds `reasoning_effort`. A captured tc9 CLM request comes out with the pinned values; its only new edit is `max_tokens` (8,192 → 2,048).
+- **Live check (2026-10-11), one call through the gateway in our agent's shape** (`runs/gateway/t10b-live/`):
+  - HTTP 200, with a reasoning text and a well-formed `bash` call.
+  - Our rebuild equals the server's prompt ids: P 562 = 562, a tools-block key reorder only, ΔP 0.
+- **Template probes 7–9** (`scripts/purdue_template_probe.py`, direct to Purdue):
+  - With `enable_thinking` true, the server renders exactly what our rebuild renders, whether the flag is true or unset (the template's default is thinking on). This holds for the smoke prompt and for a tool turn without its reasoning.
+  - In the control (probe 9), `enable_thinking` false added the empty think block, as our rebuild with false does. So the field reaches the template.
+  - In the same control, `max_tokens` 8 was enforced: 8 completion tokens.
+- **What "accepted" means for each field:**
+  - `enable_thinking`, `reasoning_effort` and `return_token_ids` are seen in the server's prompt ids; `max_tokens` in the completion length.
+  - `temperature` and `top_p` were accepted (HTTP 200). Their effect on sampling cannot be seen in single calls.
+- **Finding: a reply cut by `max_tokens` is not reported as `length`.** Cut inside a tool call, it came back with `finish_reason` `tool_calls` and the call's arguments lost (`bash` with `{}`; probe 9). With the 2,048 cap, the only reliable sign of a cut reply is `completion_tokens` = `max_tokens`. The gateway log has both.

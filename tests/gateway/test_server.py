@@ -4,12 +4,15 @@ caps and the call log. No network beyond localhost."""
 import http.client
 import json
 import urllib.request
+from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
 
-from gateway.server import Limiter
-from tests.gateway.fakes import KEY, PINS, completion, log_rows, start
+from gateway.server import PROVIDERS, Gateway, Limiter
+from tests.gateway.fakes import KEY, PINS, TEMPLATE, completion, log_rows, start
+
+ROOT = Path(__file__).resolve().parents[2]
 
 OK = completion({"role": "assistant", "content": "done"})
 
@@ -59,18 +62,48 @@ def test_a_call_is_forwarded_with_the_pins_and_without_earlier_reasoning(stack):
     expected = json.loads(json.dumps(messages))
     for m in expected:
         m.pop("reasoning_content", None), m.pop("reasoning", None), m.pop("provider_specific_fields", None)
-    assert sent == {"model": "qwen3.8:27b", "messages": expected, "tools": [], "max_tokens": 64, **PINS}
+    assert sent == {"model": "qwen3.8:27b", "messages": expected, "tools": [], **PINS, "chat_template_kwargs": TEMPLATE}
     row = log_rows(s.log_dir, "r1")[0]
     assert row["request"] == sent                       # the log holds the body as sent, after the edits
     assert "removed earlier reasoning from 2 assistant message(s)" in row["edits"]
+    assert "set max_tokens=2048 (client sent 64)" in row["edits"]
 
 
 def test_pins_override_what_the_client_sent(stack):
+    # Every pinned field, sent with a conflicting value: each is overwritten and the edit recorded.
     s = stack(lambda body: (200, OK))
-    post(s.url, chat(reasoning_effort="low", chat_template_kwargs={"reasoning_effort": "low", "enable_thinking": True}))
+    post(s.url, chat(temperature=1.0, top_p=1.0, max_tokens=8192, max_completion_tokens=4096, reasoning_effort="low",
+                     chat_template_kwargs={"reasoning_effort": "low", "enable_thinking": False, "custom": 1}))
     sent = s.upstream.requests[0]["body"]
-    assert sent["reasoning_effort"] == "medium" and sent["return_token_ids"] is True
-    assert sent["chat_template_kwargs"] == {"reasoning_effort": "medium", "enable_thinking": True}
+    assert {k: sent[k] for k in PINS} == PINS == {"reasoning_effort": "medium", "return_token_ids": True,
+                                                  "temperature": 0.7, "top_p": 0.95, "max_tokens": 2048}
+    assert "max_completion_tokens" not in sent
+    assert sent["chat_template_kwargs"] == {"reasoning_effort": "medium", "enable_thinking": True, "custom": 1}
+    assert log_rows(s.log_dir, "r1")[0]["edits"] == [
+        "set reasoning_effort='medium' (client sent 'low')",
+        "set chat_template_kwargs.reasoning_effort='medium' (client sent 'low')",
+        "set return_token_ids=True",
+        "set temperature=0.7 (client sent 1.0)",
+        "set top_p=0.95 (client sent 1.0)",
+        "set max_tokens=2048 (client sent 8192)",
+        "removed max_completion_tokens (client sent 4096)",
+        "set chat_template_kwargs.enable_thinking=True (client sent False)"]
+
+
+def test_a_captured_clm_request_comes_out_with_the_same_values(tmp_path):
+    # CLM's first request in tc9 (acl r1), as CLM sent it: the logged body minus the two fields the
+    # step-9 gateway added (its edits). CLM already sends the sampling; only the cap and pins change.
+    row = json.loads((ROOT / "runs/gateway/tc9.clm-32k.acl-permissions-inheritance.r1/calls.jsonl")
+                     .read_text().splitlines()[0])
+    assert row["edits"] == ["set reasoning_effort='medium'", "set return_token_ids=True"]
+    clm = {k: v for k, v in row["request"].items() if k not in ("reasoning_effort", "return_token_ids")}
+    assert (clm["temperature"], clm["top_p"], clm["max_tokens"], clm["chat_template_kwargs"]) == \
+        (0.7, 0.95, 8192, {"enable_thinking": True})
+    sent, edits = Gateway(PROVIDERS["purdue"], KEY, tmp_path).prepare(clm)
+    assert sent == {**clm, **PINS, "chat_template_kwargs": TEMPLATE}
+    assert (sent["temperature"], sent["top_p"], sent["max_tokens"], sent["reasoning_effort"]) == (0.7, 0.95, 2048, "medium")
+    assert sent["messages"] == clm["messages"] and sent["tools"] == clm["tools"]
+    assert edits == ["set reasoning_effort='medium'", "set return_token_ids=True", "set max_tokens=2048 (client sent 8192)"]
 
 
 def test_the_provider_key_replaces_the_client_key_and_is_never_logged(stack):
@@ -146,7 +179,8 @@ def test_the_log_line_has_every_field(stack):
     for row in (first, second):
         assert {"run_id", "call_no", "kind", "provider", "model", "t_start", "latency_ms", "status", "retries",
                 "request", "response", "usage"} <= set(row)
-        assert row["request"] == {**chat(), **PINS} and row["usage"] == row["response"]["usage"]
+        assert row["request"] == {**chat(), **PINS, "chat_template_kwargs": TEMPLATE}
+        assert row["usage"] == row["response"]["usage"]
     assert (first["call_no"], first["kind"], second["call_no"], second["kind"]) == (1, "agent", 2, "summary")
     assert first["run_id"] == "r1" and first["model"] == "qwen3.8:27b" and first["response"]["prompt_token_ids"] == [1, 2]
 

@@ -16,13 +16,17 @@ Routes (run ids: letters, digits and . _ + -, starting with a letter or digit):
 Before a chat request goes upstream (docs/tier-a-decisions.md):
 - earlier reasoning is removed from every assistant message (`reasoning`, `reasoning_content`, and
   the whole `provider_specific_fields`, which echoes it), for every agent and every provider;
-- the provider's pins are set: Purdue gets reasoning_effort=medium and return_token_ids=true.
+- the provider's pins are set, for every agent. Purdue gets CLM's TBLite sampling and output cap
+  (temperature 0.7, top_p 0.95, max_tokens 2,048, chat_template_kwargs.enable_thinking=true; step 10b),
+  reasoning_effort=medium and return_token_ids=true. Other chat_template_kwargs are kept; a client's
+  max_completion_tokens is removed, since vLLM would use it instead of max_tokens. Every change is
+  listed in the log line's `edits`.
 
 Upstream failures (a JSON null or empty body, 429, 5xx, a timeout) are retried with backoff, 6
 tries at most. A cap refusal is an HTTP 429 whose message contains "reached"; it is logged with
 call_no null. The per-run and daily counts are rebuilt from the log at startup; days are UTC.
 
-Run: .venv/bin/python -m gateway.server --provider purdue [--port 8787] [--log-dir runs/gateway]
+Run: .venv/bin/python -m gateway.server --provider purdue [--port 8787] [--log-dir runs/gateway] [--max-tokens 2048]
 """
 
 import argparse
@@ -51,11 +55,15 @@ class Provider:
     name: str
     base: str                       # the provider's API root
     key_env: str                    # the .env variable holding its key
-    pins: dict = field(default_factory=dict)
+    pins: dict = field(default_factory=dict)        # request fields set on every chat request
+    template: dict = field(default_factory=dict)    # chat_template_kwargs entries, set the same way
 
 
+# CLM's TBLite setting for every agent (step 10b): its sampling, thinking on, and up to 2,048 tokens out.
+SAMPLING = {"temperature": 0.7, "top_p": 0.95, "max_tokens": 2048}
 PROVIDERS = {"purdue": Provider("purdue", "https://genai.rcac.purdue.edu/api", "GENAI_API_KEY",
-                                {"reasoning_effort": "medium", "return_token_ids": True})}
+                                {"reasoning_effort": "medium", "return_token_ids": True, **SAMPLING},
+                                {"enable_thinking": True})}
 # TODO(vertex): the Gemini route of the Omnigent gateway (omnigent_layer/ at tag econo-jev-final) is not ported yet.
 
 
@@ -138,6 +146,16 @@ class Gateway:
             kwargs = sent.get("chat_template_kwargs")
             if isinstance(kwargs, dict) and name in kwargs and kwargs[name] != value:
                 edits.append(f"set chat_template_kwargs.{name}={value!r} (client sent {kwargs[name]!r})")
+                kwargs[name] = value
+        if "max_tokens" in self.provider.pins and "max_completion_tokens" in sent:
+            edits.append(f"removed max_completion_tokens (client sent {sent.pop('max_completion_tokens')!r})")
+        if self.provider.template:
+            kwargs = sent.get("chat_template_kwargs")
+            kwargs = sent["chat_template_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
+            for name, value in self.provider.template.items():
+                if kwargs.get(name) != value:
+                    edits.append(f"set chat_template_kwargs.{name}={value!r}"
+                                 + (f" (client sent {kwargs[name]!r})" if name in kwargs else ""))
                 kwargs[name] = value
         return sent, edits
 
@@ -254,14 +272,19 @@ def main() -> None:
     p.add_argument("--max-calls-per-run", type=int, default=150)
     p.add_argument("--max-requests-per-day", type=int, default=8000)
     p.add_argument("--rpm", type=int, default=20, help="upstream requests per rolling 60 s (Purdue: 20)")
+    p.add_argument("--max-tokens", type=int, default=SAMPLING["max_tokens"],
+                   help="the output cap pinned on every request (CLM's TBLite setting: 2,048)")
     a = p.parse_args()
     if a.provider == "vertex":
         raise SystemExit("--provider vertex is a TODO: only purdue is implemented")
     provider = PROVIDERS[a.provider]
+    provider = Provider(provider.name, provider.base, provider.key_env, {**provider.pins, "max_tokens": a.max_tokens},
+                        provider.template)
     gateway = Gateway(provider, read_env(provider.key_env), Path(a.log_dir), a.max_calls_per_run,
                       a.max_requests_per_day, a.rpm)
     print(f"gateway: {provider.name} on 127.0.0.1:{a.port}, log {a.log_dir}, {a.rpm}/min, "
-          f"{a.max_calls_per_run} calls per run, {a.max_requests_per_day} requests per day", flush=True)
+          f"{a.max_calls_per_run} calls per run, {a.max_requests_per_day} requests per day; pins "
+          f"{json.dumps({**provider.pins, 'chat_template_kwargs': provider.template})}", flush=True)
     make_server(gateway, a.port).serve_forever()
 
 

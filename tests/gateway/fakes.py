@@ -7,10 +7,10 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
-from gateway.server import Gateway, Provider, make_server
+from gateway.server import PROVIDERS, Gateway, Provider, make_server
 
 KEY = "test-provider-key-0123456789"
-PINS = {"reasoning_effort": "medium", "return_token_ids": True}
+PINS, TEMPLATE = dict(PROVIDERS["purdue"].pins), dict(PROVIDERS["purdue"].template)   # Purdue's real pins
 
 
 def completion(message: dict, prompt_tokens: int = 100, completion_tokens: int = 10, extra: dict | None = None) -> bytes:
@@ -52,7 +52,7 @@ class FakeProvider:
 def start(reply, log_dir, **limits) -> SimpleNamespace:
     """The fake provider and our gateway in front of it. Backoff sleeps are skipped."""
     upstream = FakeProvider(reply)
-    gateway = Gateway(Provider("fake", upstream.base, "UNUSED", dict(PINS)), KEY, log_dir,
+    gateway = Gateway(Provider("fake", upstream.base, "UNUSED", dict(PINS), dict(TEMPLATE)), KEY, log_dir,
                       sleep=lambda seconds: None, **limits)
     server = make_server(gateway, port=0)
     threading.Thread(target=server.serve_forever, daemon=True).start()

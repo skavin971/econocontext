@@ -14,8 +14,13 @@ Every call asks for the server's own prompt token ids (return_token_ids) and is 
 renders: identical, or (Kavin's rule) different only in the tools block before the first user
 message with |dP| <= 1 (Purdue reorders write_file's schema keys at random), or different.
 A sixth request sends the follow-up with the assistant's reasoning under vLLM's newer field name,
-`reasoning`, to see whether the server reads it there. Requests are spaced under the 20-per-minute
-limit. The key is read from .env, never printed, and redacted from saved files.
+`reasoning`, to see whether the server reads it there. Probes 7 and 8 (step 10b) send thinking on
+through chat_template_kwargs.enable_thinking, with top_p 0.95, as the gateway now pins them. Probe 7 uses
+the smoke prompt; probe 8 uses the tool turn with its reasoning removed, as the gateway removes it. Each
+is judged with enable_thinking unset, true and false. Probe 9 is the control: thinking off and max_tokens 8.
+If both fields reach the server, its prompt ends in an empty think block and the reply stops at 8 tokens.
+Requests are spaced under the 20-per-minute limit.
+The key is read from .env, never printed, and redacted from saved files.
 
 It is the one script besides gateway/ that calls a model provider directly. Its helpers (ROOT to
 save) are copied verbatim from the step-1 smoke test, scripts/purdue_smoke.py, removed in step 10
@@ -191,6 +196,14 @@ def main() -> None:
                                                        "chat_template_kwargs": {"reasoning_effort": "low"}}),
                ("effort medium (top-level field)", {**base, "messages": smoke, "reasoning_effort": "medium"}),
                ("follow-up, field `reasoning`", {**base, "messages": shapes["follow-up, field `reasoning`"]})]
+    thinking = {"reasoning_effort": "medium", "top_p": 0.95, "chat_template_kwargs": {"enable_thinking": True}}
+    without_reasoning = [{k: v for k, v in m.items() if m["role"] != "assistant" or k not in
+                          ("reasoning", "reasoning_content", "provider_specific_fields")} for m in shapes["tool turn"]]
+    probes += [("thinking on (chat_template_kwargs), smoke prompt", {**base, "messages": smoke, **thinking}),
+               ("thinking on (chat_template_kwargs), tool turn without reasoning",
+                {**base, "messages": without_reasoning, **thinking}),
+               ("thinking off and max_tokens 8 (controls), smoke prompt",
+                {**base, "messages": smoke, **thinking, "max_tokens": 8, "chat_template_kwargs": {"enable_thinking": False}})]
     live = None if a.live == "all" else {int(x) for x in a.live.split(",")}
     for n, (name, body) in enumerate(probes, 1):
         if live is None or n in live:
@@ -206,14 +219,19 @@ def main() -> None:
         else:
             continue
         server = (result["body"] or {}).get("prompt_token_ids")
-        print(f"\n== {n}. {name}: {how}, "
-              f"prompt_tokens {((result['body'] or {}).get('usage') or {}).get('prompt_tokens')}")
+        usage, choice = (result["body"] or {}).get("usage") or {}, ((result["body"] or {}).get("choices") or [{}])[0]
+        print(f"\n== {n}. {name}: {how}, prompt_tokens {usage.get('prompt_tokens')}, completion_tokens "
+              f"{usage.get('completion_tokens')} (max_tokens {body.get('max_tokens')}), finish_reason {choice.get('finish_reason')}")
         if not server:
             print(f"   no prompt_token_ids; body starts {result['raw'][:300]!r}")
             continue
         if name.startswith("effort"):
             options = {"local effort=low": {"reasoning_effort": "low"},
                        "local effort=medium": {"reasoning_effort": "medium"}}
+        elif name.startswith("thinking"):
+            options = {"local enable_thinking unset": {"reasoning_effort": "medium"},
+                       "local enable_thinking=True": {"reasoning_effort": "medium", "enable_thinking": True},
+                       "local enable_thinking=False": {"reasoning_effort": "medium", "enable_thinking": False}}
         else:
             options = {"local preserve_thinking unset": {"reasoning_effort": "medium"},
                        "local preserve_thinking=True": {"reasoning_effort": "medium", "preserve_thinking": True},
