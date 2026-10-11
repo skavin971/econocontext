@@ -1,0 +1,30 @@
+$ .venv/bin/python <scratchpad>/cap_diag.py runs/tier-a
+
+tc10s, bandit at 32k, max_tokens 2,048 (agent calls; G = output tokens = thinking + visible)
+arm          calls | G med G p90 | think med think p90 | vis med vis p90 |    at cap | cut thinking cut w/ call
+raw-32k         45 |  2048  2048 |       926      2048 |     224    1539 |  23 ( 51%) |           16           7
+summary-32k     64 |  1796  2048 |      1182      2048 |     222     734 |  30 ( 47%) |           24           6
+clm-32k         16 |   788  1813 |        52      1386 |     223     796 |   1 (  6%) |            1           0
+
+tc9, bandit, 3 repeats, max_tokens 8,192
+arm          calls | G med G p90 | think med think p90 | vis med vis p90 |    at cap | cut thinking cut w/ call
+econo+jev      129 |  1230  2960 |       499      2496 |     481    1280 |   1 (  1%) |            0           1
+raw            119 |  1008  3903 |       400      3315 |     433     985 |   2 (  2%) |            2           0
+clm-32k         86 |   928  2410 |       374      1745 |     404    1024 |   0 (  0%) |            0           0
+clm-full        90 |   860  2247 |       493      1667 |     333     644 |   0 (  0%) |            0           0
+
+tc9, all 10 tasks x 3 repeats, max_tokens 8,192
+arm          calls | G med G p90 | think med think p90 | vis med vis p90 |    at cap | cut thinking cut w/ call
+econo+jev      553 |   369  2647 |       121      1680 |     193     915 |  14 (  3%) |            7           7
+raw            468 |   389  4193 |        99      2659 |     199     893 |  15 (  3%) |           10           5
+clm-32k        423 |   299  1664 |        79      1034 |     154     832 |   0 (  0%) |            0           0
+clm-full       430 |   332  1938 |       104      1322 |     168     580 |   3 (  1%) |            0           3
+
+tc9: share of agent calls whose output would not fit in 2,048 (G > 2,048), and whose thinking alone would not:
+  raw        G > 2,048: 16.9%   thinking > 2,048: 12.4%   visible > 2,048:  4.3%
+  econo+jev  G > 2,048: 14.1%   thinking > 2,048:  8.3%   visible > 2,048:  2.9%
+  clm-32k    G > 2,048:  9.2%   thinking > 2,048:  4.7%   visible > 2,048:  2.1%
+  clm-full   G > 2,048:  9.5%   thinking > 2,048:  5.8%   visible > 2,048:  2.3%
+
+wrote runs/tier-a/step10e-calls.csv (2001 calls)
+exit 0
