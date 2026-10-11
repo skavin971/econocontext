@@ -257,9 +257,9 @@ def keep_awake() -> None:
     power = battery()
     if power and power[1]:
         print(f"WARNING: on battery power ({power[0]}%); plug in for long runs. The run stops at {BATTERY_STOP}%.")
-    lid = subprocess.run(["ioreg", "-r", "-k", "AppleClamshellState", "-d", "4"], capture_output=True, text=True).stdout
-    state = "closed" if '"AppleClamshellState" = Yes' in lid else "open" if "AppleClamshellState" in lid else "unknown"
-    print(f"reminder: keep the lid open; a closed lid sleeps the Mac even with caffeinate (lid now: {state})")
+    # A plain reminder: the lid state can't be read reliably (clamshell mode on power reads "closed"
+    # while the Mac stays awake). A stalled run is caught by watching its call log instead.
+    print("reminder: keep the lid open (a closed lid sleeps the Mac even with caffeinate)")
 
 
 def main() -> None:

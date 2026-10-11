@@ -200,3 +200,5 @@ The full list is in `docs/cleanup-map.md`.
   - The 3 scan-linux r3 trials that never started were rerun with tc9's settings, one at a time, after the image was built once. All three passed.
   - The overnight failures came from two workers building the same image at once; Harbor serializes builds only within one process.
   - The failed attempts are kept in `runs/tc9-envfail/`, and the results README notes the reruns.
+- **tc9 is the pre-alignment baseline.** It ran with each agent's own sampling (ours: temperature 0.7 and no `top_p`; CLM: 0.7 with `top_p` 0.95 and thinking on), `max_tokens` 8,192 and CLM's 120 s command timeout. It will be re-run under the aligned settings after step 10. Until then, its numbers are not compared with step-10 runs.
+- **Stalls are caught from the call log, not the lid.** The runner prints a plain reminder to keep the lid open; it no longer reports the lid state, which reads "closed" in clamshell mode on power while the Mac stays awake. Live runs are watched by a stall monitor, which warns when a trial's `calls.jsonl` gets no new call for 10 minutes.
