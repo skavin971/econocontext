@@ -101,6 +101,7 @@ def run_actions(run: dict) -> dict:
                     if source.startswith("prior ("):
                         acts["jev_fallbacks"] += 1
                         acts["jev_errors"][source[len("prior ("):-1]] += 1
+    acts["compactions"] += len((run.get("summary") or {}).get("compactions") or [])     # the Summary baseline
     usage = next(folder.glob("harbor/*/agent/usage.json"), None) if folder else None
     if usage:
         u = json.loads(usage.read_text())
@@ -152,6 +153,8 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             manager = (f"arrival f/s/p {r['arrival_full_slice_preview'] or '0/0/0'}, evict {r['evictions']}, compact "
                        f"{r['compactions']}, Jev {r['jev_asked']} asked {r['jev_fallbacks']} fallbacks"
                        + (f" ({r['jev_errors']})" if r["jev_errors"] else ""))
+        elif r["arm"].startswith("summary"):
+            manager = f"compactions {r['compactions']}"
         elif r["arm"].startswith("clm"):
             manager = f"edits {r['clm_edits']}, rollbacks {r['clm_rollbacks']}"
         else:

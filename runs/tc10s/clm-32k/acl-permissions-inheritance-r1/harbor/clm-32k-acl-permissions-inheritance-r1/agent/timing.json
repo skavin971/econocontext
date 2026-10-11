@@ -1,0 +1,65 @@
+[
+  {
+    "step": 1,
+    "llm_s": 2.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "id alice 2>&1; id bob 2>&1; getent group research 2>&1; which setfacl getfacl 2>&1; ls -ld /srv 2>&1; whoami"
+  },
+  {
+    "step": 2,
+    "llm_s": 2.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "mkdir -p /srv/shared && chown root:research /srv/shared && chmod 2770 /srv/shared && setfacl -m g:research:rwx,u:alice:rwx,u:bob:rwx,o::---,m::rwx /srv/shared && setfacl -d -m g:research:rwx,u:alice:r"
+  },
+  {
+    "step": 3,
+    "llm_s": 3.2,
+    "bash_s": 0.1,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "su - alice -c 'touch /srv/shared/testfile && chmod 600 /srv/shared/testfile && mkdir /srv/shared/subdir' && getfacl -p /srv/shared/testfile && getfacl -p /srv/shared/subdir && ls -l /srv/shared && su "
+  },
+  {
+    "step": 4,
+    "llm_s": 10.2,
+    "bash_s": 0.1,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "su - alice -c 'umask; touch /srv/shared/t2; ls -l /srv/shared/t2; umask 022; touch /srv/shared/t3; ls -l /srv/shared/t3'; grep -i umask /etc/login.defs 2>/dev/null; ls -a ~alice | head; cat /etc/skel/"
+  },
+  {
+    "step": 5,
+    "llm_s": 8.4,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "rm -rf /srv/shared/testfile /srv/shared/testfile.bob /srv/shared/subdir /srv/shared/t2 /srv/shared/t3; ls -la /srv/shared; getfacl -p /srv/shared; ls -ld /srv/shared"
+  },
+  {
+    "step": 6,
+    "llm_s": 3.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "awk -F: '$3>=1000 && $1!=\"root\" {print $1}' /etc/passwd | while read u; do g=$(id -nG $u); case \"$g\" in *research*) echo \"$u: in research\";; *) echo \"$u: OUTSIDE research -> $(su -s /bin/bash $u -c 'l"
+  },
+  {
+    "step": 7,
+    "llm_s": 3.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

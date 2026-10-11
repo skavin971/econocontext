@@ -1,0 +1,36 @@
+$ .venv/bin/python <scratchpad>/smoke_report.py tc10s
+== tc10s: per run
+
+tc10s.clm-32k.acl-permissions-inheritance.r1: pass (reward 1.0), end None, calls 7 {'agent': 7}, PFLOPs 0.324, validated 7/7, calls at the cap 0
+   CLM: context edits 0 (rejected 0), nudges 0, rollbacks 0, budget_finalized False
+
+tc10s.clm-32k.bandit-delayed-feedback.r1: fail (reward 0.0), end None, calls 16 {'agent': 16}, PFLOPs 2.372, validated 16/16, calls at the cap 1
+   CLM: context edits 1 (rejected 0), nudges 2, rollbacks 0, budget_finalized False
+
+tc10s.raw-32k.acl-permissions-inheritance.r1: pass (reward 1.0), end submitted, calls 4 {'agent': 4}, PFLOPs 0.127, validated 4/4, calls at the cap 0
+
+tc10s.raw-32k.bandit-delayed-feedback.r1: fail (reward 0.0), end submitted, calls 45 {'agent': 45}, PFLOPs 5.424, validated 45/45, calls at the cap 23
+   final turns (CLM's rule): [{'before_call': 45, 'P': 30013}]; end_P None
+
+tc10s.summary-32k.acl-permissions-inheritance.r1: pass (reward 1.0), end submitted, calls 4 {'agent': 4}, PFLOPs 0.115, validated 4/4, calls at the cap 0
+
+tc10s.summary-32k.bandit-delayed-feedback.r1: fail (reward 0.0), end max_steps, calls 65 {'agent': 64, 'summary': 1}, PFLOPs 8.781, validated 65/65, calls at the cap 30
+   compaction 1: P before 24,606, compaction call P 24,227 (server 24227), summary G 1933 (capped False, stop), P after 4,561 = 14.2% of the budget; summary call valid: identical; first call after: #33 P 4561 tools block only, keys reordered (dP +0)
+
+== one call at the output cap per arm, and what the agent did next
+
+raw-32k: tc10s.raw-32k.bandit-delayed-feedback.r1 call 8 (agent): completion_tokens 2048 = max_tokens 2048, finish_reason length, reasoning chars 7526, content chars 0, tool calls []
+   next call 9 (agent) adds 2 message(s):
+     assistant: content 'None', tool calls []
+     user: 'Continue by calling a tool. Call `submit` when the task is fully done.'
+
+summary-32k: tc10s.summary-32k.bandit-delayed-feedback.r1 call 8 (agent): completion_tokens 2048 = max_tokens 2048, finish_reason length, reasoning chars 5913, content chars 0, tool calls []
+   next call 9 (agent) adds 2 message(s):
+     assistant: content 'None', tool calls []
+     user: 'Continue by calling a tool. Call `submit` when the task is fully done.'
+
+clm-32k: tc10s.clm-32k.bandit-delayed-feedback.r1 call 5 (agent): completion_tokens 2048 = max_tokens 2048, finish_reason length, reasoning chars 6574, content chars 0, tool calls []
+   next call 6 (agent) adds 2 message(s):
+     assistant: content '', tool calls []
+     user: '(No tool call in your last turn. When ready, issue your next `bash` command to continue the task.)'
+exit 0

@@ -73,3 +73,47 @@ def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary
         # Our agent sends the pinned sampling itself: the gateway only adds return_token_ids.
         assert [e for e in r["edits"] if not e.startswith("removed earlier reasoning")] == ["set return_token_ids=True"]
     assert agent.owner.s.get("compactions") == 1
+
+
+def test_the_summary_baseline_logs_its_compaction_call_with_kind_summary(tmp_path):
+    # Budget 10,000 (compaction at 7,500); a fake count of 1,000 tokens per message. The 4th check (8
+    # messages) compacts: the summary call, then the rebuilt [system, task, summary] carries on.
+    from agents.react.agent import CODEX_COMPACT, CODEX_SUMMARY_PREFIX
+    count = [0]
+
+    def reply(body):
+        if body["messages"][-1] == {"role": "user", "content": CODEX_COMPACT}:
+            return 200, completion({"role": "assistant", "content": "SUMMARY: ran echo three times."})
+        count[0] += 1
+        name, args = ("submit", {}) if count[0] >= 5 else ("bash", {"command": f"echo step {count[0]}"})
+        return 200, completion({"role": "assistant", "content": None, "reasoning_content": f"thinking {count[0]}",
+                                "tool_calls": [{"id": f"c{count[0]}", "type": "function",
+                                                "function": {"name": name, "arguments": json.dumps(args)}}]})
+    s = start(reply, tmp_path / "gateway")
+    try:
+        agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b",
+                           api_base=f"{s.url}/run/s1/v1", budget=10_000, compaction="codex",
+                           counter=lambda messages, tools: 1_000 * len(messages), state_dir=str(tmp_path / "state"))
+        env, context = LocalEnv(tmp_path / "work"), SimpleNamespace(n_input_tokens=0, n_cache_tokens=0,
+                                                                     n_output_tokens=0)
+        (tmp_path / "work").mkdir()
+
+        async def go():
+            await agent.setup(env)
+            await agent.run("Echo some steps, then submit.", env, context)
+        asyncio.run(go())
+    finally:
+        s.stop()
+
+    rows = log_rows(s.log_dir, "s1")
+    assert [r["kind"] for r in rows] == ["agent"] * 3 + ["summary"] + ["agent"] * 2
+    summary = rows[3]["request"]
+    assert "tools" not in summary and summary["messages"][-1] == {"role": "user", "content": CODEX_COMPACT}
+    before = rows[2]["request"]["messages"]                 # the summary call extends the last agent prompt
+    assert summary["messages"][:len(before)] == before and len(summary["messages"]) == len(before) + 3
+    after = rows[4]["request"]["messages"]
+    assert [m["role"] for m in after] == ["system", "user", "user"]
+    assert after[2]["content"] == CODEX_SUMMARY_PREFIX + "\nSUMMARY: ran echo three times."
+    for r in rows:      # the same pinned sampling on every call, the summary call included
+        assert {k: r["request"][k] for k in PINS} == PINS and r["request"]["chat_template_kwargs"] == TEMPLATE
+    assert agent.compactions[0]["P_before"] == 8_000 and agent.compactions[0]["P_after"] == 3_000

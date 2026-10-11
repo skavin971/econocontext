@@ -271,3 +271,30 @@ The full list is in `docs/cleanup-map.md`.
   - EconoContext arms refuse a budget ("EconoContext has no budget mechanism yet"), in the agent and in the runner.
   - CLM's end reason comes from its `usage.json`: `budget_finalized` gives `budget_exceeded`, and `hit_lm_call_cap` gives `call_cap`.
 - **Reports.** A graded run counts by its grade, however it ended, and an `end` column says how it ended. tc9's three overflows were never graded, so they stay FAILs: tc9's tables are unchanged.
+
+### The Summary baseline (10d)
+
+- **The source.** Codex CLI 0.146.0, the version CLM cites ("OpenAI (2026a) … Codex CLI … Software, version 0.146.0"): tag `rust-v0.146.0`, commit `e363b08c9175ac1cbe5893615dd2cb9ddf95043b`. Its licence is Apache-2.0 ("Copyright 2025 OpenAI"), which allows the prompts in our public repo with the licence and notice: `agents/react/prompts/LICENSE-codex` and `NOTICE-codex`.
+  - `codex-rs/prompts/templates/compact/prompt.md` (`SUMMARIZATION_PROMPT`) is saved byte for byte in `agents/react/prompts/codex_compact.md`.
+  - `summary_prefix.md` (`SUMMARY_PREFIX`) is saved in `codex_summary_prefix.md`.
+- **Where the trigger sits: 75% of `--budget`, which is 24,000 at 32,000, not 75% of the 29,952 limit.**
+  - CLM App. E: "the summary harness uses the Codex summarization prompts and compacts at 75% of the budget". CLM Table 4: "At three quarters of the budget (about 24.6K of 32,768 tokens) … everything except the system prompt and this task message is then replaced by one message". CLM's own code reads budget fractions the same way: its nudge tiers are `int(self.budget * f)`.
+  - Codex's own default is 90% of the model's context window: `ModelInfo::auto_compact_token_limit`, `codex-rs/protocol/src/openai_models.rs:459–469`, "When omitted, core derives it from `context_window` (90%)". CLM's harness sets 75% instead.
+  - What is compared is the same in both. Codex compares its active context tokens with `>=` (`codex-rs/core/src/session/context_window.rs`). Those are the last response's `total_tokens` plus a 4-bytes-per-token estimate of the items added since (`codex-rs/core/src/context_manager/history.rs:297–315`), i.e. an estimate of the next prompt. Ours is the next prompt, counted exactly, `>=` 24,000.
+- **The compaction call** (`codex-rs/core/src/compact.rs`, `run_compact_task_inner_impl`): the whole history plus `SUMMARIZATION_PROMPT` as a user message.
+  - It is sent with no tools: `Prompt { input, base_instructions, ..Default::default() }`, where the default is `tools: Vec::new()` (`client_common.rs`). Ours does the same and is logged with kind `summary`.
+  - Without the tools block, the call's prompt shares no prefix with the agent's prompts, so it is prefilled in full. That cost is part of the baseline and shows in its FLOPs.
+  - If the server refuses the call for the window, Codex removes the oldest history item and retries (`compact.rs:309–316`). That cannot happen under a 32k budget on Purdue's 65,536-token window.
+  - Our agent counts each compaction call before sending it and reports the count; the budget is not enforced on it.
+- **What Codex keeps** (`compact.rs`, `build_compacted_history_with_limit`):
+  - the most recent real user messages up to `COMPACT_USER_MESSAGE_MAX_TOKENS` = 20,000 approximate tokens (the oldest one kept is truncated); earlier summaries are excluded (`is_summary_message`);
+  - then one user message, `"{SUMMARY_PREFIX}\n{summary}"`, where the summary is the last assistant message's text. "(no summary available)" appears only if the whole text is empty, which never happens in local compaction.
+
+  Codex re-inserts its initial context (developer and environment instructions) before the last real user message, and sends the base instructions (the system prompt) with every request.
+  - **Ours:** `[system, task, "{SUMMARY_PREFIX}\n{summary}"]`. The task is our one real user message and is far under 20,000 tokens; a longer one would raise an error. Our nudges and CLM's final-turn notices are the harness's, like Codex's injected context, so they are not kept. This matches CLM's Table 4.
+- **After compacting, the Base rule applies.** If the rebuilt prompt is still over budget − 2,048, the model gets one final turn and the run ends.
+- **What each compaction reports:**
+  - the prompt before it, and the compaction call's own prompt;
+  - the summary's output tokens and whether it hit the 2,048 cap (a capped summary stops the run, through a runner gate);
+  - its finish reason;
+  - the rebuilt prompt, with its share of the budget.

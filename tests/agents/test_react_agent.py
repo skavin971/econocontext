@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from openai.types.chat import ChatCompletion
 
-from agents.react.agent import FINAL_TURN, NUDGE, EconoAgent, cap
+from agents.react.agent import CODEX_COMPACT, CODEX_SUMMARY_PREFIX, FINAL_TURN, NUDGE, SYSTEM, TOOLS, EconoAgent, cap
 
 
 def reply(*calls, text=None, finish="tool_calls", extra=None):
@@ -44,12 +44,13 @@ class StatusError(Exception):
 
 class FakeModel:
     def __init__(self, script):
-        self.script, self.sent, self.headers = list(script), [], []
+        self.script, self.sent, self.headers, self.tools = list(script), [], [], []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     async def create(self, **kwargs):
         self.sent.append(copy.deepcopy(kwargs["messages"]))
         self.headers.append(kwargs.get("extra_headers"))
+        self.tools.append(kwargs.get("tools"))
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -183,7 +184,7 @@ class Counts:
     def __init__(self, values):
         self.values = list(values)
 
-    def __call__(self, messages):
+    def __call__(self, messages, tools=None):
         return self.values.pop(0)
 
 
@@ -235,3 +236,61 @@ def test_an_overflow_at_the_window_ends_the_run_without_an_exception(make):
 def test_running_out_of_steps_is_recorded(make):
     agent, _, _ = make([reply(("bash", {"command": "echo 1"})), reply(("bash", {"command": "echo 2"}))], max_steps=2)
     assert agent.end == "max_steps"
+
+
+class BySize:
+    """Tokens by (number of messages, tools sent?): the summary tests know which prompt each count is for."""
+    def __init__(self, table):
+        self.table = table
+
+    def __call__(self, messages, tools=None):
+        return self.table[(len(messages), tools is not None)]
+
+
+SUMMARY_TEXT = "SUMMARY: listed the files; next, write the report."
+
+
+def test_the_summary_triggers_at_75_percent_of_the_budget_and_not_before(make):
+    # Budget 10,000: compaction at 7,500 (75% of the budget, not of the 7,952 limit). 7,499 sends as it is.
+    sizes = {(2, True): 7_000, (4, True): 7_499, (6, True): 7_500, (7, False): 7_620, (3, True): 1_200, (5, True): 1_900}
+    agent, _, _ = make([reply(("bash", {"command": "echo 1"})), reply(("bash", {"command": "echo 2"})),
+                        reply(text=SUMMARY_TEXT, finish="stop"), reply(("bash", {"command": "echo 3"})),
+                        reply(("submit", {}))],
+                       budget=10_000, compaction="codex", counter=BySize(sizes))
+    model = agent.client
+    assert [h["X-Econo-Call-Kind"] for h in model.headers] == ["agent", "agent", "summary", "agent", "agent"]
+    # The compaction call: the whole conversation plus Codex's prompt as a user message, and no tools.
+    assert model.sent[2][:6] == model.sent[1] + model.sent[2][4:6] and len(model.sent[2]) == 7
+    assert model.sent[2][-1] == {"role": "user", "content": CODEX_COMPACT}
+    assert model.tools[2] is None and model.tools[1] == TOOLS == model.tools[3]
+    # The rebuilt conversation: the system prompt, the task, then Codex's prefix and the summary.
+    assert model.sent[3] == [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "Make a file."},
+                             {"role": "user", "content": CODEX_SUMMARY_PREFIX + "\n" + SUMMARY_TEXT}]
+    assert agent.compactions == [{"summary_call": 3, "P_before": 7_500, "P_call": 7_620, "G": 50, "capped": False,
+                                  "finish_reason": "stop", "summary_chars": len(SUMMARY_TEXT), "P_after": 1_200,
+                                  "P_after_share_of_budget": 0.12}]
+    assert agent.end == "submitted"
+
+
+def test_a_summary_that_hits_the_output_cap_is_flagged(make):
+    sizes = {(2, True): 8_000, (3, False): 8_100, (3, True): 900, (5, True): 1_000}
+    agent, _, _ = make([reply(text="SUMMARY: cut", finish="length"), reply(("bash", {"command": "echo 1"})),
+                        reply(("submit", {}))],
+                       budget=10_000, compaction="codex", counter=BySize(sizes), max_tokens=50)
+    assert [c["capped"] for c in agent.compactions] == [True] and agent.compactions[0]["finish_reason"] == "length"
+
+
+def test_still_over_the_limit_after_compacting_the_base_rule_applies(make):
+    # A rebuilt prompt over 7,952 (an artificial size): one final turn with CLM's notice, then the run ends.
+    # [system, task] 8,000 -> compaction (call 8,100) -> rebuilt 9,000, over -> final turn (notice, bash) -> 6
+    # messages, 9,100 -> compaction again (call 9,200) -> rebuilt 9,000, still over after the final turn -> stop.
+    sizes = {(2, True): 8_000, (3, False): 8_100, (3, True): 9_000, (6, True): 9_100, (7, False): 9_200}
+    agent, _, _ = make([reply(text=SUMMARY_TEXT, finish="stop"), reply(("bash", {"command": "echo 1"})),
+                        reply(text=SUMMARY_TEXT, finish="stop")],
+                       budget=10_000, compaction="codex", counter=BySize(sizes))
+    assert len(agent.final_turns) == 1 and agent.end == "budget_exceeded" and len(agent.compactions) == 2
+
+
+def test_the_summary_baseline_needs_a_budget(tmp_path):
+    with pytest.raises(ValueError, match="needs a budget"):
+        EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]), compaction="codex")

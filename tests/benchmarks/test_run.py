@@ -124,3 +124,15 @@ def test_econocontext_with_a_budget_and_clm_without_one_are_refused(runner, monk
     monkeypatch.setattr(sys, "argv", base + ["--arm", "clm"])
     with pytest.raises(SystemExit, match="the clm arm needs --budget"):
         module.main()
+
+
+def test_the_summary_arm_needs_a_budget_and_a_capped_summary_stops_the_run(runner, monkeypatch):
+    module, _ = runner
+    monkeypatch.setattr(sys, "argv", ["run.py", "--label", "L", "--tasks", "acl", "--model", "m", "--arm", "summary"])
+    with pytest.raises(SystemExit, match="the summary arm needs --budget"):
+        module.main()
+    assert module.arm_name("summary", 32_000) == "summary-32k"
+    monkeypatch.setattr(module, "measure", lambda summary: {"valid": 9, "invalid": 0})
+    module.check(args(gates=True), {"run_id": "L.summary-32k.acl.r1", "arm": "summary-32k", "task": "acl", "repeat": 1,
+                                    "calls": 9, "reward": 1.0, "compactions": [{"G": 2048, "capped": True, "P_after": 900}]})
+    assert "summary call(s) hit the output cap" in module.stop["reason"]

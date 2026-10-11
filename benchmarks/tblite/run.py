@@ -4,6 +4,7 @@ Why it exists: one runner for every arm, so each arm gets the same tasks, settin
 records. The arms:
   raw          our agent (agents/react/agent.py); it sends its whole conversation every call. With
                --budget it is CLM's Base: over budget - 2,048, one final turn, then the run ends (step 10c)
+  summary      our agent with Codex-style compaction at 75% of the budget (CLM's Summary baseline); needs --budget
   econo+jev    our agent with EconoContext, Jev answering its questions
   econo+prior  the same rules with fixed guesses (no Jev)
   clm          CLM's own agent (baselines/clm/run.sh); needs --budget, its context_budget_tokens
@@ -23,7 +24,8 @@ Stops cleanly between trials, never mid-trial:
   while discharging (a dead battery would cut trials mid-run);
 - with --gates, each finished trial's calls are rebuilt and validated (measure/), and the run stops on:
   3+ invalid calls in a trial; an arm crashing in 2 trials in a row; Jev falling back on more than
-  half its questions in a trial.
+  half its questions in a trial; a Summary compaction whose summary hit the output cap (step 10d: a cut
+  summary would quietly weaken the baseline, so the run stops for a look).
 With --progress, one line per finished trial and every gate decision are appended to that file.
 
 Run: .venv/bin/python benchmarks/tblite/run.py --label tc10s --arm raw,clm --budget 32000 --tasks frozen \
@@ -50,7 +52,9 @@ sys.path.insert(0, str(ROOT))
 
 from tasks import FROZEN, TBLITE  # noqa: E402
 
-ECONO = {"raw": "off", "econo+jev": "jev", "econo+prior": "prior"}
+ECONO = {"raw": "off", "summary": "off", "econo+jev": "jev", "econo+prior": "prior"}
+COMPACTION = {"summary": "codex"}
+NEEDS_BUDGET = ("summary", "clm")
 ARMS = list(ECONO) + ["clm"]
 BATTERY_STOP = 20                     # percent, while discharging
 budget = threading.Lock()             # guards the counters below and the progress file
@@ -174,6 +178,7 @@ def run_trial(a, log_dir: Path, arm: str, task: str, repeat: int, run_id: str, o
                    "--agent-kwarg", f"api_base={a.gateway}/run/{run_id}/v1",
                    "--agent-kwarg", f"econo={ECONO[arm]}", "--agent-kwarg", f"econo_run={run_id}",
                    *(["--agent-kwarg", f"budget={a.budget}"] if a.budget else []),
+                   *(["--agent-kwarg", f"compaction={COMPACTION[arm]}"] if arm in COMPACTION else []),
                    "--agent-timeout-multiplier", str(a.timeout_multiplier),
                    "--trials-dir", str(out / "harbor"), "--trial-name", name]
         (out / "command.txt").write_text(" ".join(command) + "\n")
@@ -215,7 +220,8 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
         traj = json.loads((agent / "trajectory.json").read_text()) if (agent / "trajectory.json").exists() else {}
         summary.update(agent_calls=len(traj.get("calls") or []), owner=traj.get("owner"),
                        jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"), budget=traj.get("budget"),
-                       end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"))
+                       end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"),
+                       compactions=traj.get("compactions"))
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 
@@ -248,7 +254,10 @@ def check(a, summary: dict) -> None:
                     f"{t.get('F', 0) / 1e15:.3f} PFLOPs | valid {t.get('valid', 0)}/{t.get('valid', 0) + t.get('invalid', 0)} | "
                     f"retries {t.get('retries', 0)} | repeats {t.get('repeats', 0)}"
                     + (f" | Jev {jev.get('asked', 0)} asked, {jev.get('fell_back', 0)} fallbacks {jev.get('errors') or ''}"
-                       if summary["arm"] == "econo+jev" else ""))
+                       if summary["arm"] == "econo+jev" else "")
+                    + (f" | compactions {len(summary['compactions'])}, summary G "
+                       f"{[c['G'] for c in summary['compactions']]}, P after "
+                       f"{[c['P_after'] for c in summary['compactions']]}" if summary.get("compactions") else ""))
         crashes[summary["arm"]] = crashes[summary["arm"]] + 1 if crashed else 0
         reasons = []
         if t.get("invalid", 0) >= 3:
@@ -257,6 +266,10 @@ def check(a, summary: dict) -> None:
             reasons.append(f"{summary['arm']} crashed in 2 trials in a row (last: {summary['exception']})")
         if jev.get("asked") and jev.get("fell_back", 0) > jev["asked"] / 2:
             reasons.append(f"Jev fell back on {jev['fell_back']} of {jev['asked']} questions in {summary['run_id']}")
+        capped = [c for c in summary.get("compactions") or [] if c.get("capped")]
+        if capped:
+            reasons.append(f"{len(capped)} summary call(s) hit the output cap in {summary['run_id']} "
+                           f"(G {[c['G'] for c in capped]})")
         if reasons and not stop["reason"]:
             stop["reason"] = "; ".join(reasons)
             progress(a, f"GATE | stop after {summary['run_id']}: {stop['reason']}")
@@ -300,8 +313,9 @@ def main() -> None:
         raise SystemExit(f"unknown arm(s) {unknown}; choose from {ARMS}")
     if a.budget and [arm for arm in arms if ECONO.get(arm, "off") != "off"]:
         raise SystemExit("EconoContext has no budget mechanism yet")
-    if "clm" in arms and not a.budget:
-        raise SystemExit("the clm arm needs --budget (its context_budget_tokens)")
+    for arm in arms:
+        if arm in NEEDS_BUDGET and not a.budget:
+            raise SystemExit(f"the {arm} arm needs --budget ({'its context_budget_tokens' if arm == 'clm' else 'it compacts at 75% of it'})")
     keep_awake()
     h = health(a.gateway)
     if h is None:

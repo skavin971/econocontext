@@ -26,9 +26,16 @@ econo on is refused. A run ends with `end` = submitted, max_steps, budget_exceed
 server refused a request over the model's window); every ending returns normally, so the verifier
 grades the container as it stands (CLM App. E).
 
+The Summary baseline (compaction=codex, step 10d; CLM: "the summary harness uses the Codex summarization
+prompts and compacts at 75% of the budget") compacts as Codex 0.146.0 does (codex-rs/core/src/compact.rs):
+when the prompt reaches 75% of the budget, one call (kind summary) sends the conversation plus Codex's
+prompt as a user message, with no tools; then everything but the system prompt and the task is replaced
+by one user message, "{SUMMARY_PREFIX}\n{summary}". The budget rule then applies as for Base.
+
 Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
      -m openai/qwen3.8:27b --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
      [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>] [--agent-kwarg budget=32000]
+     [--agent-kwarg compaction=codex]
 """
 
 import asyncio
@@ -70,11 +77,15 @@ PROMPTS = Path(__file__).resolve().parent / "prompts"
 
 
 def prompt(name: str) -> str:
-    """A stored prompt, without its header (the lines starting with '#')."""
-    return "\n".join(line for line in (PROMPTS / name).read_text().splitlines() if not line.startswith("#")).strip()
+    """A stored prompt, byte for byte: everything after its header's closing '# ---' line."""
+    return (PROMPTS / name).read_text().split("# ---\n", 1)[1]
 
 
 FINAL_TURN = prompt("clm_final_turn.txt")
+CODEX_COMPACT = prompt("codex_compact.md")                # Codex's SUMMARIZATION_PROMPT
+CODEX_SUMMARY_PREFIX = prompt("codex_summary_prefix.md")  # Codex's SUMMARY_PREFIX
+SUMMARY_AT = 0.75     # CLM: 75% of the budget (Table 4: "about 24.6K of 32,768 tokens"), not of budget - 2,048
+CODEX_KEEP_USER_TOKENS = 20_000   # Codex keeps recent real user messages up to this many tokens
 
 
 def overflowed(exc: Exception) -> bool:
@@ -94,7 +105,7 @@ class EconoAgent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, econo="off", econo_run=None,
                  max_steps=64, max_tokens=2048, temperature=0.7, top_p=0.95, command_timeout=180,
                  output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", budget=None,
-                 counter=None, **kwargs):
+                 counter=None, compaction=None, **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.model = (model_name or "").removeprefix("openai/")
         self.econo, self.econo_run = econo, econo_run
@@ -106,7 +117,13 @@ class EconoAgent(BaseAgent):
         self.budget = int(budget) if str(budget).lower() not in ("none", "", "0") else None
         if self.budget and econo != "off":
             raise ValueError("EconoContext has no budget mechanism yet")
-        self.counter = counter        # prompt -> tokens; measure.tokens.count_prompt unless a test gives one
+        self.counter = counter        # (messages, tools) -> tokens; measure.tokens.count_prompt unless a test gives one
+        self.compaction = None if str(compaction).lower() in ("none", "", "off") else str(compaction)
+        if self.compaction not in (None, "codex"):
+            raise ValueError(f"unknown compaction {compaction!r}: only codex")
+        if self.compaction and not self.budget:
+            raise ValueError("the Summary baseline (compaction=codex) needs a budget")
+        self.compactions: list[dict] = []
         self.finalized = False        # CLM's final turn granted and not re-armed
         self.final_turns: list[dict] = []
         self.end, self.end_P = None, None
@@ -166,15 +183,16 @@ class EconoAgent(BaseAgent):
         return f"(unknown tool {name})"
 
     # Model ----------------------------------------------------------------------------
-    async def complete(self, messages: list[dict], kind: str = "agent"):
+    async def complete(self, messages: list[dict], kind: str = "agent", tools: list[dict] | None = TOOLS):
         """One model call with retries: transient errors back off; a malformed tool call is resent.
-        `kind` goes to the gateway's log: agent, or summary for a compaction summary."""
+        `kind` goes to the gateway's log: agent, or summary for a compaction summary. `tools` None sends
+        no tools (Codex's compaction call)."""
         malformed, delay = 0, 2.0
         for attempt in range(8):
             started = time.monotonic()
             try:
                 reply = await self.client.chat.completions.create(
-                    model=self.model, messages=messages, tools=TOOLS, max_tokens=self.max_tokens,
+                    model=self.model, messages=messages, **({"tools": tools} if tools else {}), max_tokens=self.max_tokens,
                     temperature=self.temperature, top_p=self.top_p, reasoning_effort=TEMPLATE["reasoning_effort"],
                     extra_body={"chat_template_kwargs": TEMPLATE["chat_template_kwargs"]},
                     extra_headers={"X-Econo-Call-Kind": kind})
@@ -210,8 +228,13 @@ class EconoAgent(BaseAgent):
                 summary = lambda request: self.complete(request, kind="summary")  # noqa: E731
                 sent = await self.owner.before_call(self.messages, self.calls, summary) \
                     if self.owner else self.messages
-                if self.budget and not self._budget_allows(sent):
-                    break
+                if self.budget:
+                    tokens = self._count(sent)
+                    if self.compaction and tokens >= SUMMARY_AT * self.budget:
+                        await self._compact(tokens)
+                        sent, tokens = self.messages, self.compactions[-1]["P_after"]
+                    if not self._budget_allows(sent, tokens):
+                        break
                 try:
                     reply = await self.complete(sent)
                 except Exception as exc:
@@ -240,14 +263,40 @@ class EconoAgent(BaseAgent):
         finally:
             self._save()
 
-    def _budget_allows(self, sent: list[dict]) -> bool:
+    def _count(self, messages: list[dict], tools: list[dict] | None = TOOLS) -> int:
+        """The prompt's tokens as the server will count them (measure/tokens.py), with the request's tools."""
+        if self.counter is None:
+            from measure.tokens import count_prompt
+            self.counter = lambda m, t: count_prompt(m, t, self.model, **TEMPLATE)
+        return self.counter(messages, tools)
+
+    async def _compact(self, tokens: int) -> None:
+        """Codex 0.146.0's compaction (codex-rs/core/src/compact.rs, commit e363b08): the whole history plus
+        SUMMARIZATION_PROMPT as a user message, sent with no tools (Prompt::default()); the summary is the
+        reply's text. Codex then keeps the recent real user messages (up to 20,000 tokens) and appends
+        "{SUMMARY_PREFIX}\n{summary}"; our one real user message is the task (the nudges and the final-turn
+        notice are the harness's), so the conversation becomes [system, task, summary]."""
+        task = self.messages[1]
+        if len(task["content"].encode()) > 4 * CODEX_KEEP_USER_TOKENS:
+            raise RuntimeError("the task is over Codex's 20,000-token user-message cap; truncating it is not implemented")
+        request = self.messages + [{"role": "user", "content": CODEX_COMPACT}]
+        call_tokens = self._count(request, None)
+        reply = await self.complete(request, kind="summary", tools=None)
+        choice = reply.choices[0] if reply.choices else None
+        summary = (choice.message.content if choice is not None and choice.message is not None else None) or ""
+        usage = reply.usage.model_dump() if reply.usage else {}
+        self.messages = [self.messages[0], task, {"role": "user", "content": f"{CODEX_SUMMARY_PREFIX}\n{summary}"}]
+        after = self._count(self.messages)
+        self.compactions.append({
+            "summary_call": len(self.calls), "P_before": tokens, "P_call": call_tokens,
+            "G": usage.get("completion_tokens"), "capped": (usage.get("completion_tokens") or 0) >= self.max_tokens,
+            "finish_reason": choice.finish_reason if choice is not None else None, "summary_chars": len(summary),
+            "P_after": after, "P_after_share_of_budget": round(after / self.budget, 4)})
+
+    def _budget_allows(self, sent: list[dict], tokens: int) -> bool:
         """CLM's rule (budget.py, BudgetController.evaluate, with no rollback retries): over budget - 2,048,
         ONE final turn with CLM's notice appended; still over at the next check, the run ends. Back under
         the limit re-arms the final turn. With a budget there is no owner, so `sent` is the conversation."""
-        if self.counter is None:
-            from measure.tokens import count_prompt
-            self.counter = lambda messages: count_prompt(messages, TOOLS, self.model, **TEMPLATE)
-        tokens = self.counter(sent)
         if tokens <= self.budget - RESERVE:
             self.finalized = False
             return True
@@ -291,5 +340,6 @@ class EconoAgent(BaseAgent):
         Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
         (Path(self.logs_dir) / "trajectory.json").write_text(json.dumps(
             {"model": self.model, "econo": self.econo, "budget": self.budget, "end": self.end, "end_P": self.end_P,
-             "final_turns": self.final_turns, "messages": self.messages, "calls": self.calls,
+             "final_turns": self.final_turns, "compaction": self.compaction, "compactions": self.compactions,
+             "messages": self.messages, "calls": self.calls,
              "owner": self.owner.report() if self.owner else None}, indent=1, default=str))
