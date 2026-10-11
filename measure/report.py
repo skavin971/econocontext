@@ -21,7 +21,11 @@ context manager did:
 - EconoContext's actions, from each run's session database: arrival full/slice/preview, evictions,
   compactions, and Jev's questions and fallbacks with their error types;
 - CLM's context edits from its usage.json: model edits and forced rollbacks.
-A run whose request was refused for exceeding the model's window is an overflow, and counts as a FAIL.
+A run whose request was refused for exceeding the model's window is an overflow. Since step 10c a run
+that ends at a limit (overflow, or budget_exceeded under a token budget) is graded as it stands, and
+counts by its grade; an overflow that was never graded (tc9's) counts as a FAIL. The `end` column says
+how each run ended (submitted, max_steps, budget_exceeded, overflow; for CLM, budget_exceeded or
+call_cap), where the runner recorded it.
 
 It writes report.csv (one row per run), calls.csv (one row per call) and arms.csv (one row per task
 and arm). A call whose rebuilt prompt fails validation is listed, and the exit code is 2: review
@@ -44,8 +48,8 @@ from .flops import measure_log
 from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
-ARM_ORDER = ["raw", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
-COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "overflow", "capped", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
+ARM_ORDER = ["raw", "raw-32k", "summary-32k", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
+COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "end", "overflow", "capped", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
            "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
@@ -105,8 +109,9 @@ def run_actions(run: dict) -> dict:
 
 
 def outcome(reward, overflow: bool):
-    """1 pass, 0 fail (an overflow is a FAIL), None not graded."""
-    return 0 if overflow else (1 if reward == 1.0 else 0 if reward is not None else None)
+    """1 pass, 0 fail, None not graded. A graded run counts by its grade, however it ended (step 10c:
+    a run that ends at a limit is graded as it stands); an overflow that was never graded is a FAIL."""
+    return 1 if reward == 1.0 else 0 if reward is not None else (0 if overflow else None)
 
 
 def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
@@ -180,7 +185,8 @@ def main() -> None:
         extras[run_id] = acts = run_actions(run)
         repeat = parts[3][1:] if len(parts) == 4 and parts[3][1:].isdigit() else None
         table.append({"run_id": run_id, "task": parts[2] if len(parts) == 4 else "", "arm": parts[1] if len(parts) == 4 else "",
-                      "repeat": int(repeat) if repeat else None, "pass": s.get("reward"), "overflow": acts["overflow"],
+                      "repeat": int(repeat) if repeat else None, "pass": s.get("reward"),
+                      "end": s.get("end") or ("overflow" if acts["overflow"] else None), "overflow": acts["overflow"],
                       "capped": acts["capped"],
                       "calls": t["calls"], "summary_calls": t["summary_calls"],
                       "retries": t["retries"], "repeats": t["repeats"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],

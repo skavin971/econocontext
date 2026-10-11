@@ -244,3 +244,30 @@ The full list is in `docs/cleanup-map.md`.
 
   The late difference at 0.01 is consistent with vLLM not being bitwise reproducible across batches.
 - **Harbor's output count is `completion_tokens` only.** vLLM's `completion_tokens` already includes the thinking; `reasoning_tokens` is a detail of it. The agent used to add the two together, which was right for Gemini. This was Harbor's own count only; the FLOPs and the reports read the gateway log.
+
+### A budget rule for every arm (10c)
+
+- **CLM's rule, quoted from its released code** (`clm/clm_harness/utils/budget.py`, commit `18dc111`).
+  - The module docstring: "when the retained context crosses `budget - reserve` it is a context-limit EVENT: the model gets ONE final turn (submit / write the required output), then the run stops and the sandbox is graded as-is."
+  - `self.strict_target = self.budget - self.reserve`, with `reserve_tokens: int = 2048`; the harness's `context_budget_reserve_tokens` is also 2,048.
+  - `count()` returns `int(tk.count_tokens(messages)[0] * self.tok_ratio)`. That is tiktoken o200k_base, scaled by a ratio learned from the server's `prompt_tokens` and clamped to [0.5, 3.0].
+  - `evaluate()`, when `tc > self.strict_target`:
+    - while `self.n_retry_on_limit < self.max_num_retry_on_limit`, it rolls back (CLM's agent passes 50; the controller's default is 0);
+    - else, if `self._finalized`, it returns `"stop"`;
+    - else it sets `self._finalized = True` and returns `"final_turn"`, appending `final_message(tc)`.
+  - Back under the limit, `self._finalized = False`, which re-arms the final turn.
+  - The docstring says every harness shares this mechanism, and that one that cannot compact ("e.g. the plain baseline") passes `nudge_ratios=[]`. CLM's Base and Summary harnesses are not in the released repo.
+- **Ours (Base = raw with `--budget`).** Before each call, P is the prompt as the server will count it (`measure/tokens.py`).
+  - **The rule.** If P > budget − 2,048, the model gets ONE final turn: CLM's notice is appended to the conversation, verbatim, from `agents/react/prompts/clm_final_turn.txt`, with its source and license. Still over at the next check, the run ends with `end` = `budget_exceeded`, and the container is graded as it stands. Back under the limit re-arms the final turn.
+  - **No rollbacks.** Base cannot compact, so it uses the controller's default of 0 retries.
+  - **Every ending returns normally,** so every run is graded: `submitted`, `max_steps`, `budget_exceeded`, or `overflow` (the server refused a request over Purdue's window).
+- **Why we follow CLM's released code over the paper's one line (Kavin, 2026-10-11).** Appendix E summarises Base as "a request that would exceed it ends the run". The code is what CLM ran, and it gives one final turn with a notice. The notice's wording affects behaviour, so we use it verbatim. That is allowed under CC BY-NC 4.0 for non-commercial research, with attribution, and the text is stored in its own file.
+- **Where ours differs: the count.** CLM's count is an estimate, calibrated to the server's. Ours is the server's own count, rebuilt with the model's tokenizer, template and tools.
+  - On all 1,875 answered tc9 calls (`runs/tier-a/step10c-count.out`), ours equals the server's `prompt_tokens` on 1,432 calls. On 443 it is 1–3 tokens higher, because Purdue reorders tool-schema keys. It is never lower.
+  - So our budget check can fire a few tokens early, never late.
+- **The arms.**
+  - `--budget N` gives every arm in a run the same budget and names it `<arm>-<N/1000>k` (`raw-32k`, `clm-32k`).
+  - The `clm` arm needs `--budget` (its `context_budget_tokens`) and replaces `clm-32k` and `clm-full`, whose old labels stay readable.
+  - EconoContext arms refuse a budget ("EconoContext has no budget mechanism yet"), in the agent and in the runner.
+  - CLM's end reason comes from its `usage.json`: `budget_finalized` gives `budget_exceeded`, and `hit_lm_call_cap` gives `call_cap`.
+- **Reports.** A graded run counts by its grade, however it ended, and an `end` column says how it ended. tc9's three overflows were never graded, so they stay FAILs: tc9's tables are unchanged.

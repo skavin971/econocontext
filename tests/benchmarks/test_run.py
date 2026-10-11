@@ -3,6 +3,7 @@ cleanly between trials (daily budget, battery, invalid calls, crashes, Jev fallb
 network: the gateway's health, the battery, the trial itself and the measurement are replaced."""
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,7 +31,7 @@ def budget(used, per_run=150, per_day=8000):
 
 
 def args(**kw):
-    return SimpleNamespace(**{"label": "L", "gateway": "g", "gates": False, "progress": None, **kw})
+    return SimpleNamespace(**{"label": "L", "gateway": "g", "gates": False, "progress": None, "budget": None, **kw})
 
 
 def test_trials_are_interleaved_by_repeat_then_task_then_arm(runner):
@@ -104,3 +105,22 @@ def test_jev_falling_back_on_more_than_half_its_questions_stops_the_run(runner, 
     assert module.stop["reason"] is None
     gate(module, monkeypatch, {"arm": "econo+jev", "jev_fallbacks": {"asked": 4, "fell_back": 3}}, {})
     assert "Jev fell back on 3 of 4" in module.stop["reason"]
+
+
+def test_with_a_budget_every_arm_is_named_after_it(runner):
+    module, _ = runner
+    assert [module.arm_name(arm, 32_000) for arm in ("raw", "clm")] == ["raw-32k", "clm-32k"]
+    assert (module.arm_name("raw", 30_500), module.arm_name("raw", None)) == ("raw-30500", "raw")
+    summary = module.trial(args(budget=32_000), Path("logs"), "raw", "acl", 1)
+    assert summary["run_id"] == "L.raw-32k.acl.r1"
+
+
+def test_econocontext_with_a_budget_and_clm_without_one_are_refused(runner, monkeypatch):
+    module, _ = runner
+    base = ["run.py", "--label", "L", "--tasks", "acl", "--model", "qwen3.8:27b"]
+    monkeypatch.setattr(sys, "argv", base + ["--arm", "raw,econo+jev", "--budget", "32000"])
+    with pytest.raises(SystemExit, match="EconoContext has no budget mechanism yet"):
+        module.main()
+    monkeypatch.setattr(sys, "argv", base + ["--arm", "clm"])
+    with pytest.raises(SystemExit, match="the clm arm needs --budget"):
+        module.main()

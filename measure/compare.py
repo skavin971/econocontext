@@ -46,8 +46,9 @@ def load_runs(label_dir: Path) -> dict:
     for path in sorted(label_dir.glob("*/*/summary.json")):
         s = json.loads(path.read_text())
         m = measured.get(s["run_id"])
-        outcome = ("OVF" if s.get("overflow") else "pass" if s.get("reward") == 1.0 else
-                   "fail" if s.get("reward") is not None else "NG")
+        # A graded run counts by its grade (step 10c); an overflow never graded (tc9) is a FAIL (OVF).
+        outcome = ("pass" if s.get("reward") == 1.0 else "fail" if s.get("reward") is not None else
+                   "OVF" if s.get("overflow") else "NG")
         rec = {"task": s["task"], "arm": s["arm"], "repeat": int(s["repeat"]), "outcome": outcome,
                "exception": s.get("exception"), "calls_log": s.get("calls_log"), "measured": m is not None}
         if m:

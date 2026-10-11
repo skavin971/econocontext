@@ -2,11 +2,14 @@
 
 Why it exists: one runner for every arm, so each arm gets the same tasks, settings, gateway and
 records. The arms:
-  raw          our agent (agents/react/agent.py); it sends its whole conversation every call
+  raw          our agent (agents/react/agent.py); it sends its whole conversation every call. With
+               --budget it is CLM's Base: over budget - 2,048, one final turn, then the run ends (step 10c)
   econo+jev    our agent with EconoContext, Jev answering its questions
   econo+prior  the same rules with fixed guesses (no Jev)
-  clm-32k      CLM's own agent (baselines/clm/run.sh) at its published setting: context_budget_tokens 32,000
-  clm-full     CLM's agent at the real window: 57,344 = Purdue's 65,536 minus max_tokens 8,192
+  clm          CLM's own agent (baselines/clm/run.sh); needs --budget, its context_budget_tokens
+--budget N gives every arm in the run the same token budget, and names the arm <arm>-<N/1000>k in run
+ids and folders (raw at 32,000 is raw-32k). EconoContext has no budget mechanism yet, so its arms
+refuse one. Earlier labels keep their arm names (tc9's clm-32k and clm-full).
 Start the gateway first (.venv/bin/python -m gateway.server --provider purdue). Every call is logged
 to <gateway log dir>/<run_id>/calls.jsonl (run id <label>.<arm>.<task>.r<n>), the input of measure/.
 Each trial writes runs/<label>/<arm>/<task>-r<n>/summary.json. Several arms run interleaved (for each
@@ -23,8 +26,8 @@ Stops cleanly between trials, never mid-trial:
   half its questions in a trial.
 With --progress, one line per finished trial and every gate decision are appended to that file.
 
-Run: .venv/bin/python benchmarks/tblite/run.py --label tc9 --arm raw,econo+jev,clm-32k,clm-full --tasks frozen \
-       --repeats 3 --model qwen3.8:27b --workers 2 --gates --progress runs/tier-a/step9-progress.md
+Run: .venv/bin/python benchmarks/tblite/run.py --label tc10s --arm raw,clm --budget 32000 --tasks frozen \
+       --repeats 1 --model qwen3.8:27b --workers 2 --gates --progress runs/tier-a/step10d-progress.md
 """
 
 import argparse
@@ -48,8 +51,7 @@ sys.path.insert(0, str(ROOT))
 from tasks import FROZEN, TBLITE  # noqa: E402
 
 ECONO = {"raw": "off", "econo+jev": "jev", "econo+prior": "prior"}
-CLM = {"clm-32k": 32_000, "clm-full": 65_536 - 8_192}
-ARMS = list(ECONO) + list(CLM)
+ARMS = list(ECONO) + ["clm"]
 BATTERY_STOP = 20                     # percent, while discharging
 budget = threading.Lock()             # guards the counters below and the progress file
 running = [0]                         # trials started and not finished; each may still need a full run's calls
@@ -121,9 +123,16 @@ def halt(a, run_id: str, reason: str) -> dict:
     return {"run_id": run_id, "skipped": f"stopped: {stop['reason']}"}
 
 
+def arm_name(arm: str, budget: int | None) -> str:
+    """The arm as run ids and folders name it: with a budget, raw at 32,000 is raw-32k."""
+    if not budget:
+        return arm
+    return f"{arm}-{budget // 1000}k" if budget % 1000 == 0 else f"{arm}-{budget}"
+
+
 def trial(a, log_dir: Path, arm: str, task: str, repeat: int) -> dict:
-    run_id = f"{a.label}.{arm}.{task}.r{repeat}"
-    out = ROOT / "runs" / a.label / arm / f"{task}-r{repeat}"
+    run_id = f"{a.label}.{arm_name(arm, a.budget)}.{task}.r{repeat}"
+    out = ROOT / "runs" / a.label / arm_name(arm, a.budget) / f"{task}-r{repeat}"
     with budget:
         if stop["reason"]:
             return {"run_id": run_id, "skipped": f"stopped: {stop['reason']}"}
@@ -151,19 +160,20 @@ def trial(a, log_dir: Path, arm: str, task: str, repeat: int) -> dict:
 def run_trial(a, log_dir: Path, arm: str, task: str, repeat: int, run_id: str, out: Path) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "PYTHONPATH": f"{ROOT}:{os.environ.get('PYTHONPATH', '')}", "ECONO_CAFFEINATED": "1"}
-    started = time.time()
-    if arm in CLM:
-        name = f"{arm}-{task}-r{repeat}"
-        command = [str(ROOT / "baselines" / "clm" / "run.sh"), a.label, task, str(CLM[arm]), str(repeat), arm]
+    started, label = time.time(), arm_name(arm, a.budget)
+    if arm == "clm":
+        name = f"{label}-{task}-r{repeat}"
+        command = [str(ROOT / "baselines" / "clm" / "run.sh"), a.label, task, str(a.budget), str(repeat), label]
         with (out / "clm-run.out").open("w") as log:
             code = subprocess.run(command, env={**env, "GATEWAY": a.gateway, "MODEL": a.model}, stdout=log,
                                   stderr=subprocess.STDOUT, cwd=ROOT).returncode
     else:
-        name = f"{arm.replace('+', '-')}-{task}-r{repeat}"[:60]
+        name = f"{label.replace('+', '-')}-{task}-r{repeat}"[:60]
         command = [str(ROOT / ".venv" / "bin" / "harbor"), "trial", "start", "-p", str(TBLITE / task), "-e", "docker",
                    "-a", "agents.react.agent:EconoAgent", "-m", f"openai/{a.model}",
                    "--agent-kwarg", f"api_base={a.gateway}/run/{run_id}/v1",
                    "--agent-kwarg", f"econo={ECONO[arm]}", "--agent-kwarg", f"econo_run={run_id}",
+                   *(["--agent-kwarg", f"budget={a.budget}"] if a.budget else []),
                    "--agent-timeout-multiplier", str(a.timeout_multiplier),
                    "--trials-dir", str(out / "harbor"), "--trial-name", name]
         (out / "command.txt").write_text(" ".join(command) + "\n")
@@ -171,12 +181,12 @@ def run_trial(a, log_dir: Path, arm: str, task: str, repeat: int, run_id: str, o
             env["TYPESAFE_API_KEY"] = env_value("TYPESAFE_API_KEY")
         with (out / "harbor.out").open("w") as log:
             code = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT).returncode
-    return summarize(run_id, arm, task, repeat, out, out / "harbor" / name, log_dir / run_id / "calls.jsonl", code,
-                     time.time() - started)
+    return summarize(run_id, label, arm == "clm", task, repeat, out, out / "harbor" / name,
+                     log_dir / run_id / "calls.jsonl", code, time.time() - started)
 
 
-def summarize(run_id: str, arm: str, task: str, repeat: int, out: Path, trial_dir: Path, calls_log: Path, code: int,
-              seconds: float) -> dict:
+def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Path, trial_dir: Path, calls_log: Path,
+              code: int, seconds: float) -> dict:
     result = json.loads((trial_dir / "result.json").read_text()) if (trial_dir / "result.json").exists() else {}
     rows = [json.loads(line) for line in calls_log.read_text().splitlines()] if calls_log.exists() else []
     calls = [r for r in rows if r.get("call_no")]
@@ -184,23 +194,28 @@ def summarize(run_id: str, arm: str, task: str, repeat: int, out: Path, trial_di
     summary = {"run_id": run_id, "arm": arm, "task": task, "repeat": repeat, "exit": code, "seconds": round(seconds),
                "reward": ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward"),
                "exception": (result.get("exception_info") or {}).get("exception_type"),
-               # A request over the model's window, refused by the server: the run counts as a FAIL.
+               # A request over the model's window, refused by the server. Since step 10c our agent then
+               # ends normally and the container is graded as it stands; tc9's overflows were never graded.
                "overflow": any(r.get("status") == 400 and "ContextWindowExceeded" in json.dumps(r.get("response"))
                                for r in calls),
                "calls": len(calls), "calls_by_kind": dict(Counter(r["kind"] for r in calls)),
                "refused": len(rows) - len(calls), "upstream_retries": sum(r.get("retries") or 0 for r in calls),
                "trial_dir": str(trial_dir.relative_to(ROOT)) if trial_dir.is_relative_to(ROOT) else str(trial_dir),
                "calls_log": str(calls_log.relative_to(ROOT)) if calls_log.is_relative_to(ROOT) else str(calls_log)}
-    if arm in CLM:
+    if clm:
         usage = json.loads((agent / "usage.json").read_text()) if (agent / "usage.json").exists() else {}
         summary["agent_calls"] = usage.get("n_lm_calls")
         summary["clm"] = {k: usage.get(k) for k in ("context_budget_tokens", "n_ctx_syncs", "n_ctx_syncs_real",
                                                     "n_ctx_grew", "n_ctx_rejected", "n_retry_on_limit",
-                                                    "n_turns_rolled_back", "n_nudges", "max_steps")}
+                                                    "n_turns_rolled_back", "n_nudges", "max_steps", "budget_finalized",
+                                                    "hit_lm_call_cap", "over_budget_policy")}
+        summary["end"] = ("budget_exceeded" if usage.get("budget_finalized") else
+                          "call_cap" if usage.get("hit_lm_call_cap") else None)
     else:
         traj = json.loads((agent / "trajectory.json").read_text()) if (agent / "trajectory.json").exists() else {}
         summary.update(agent_calls=len(traj.get("calls") or []), owner=traj.get("owner"),
-                       jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"))
+                       jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"), budget=traj.get("budget"),
+                       end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"))
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 
@@ -224,8 +239,10 @@ def check(a, summary: dict) -> None:
     t = measure(summary)
     crashed = summary.get("exception") and summary.get("reward") is None and not summary.get("overflow")
     jev = summary.get("jev_fallbacks") or {}
-    outcome = ("overflow (FAIL)" if summary.get("overflow") else "pass" if summary.get("reward") == 1.0 else
-               "fail" if summary.get("reward") is not None else f"not graded ({summary.get('exception')})")
+    outcome = ("pass" if summary.get("reward") == 1.0 else "fail" if summary.get("reward") is not None else
+               "overflow, not graded (FAIL)" if summary.get("overflow") else f"not graded ({summary.get('exception')})")
+    if summary.get("end") not in (None, "submitted"):
+        outcome += f" (end {summary['end']})"
     with budget:
         progress(a, f"{summary['arm']} | {summary['task']} | r{summary['repeat']} | {outcome} | {summary['calls']} calls | "
                     f"{t.get('F', 0) / 1e15:.3f} PFLOPs | valid {t.get('valid', 0)}/{t.get('valid', 0) + t.get('invalid', 0)} | "
@@ -275,11 +292,16 @@ def main() -> None:
     p.add_argument("--timeout-multiplier", type=float, default=4)
     p.add_argument("--gates", action="store_true", help="measure each trial and stop on the quality gates")
     p.add_argument("--progress", help="append one line per finished trial and every gate decision here")
+    p.add_argument("--budget", type=int, help="a token budget for every arm (step 10c: 32000)")
     a = p.parse_args()
     arms = a.arm.split(",")
     unknown = [arm for arm in arms if arm not in ARMS]
     if unknown:
         raise SystemExit(f"unknown arm(s) {unknown}; choose from {ARMS}")
+    if a.budget and [arm for arm in arms if ECONO.get(arm, "off") != "off"]:
+        raise SystemExit("EconoContext has no budget mechanism yet")
+    if "clm" in arms and not a.budget:
+        raise SystemExit("the clm arm needs --budget (its context_budget_tokens)")
     keep_awake()
     h = health(a.gateway)
     if h is None:
@@ -288,7 +310,8 @@ def main() -> None:
     tasks = FROZEN if a.tasks == "frozen" else a.tasks.split(",")
     jobs = jobs_for(arms, tasks, a.repeat_from, a.repeats)
     with budget:
-        progress(a, f"START | {a.label}: {len(jobs)} trials ({', '.join(arms)}; {len(tasks)} tasks; repeats "
+        progress(a, f"START | {a.label}: {len(jobs)} trials ({', '.join(arm_name(arm, a.budget) for arm in arms)}; "
+                    f"{len(tasks)} tasks; repeats "
                     f"{a.repeat_from}-{a.repeat_from + a.repeats - 1}), {a.workers} workers; {h['requests_today']} of "
                     f"{h['max_requests_per_day']} requests used today")
     queue, results = list(jobs), []

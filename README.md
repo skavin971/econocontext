@@ -16,9 +16,9 @@ Earlier code (v0, the v1 engine, Omnigent/SWE-bench, Claude Code hooks, the Gemi
 
 It uses only the standard library and PyYAML, and imports nothing from the other folders.
 
-**`agents/`** holds our agent that Harbor runs: `react/agent.py`, a small tool-calling agent (bash, read_file, write_file, submit) with the arms raw, jev and prior. It reaches models only through `gateway/`.
+**`agents/`** holds our agent that Harbor runs: `react/agent.py`, a small tool-calling agent (bash, read_file, write_file, submit) with the arms raw, jev and prior. With a token budget, raw is CLM's Base. `react/prompts/` holds prompts taken verbatim from other projects, each with its source and license. The agent reaches models only through `gateway/`.
 
-**`baselines/`** holds the methods we compare against. Each is the authors' code as a pinned git submodule, unmodified, in `baselines/<name>/upstream`, plus our wrapper next to it. `clm/` runs CLM's own agent through our gateway (`clm/run.sh`). CLM's license is CC BY-NC 4.0; we use its code and never copy it into ours.
+**`baselines/`** holds the methods we compare against. Each is the authors' code as a pinned git submodule, unmodified, in `baselines/<name>/upstream`, plus our wrapper next to it. `clm/` runs CLM's own agent through our gateway (`clm/run.sh`). CLM's license is CC BY-NC 4.0; we use its code and never copy it into ours. The one exception is its final-turn notice, a single text used verbatim with attribution (`agents/react/prompts/clm_final_turn.txt`), because its wording affects behaviour.
 
 **`gateway/`** is one small OpenAI-compatible proxy (`.venv/bin/python -m gateway.server --provider purdue`). It does five things:
 - holds the provider keys;
@@ -31,6 +31,7 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 - model constants from a model's config (CLM Eq. 7);
 - a 16-token prefix-cache simulation;
 - prefix-reuse FLOPs per call and per run (Eq. 9);
+- a prompt's size as the server will count it (`tokens.py`), which agents use to enforce a budget;
 - a context profile per task (`profile.py`);
 - the per-arm comparison tables (`compare.py`).
 

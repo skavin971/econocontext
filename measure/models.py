@@ -18,6 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MEASURED = "Qwen/Qwen3.8-27B-FP8"   # qwen3.8:27b on Purdue GenAI Studio (step 1)
+SERVED = {"qwen3.8:27b": MEASURED}   # a provider's model id -> the Hugging Face model it serves
 
 
 def constants(config: dict) -> dict:

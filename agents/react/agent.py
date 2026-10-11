@@ -17,9 +17,18 @@ The step limit is 64 for every arm (CLM's default; Kavin, step 9). Every call as
 sampling and output cap (step 10b): temperature 0.7, top_p 0.95, thinking on, reasoning_effort medium,
 max_tokens 2,048. These are the values the gateway pins for every agent, so it changes none of them here.
 
+A token budget (step 10c; the raw arm with a budget is CLM's Base) follows CLM's released code, its
+budget.py (Kavin): before each call the prompt is counted as the server will count it
+(measure/tokens.py). Over budget - 2,048 the model gets ONE final turn, with CLM's final-turn notice
+appended (prompts/clm_final_turn.txt, verbatim); still over at the next check, the run ends. Back
+under the limit re-arms the final turn. EconoContext has no budget mechanism yet, so a budget with
+econo on is refused. A run ends with `end` = submitted, max_steps, budget_exceeded or overflow (the
+server refused a request over the model's window); every ending returns normally, so the verifier
+grades the container as it stands (CLM App. E).
+
 Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
      -m openai/qwen3.8:27b --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
-     [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>]
+     [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>] [--agent-kwarg budget=32000]
 """
 
 import asyncio
@@ -55,6 +64,22 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}}}},
 ]
 RETRYABLE = {408, 409, 429, 500, 502, 503, 504, 529}
+TEMPLATE = {"reasoning_effort": "medium", "chat_template_kwargs": {"enable_thinking": True}}   # as the gateway pins them
+RESERVE = 2048        # CLM's context_budget_reserve_tokens: the limit is budget - 2,048
+PROMPTS = Path(__file__).resolve().parent / "prompts"
+
+
+def prompt(name: str) -> str:
+    """A stored prompt, without its header (the lines starting with '#')."""
+    return "\n".join(line for line in (PROMPTS / name).read_text().splitlines() if not line.startswith("#")).strip()
+
+
+FINAL_TURN = prompt("clm_final_turn.txt")
+
+
+def overflowed(exc: Exception) -> bool:
+    """The server refused the request for exceeding the model's window (vLLM's error through LiteLLM)."""
+    return getattr(exc, "status_code", None) == 400 and "ContextWindowExceeded" in str(exc)
 
 
 def cap(text: str, limit: int) -> str:
@@ -68,7 +93,8 @@ def cap(text: str, limit: int) -> str:
 class EconoAgent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, econo="off", econo_run=None,
                  max_steps=64, max_tokens=2048, temperature=0.7, top_p=0.95, command_timeout=180,
-                 output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", **kwargs):
+                 output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", budget=None,
+                 counter=None, **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.model = (model_name or "").removeprefix("openai/")
         self.econo, self.econo_run = econo, econo_run
@@ -77,6 +103,13 @@ class EconoAgent(BaseAgent):
         self.max_steps, self.max_tokens, self.temperature = int(max_steps), int(max_tokens), float(temperature)
         self.top_p = float(top_p)
         self.command_timeout, self.output_chars = int(command_timeout), int(output_chars)
+        self.budget = int(budget) if str(budget).lower() not in ("none", "", "0") else None
+        if self.budget and econo != "off":
+            raise ValueError("EconoContext has no budget mechanism yet")
+        self.counter = counter        # prompt -> tokens; measure.tokens.count_prompt unless a test gives one
+        self.finalized = False        # CLM's final turn granted and not re-armed
+        self.final_turns: list[dict] = []
+        self.end, self.end_P = None, None
         if client is None:
             if not api_base:
                 raise ValueError("api_base is required: agents reach models only through gateway/")
@@ -142,8 +175,8 @@ class EconoAgent(BaseAgent):
             try:
                 reply = await self.client.chat.completions.create(
                     model=self.model, messages=messages, tools=TOOLS, max_tokens=self.max_tokens,
-                    temperature=self.temperature, top_p=self.top_p, reasoning_effort="medium",
-                    extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                    temperature=self.temperature, top_p=self.top_p, reasoning_effort=TEMPLATE["reasoning_effort"],
+                    extra_body={"chat_template_kwargs": TEMPLATE["chat_template_kwargs"]},
                     extra_headers={"X-Econo-Call-Kind": kind})
             except Exception as exc:  # openai's error types carry status_code; others are transport errors
                 status = getattr(exc, "status_code", None)
@@ -177,7 +210,15 @@ class EconoAgent(BaseAgent):
                 summary = lambda request: self.complete(request, kind="summary")  # noqa: E731
                 sent = await self.owner.before_call(self.messages, self.calls, summary) \
                     if self.owner else self.messages
-                reply = await self.complete(sent)
+                if self.budget and not self._budget_allows(sent):
+                    break
+                try:
+                    reply = await self.complete(sent)
+                except Exception as exc:
+                    if not overflowed(exc):
+                        raise
+                    self.end = "overflow"
+                    break
                 self._account(context)
                 choice = reply.choices[0] if reply.choices else None
                 if choice is None or choice.message is None:
@@ -192,9 +233,31 @@ class EconoAgent(BaseAgent):
                     self.messages.append({"role": "user", "content": NUDGE})
                     continue
                 if await self._run_calls(environment, calls):
+                    self.end = "submitted"
                     break
+            else:
+                self.end = "max_steps"
         finally:
             self._save()
+
+    def _budget_allows(self, sent: list[dict]) -> bool:
+        """CLM's rule (budget.py, BudgetController.evaluate, with no rollback retries): over budget - 2,048,
+        ONE final turn with CLM's notice appended; still over at the next check, the run ends. Back under
+        the limit re-arms the final turn. With a budget there is no owner, so `sent` is the conversation."""
+        if self.counter is None:
+            from measure.tokens import count_prompt
+            self.counter = lambda messages: count_prompt(messages, TOOLS, self.model, **TEMPLATE)
+        tokens = self.counter(sent)
+        if tokens <= self.budget - RESERVE:
+            self.finalized = False
+            return True
+        if self.finalized:
+            self.end, self.end_P = "budget_exceeded", tokens
+            return False
+        self.finalized = True
+        self.final_turns.append({"before_call": len(self.calls) + 1, "P": tokens})
+        sent.append({"role": "user", "content": FINAL_TURN.format(tokens=tokens, budget=self.budget)})
+        return True
 
     async def _run_calls(self, environment, calls: list[dict]) -> bool:
         """Answer every tool call of one assistant turn (Vertex needs a result for each)."""
@@ -227,5 +290,6 @@ class EconoAgent(BaseAgent):
     def _save(self) -> None:
         Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
         (Path(self.logs_dir) / "trajectory.json").write_text(json.dumps(
-            {"model": self.model, "econo": self.econo, "messages": self.messages, "calls": self.calls,
+            {"model": self.model, "econo": self.econo, "budget": self.budget, "end": self.end, "end_P": self.end_P,
+             "final_turns": self.final_turns, "messages": self.messages, "calls": self.calls,
              "owner": self.owner.report() if self.owner else None}, indent=1, default=str))
