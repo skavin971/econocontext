@@ -8,18 +8,26 @@
 # model key 27b gives the attention geometry 16 layers x 6144) and the measured model's tokenizer.
 # max_tokens is 8,192 for every arm (our agent's; CLM's default is 16,384), per Kavin's decision of 2026-10-10.
 #
-# Usage: agents/clm/run.sh <label> <task> <context_budget_tokens> [repeat]
+# Usage: agents/clm/run.sh <label> <task> <context_budget_tokens> [repeat] [arm]
 #   e.g. agents/clm/run.sh tc1 acl-permissions-inheritance 32000
+#   arm (default clm-b<budget>) names the output folder and the gateway run id, like our arms.
 # Env: GATEWAY (default http://127.0.0.1:8787), MODEL (default qwen3.8:27b), TBLITE_DIR.
+# On macOS it keeps the machine awake while it runs (caffeinate), unless benchmarks/tblite/run.py
+# started it (that runner holds caffeinate itself and sets ECONO_CAFFEINATED).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-label="$1"; task="$2"; budget="$3"; repeat="${4:-1}"
+label="$1"; task="$2"; budget="$3"; repeat="${4:-1}"; arm="${5:-clm-b$3}"
 gateway="${GATEWAY:-http://127.0.0.1:8787}"
 model="${MODEL:-qwen3.8:27b}"
 tblite="${TBLITE_DIR:-$HOME/econo/OpenThoughts-TBLite}"
-arm="clm-b${budget}"
 run_id="${label}.${arm}.${task}.r${repeat}"
 out="$ROOT/runs/$label/$arm/${task}-r${repeat}"
+
+if [ "$(uname)" = Darwin ] && [ -z "${ECONO_CAFFEINATED:-}" ]; then
+  caffeinate -i -w $$ &
+  pmset -g batt | grep -q "Battery Power" && echo "WARNING: on battery power; plug in for long runs"
+  echo "reminder: keep the lid open (a closed lid sleeps the Mac even with caffeinate)"
+fi
 
 constants() { "$ROOT/.venv/bin/python" -c "import json; m = json.load(open('$ROOT/measure/model_constants.json')); $1"; }
 n_body=$(constants "print(m['models'][m['measured_model']]['C_token'] // 2)")

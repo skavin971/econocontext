@@ -13,6 +13,8 @@ Vertex quirks (EconoCLM): echo each assistant message whole (it carries
 `extra_content.google.thought_signature`), never end the list on an assistant turn, and resend a
 call that ends with `malformed_function_call`.
 
+The step limit is 64 for every arm (CLM's default; Kavin, step 9), max_tokens 8,192.
+
 Use: harbor trial start -p <task> -e docker -a agents.react.agent:EconoAgent
      -m openai/qwen3.8:27b --agent-kwarg api_base=http://127.0.0.1:8787/run/<run>/v1
      [--agent-kwarg econo=jev|prior --agent-kwarg econo_run=<run>]
@@ -63,7 +65,7 @@ def cap(text: str, limit: int) -> str:
 
 class EconoAgent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, econo="off", econo_run=None,
-                 max_steps=60, max_tokens=8192, temperature=0.7, command_timeout=180,
+                 max_steps=64, max_tokens=8192, temperature=0.7, command_timeout=180,
                  output_chars=30000, client=None, state_dir=STATE, force=None, econo_cache="on", **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.model = (model_name or "").removeprefix("openai/")

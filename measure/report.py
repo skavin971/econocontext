@@ -13,8 +13,17 @@ one row:
 - Jev input tokens and fallbacks;
 - how many calls passed validation.
 
-It writes report.csv (one row per run) and calls.csv (one row per call). A call whose rebuilt prompt
-fails validation is listed, and the exit code is 2: review those runs before using their numbers.
+It then prints a per-task x arm summary: the mean and per-repeat values of pass, calls, ΣP, ΣU, ΣG
+and PFLOPs (linear, attention, total), with overflows, retries and repeats. It also shows what the
+context manager did:
+- EconoContext's actions, from each run's session database: arrival full/slice/preview, evictions,
+  compactions, and Jev's questions and fallbacks with their error types;
+- CLM's context edits from its usage.json: model edits and forced rollbacks.
+A run whose request was refused for exceeding the model's window is an overflow, and counts as a FAIL.
+
+It writes report.csv (one row per run), calls.csv (one row per call) and arms.csv (one row per task
+and arm). A call whose rebuilt prompt fails validation is listed, and the exit code is 2: review
+those runs before using their numbers.
 The tokenizer is the measured model's own, at the revision in measure/model_constants.json.
 
 Run: .venv/bin/python -m measure.report runs/ta1 [runs/gateway/<run_id>/calls.jsonl ...] [--out runs/ta1]
@@ -23,14 +32,18 @@ Run: .venv/bin/python -m measure.report runs/ta1 [runs/gateway/<run_id>/calls.js
 import argparse
 import csv
 import json
+import sqlite3
+import statistics
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from .flops import measure_log
 from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
-COLUMNS = ["run_id", "task", "arm", "pass", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G", "hit_share",
+ARM_ORDER = ["raw", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
+COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "overflow", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G", "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
 
@@ -50,6 +63,93 @@ def runs(paths: list[str]) -> list[dict]:
     return found
 
 
+def run_actions(run: dict) -> dict:
+    """One run's overflow flag, and what its context manager did: EconoContext (from the session
+    database) or CLM (from its usage.json). Read directly; measure/ never imports the method."""
+    acts = {"overflow": False, "arrival": Counter(), "evictions": 0, "compactions": 0, "jev_asked": 0,
+            "jev_fallbacks": 0, "jev_errors": Counter(), "clm_edits": None, "clm_rollbacks": None}
+    for line in Path(run["calls_log"]).read_text().splitlines():
+        row = json.loads(line)
+        if row.get("status") == 400 and "ContextWindowExceeded" in json.dumps(row.get("response")):
+            acts["overflow"] = True
+    folder = run.get("dir")
+    db = next(folder.glob("harbor/*/agent/session.sqlite3"), None) if folder else None
+    if db:
+        with sqlite3.connect(db) as con:
+            for rule, action, answers in con.execute("SELECT rule, action, answers FROM decisions"):
+                if rule.startswith("4 "):
+                    acts["arrival"][action] += 1
+                acts["evictions"] += rule.startswith("6 ") and action == "evict"
+                acts["compactions"] += rule.startswith("7 ") and action == "compacted"
+                source = (json.loads(answers) or {}).get("source") if answers else None
+                if source:
+                    acts["jev_asked"] += 1
+                    if source.startswith("prior ("):
+                        acts["jev_fallbacks"] += 1
+                        acts["jev_errors"][source[len("prior ("):-1]] += 1
+    usage = next(folder.glob("harbor/*/agent/usage.json"), None) if folder else None
+    if usage:
+        u = json.loads(usage.read_text())
+        acts["clm_edits"], acts["clm_rollbacks"] = u.get("n_ctx_syncs_real"), u.get("n_retry_on_limit")
+    return acts
+
+
+def outcome(reward, overflow: bool):
+    """1 pass, 0 fail (an overflow is a FAIL), None not graded."""
+    return 0 if overflow else (1 if reward == 1.0 else 0 if reward is not None else None)
+
+
+def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
+    """Per task x arm: means and per-repeat values, and what the context manager did."""
+    groups = defaultdict(list)
+    for r in table:
+        groups[(r["task"], r["arm"])].append(r)
+    order = {arm: i for i, arm in enumerate(ARM_ORDER)}
+    rows = []
+    for (task, arm), runs_ in sorted(groups.items(), key=lambda kv: (kv[0][0], order.get(kv[0][1], 99), kv[0][1])):
+        runs_ = sorted(runs_, key=lambda r: r["repeat"] or 0)
+        acts = [extras[r["run_id"]] for r in runs_]
+        passes = [outcome(r["pass"], e["overflow"]) for r, e in zip(runs_, acts)]
+        graded = [p for p in passes if p is not None]
+        mean = lambda key: statistics.mean(r[key] for r in runs_)  # noqa: E731
+        arrival = sum((e["arrival"] for e in acts), Counter())
+        errors = sum((e["jev_errors"] for e in acts), Counter())
+        rows.append({
+            "task": task, "arm": arm, "n": len(runs_), "passes": sum(graded), "graded": len(graded),
+            "pass_by_repeat": " ".join("-" if p is None else str(p) for p in passes),
+            "calls_mean": round(mean("calls"), 1), "P_mean": round(mean("P")), "U_mean": round(mean("U")),
+            "G_mean": round(mean("G")), "PFLOPs_lin_mean": round(mean("PFLOPs_lin"), 4),
+            "PFLOPs_attn_mean": round(mean("PFLOPs_attn"), 4), "PFLOPs_mean": round(mean("PFLOPs"), 4),
+            "PFLOPs_by_repeat": " ".join(f"{r['PFLOPs']:.3f}" for r in runs_),
+            "overflows": sum(e["overflow"] for e in acts), "retries": sum(r["retries"] for r in runs_),
+            "repeats": sum(r["repeats"] for r in runs_),
+            "arrival_full_slice_preview": f"{arrival['full']}/{arrival['slice']}/{arrival['preview']}" if arrival else "",
+            "evictions": sum(e["evictions"] for e in acts), "compactions": sum(e["compactions"] for e in acts),
+            "jev_asked": sum(e["jev_asked"] for e in acts), "jev_fallbacks": sum(e["jev_fallbacks"] for e in acts),
+            "jev_errors": "; ".join(f"{k} x{v}" for k, v in errors.items()),
+            "clm_edits": sum(e["clm_edits"] or 0 for e in acts) if any(e["clm_edits"] is not None for e in acts) else "",
+            "clm_rollbacks": sum(e["clm_rollbacks"] or 0 for e in acts) if any(e["clm_rollbacks"] is not None for e in acts) else ""})
+    print(f"\n{'task':34s} {'arm':10s} {'pass':>5s} {'by rep':>7s} {'calls':>6s} {'ΣP':>9s} {'ΣU':>7s} {'ΣG':>7s} "
+          f"{'PFLOPs':>7s} {'by repeat':>20s} {'ovf':>3s} {'ret':>3s} {'rep':>3s}  context manager")
+    for r in rows:
+        if r["arm"].startswith("econo"):
+            manager = (f"arrival f/s/p {r['arrival_full_slice_preview'] or '0/0/0'}, evict {r['evictions']}, compact "
+                       f"{r['compactions']}, Jev {r['jev_asked']} asked {r['jev_fallbacks']} fallbacks"
+                       + (f" ({r['jev_errors']})" if r["jev_errors"] else ""))
+        elif r["arm"].startswith("clm"):
+            manager = f"edits {r['clm_edits']}, rollbacks {r['clm_rollbacks']}"
+        else:
+            manager = ""
+        print(f"{r['task'][:34]:34s} {r['arm']:10s} {r['passes']:>2d}/{r['graded']:<2d} {r['pass_by_repeat']:>7s} "
+              f"{r['calls_mean']:6.1f} {r['P_mean']:9,d} {r['U_mean']:7,d} {r['G_mean']:7,d} {r['PFLOPs_mean']:7.3f} "
+              f"{r['PFLOPs_by_repeat']:>20s} {r['overflows']:3d} {r['retries']:3d} {r['repeats']:3d}  {manager}")
+    if rows:
+        with (out / "arms.csv").open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("paths", nargs="+")
@@ -59,15 +159,18 @@ def main() -> None:
     model = load(MEASURED)
     tokenizer = AutoTokenizer.from_pretrained(MEASURED, revision=model["revision"])
     out = Path(a.out or (a.paths[0] if Path(a.paths[0]).is_dir() else Path(a.paths[0]).parent))
-    table, per_call, invalid = [], [], []
+    table, per_call, invalid, extras = [], [], [], {}
     for run in runs(a.paths):
         result = measure_log(run["calls_log"], tokenizer, model["C_token"], model["C_attn"])
         s, t = run["summary"], result["totals"]
         run_id = s["run_id"]
         parts = run_id.split(".")
         owner = s.get("owner") or {}
+        extras[run_id] = acts = run_actions(run)
+        repeat = parts[3][1:] if len(parts) == 4 and parts[3][1:].isdigit() else None
         table.append({"run_id": run_id, "task": parts[2] if len(parts) == 4 else "", "arm": parts[1] if len(parts) == 4 else "",
-                      "pass": s.get("reward"), "calls": t["calls"], "summary_calls": t["summary_calls"],
+                      "repeat": int(repeat) if repeat else None, "pass": s.get("reward"), "overflow": acts["overflow"],
+                      "calls": t["calls"], "summary_calls": t["summary_calls"],
                       "retries": t["retries"], "repeats": t["repeats"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],
                       "hit_share": round(t["hit_share"], 4), "PFLOPs_lin": t["F_lin"] / 1e15,
                       "PFLOPs_attn": t["F_attn"] / 1e15, "PFLOPs": t["F"] / 1e15, "PFLOPs_summary": t["F_summary"] / 1e15,
@@ -103,7 +206,8 @@ def main() -> None:
             w = csv.DictWriter(f, fieldnames=list(per_call[0]))
             w.writeheader()
             w.writerows(per_call)
-    print(f"wrote {out / 'report.csv'} and {out / 'calls.csv'}")
+    arm_summary(table, extras, out)
+    print(f"wrote {out / 'report.csv'}, {out / 'calls.csv'} and {out / 'arms.csv'}")
     for run_id, check in invalid:
         print(f"INVALID {run_id} call {check['call_no']}: {check['note']}")
     sys.exit(2 if invalid else 0)

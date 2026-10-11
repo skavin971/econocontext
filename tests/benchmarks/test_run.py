@@ -1,5 +1,6 @@
-"""The TBLite runner (benchmarks/tblite/run.py): a trial starts only if the gateway's daily budget
-still holds a full run's calls after reserving them for every running trial. No Harbor, no network."""
+"""The TBLite runner (benchmarks/tblite/run.py): the order of trials, and the gates that stop a run
+cleanly between trials (daily budget, battery, invalid calls, crashes, Jev fallbacks). No Harbor, no
+network: the gateway's health, the battery, the trial itself and the measurement are replaced."""
 
 import importlib.util
 from pathlib import Path
@@ -16,31 +17,90 @@ def runner(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     started = []
-    monkeypatch.setattr(module, "run_trial", lambda *args: started.append(args[2]) or {"ran": True})
+    monkeypatch.setattr(module, "run_trial", lambda a, log_dir, arm, task, repeat, run_id, out:
+                        started.append((arm, task)) or {"run_id": run_id, "arm": arm, "task": task, "repeat": repeat})
+    monkeypatch.setattr(module, "battery", lambda: None)
+    monkeypatch.setattr(module, "health", budget(used=0))
     return module, started
 
 
 def budget(used, per_run=150, per_day=8000):
-    return lambda gateway: {"requests_today": used, "max_requests_per_day": per_day, "max_calls_per_run": per_run}
+    return lambda gateway, wait_s=0: {"requests_today": used, "max_requests_per_day": per_day,
+                                      "max_calls_per_run": per_run}
+
+
+def args(**kw):
+    return SimpleNamespace(**{"label": "L", "gateway": "g", "gates": False, "progress": None, **kw})
+
+
+def test_trials_are_interleaved_by_repeat_then_task_then_arm(runner):
+    module, _ = runner
+    jobs = module.jobs_for(["raw", "clm-32k"], ["a", "b"], 1, 2)
+    assert jobs == [("raw", "a", 1), ("clm-32k", "a", 1), ("raw", "b", 1), ("clm-32k", "b", 1),
+                    ("raw", "a", 2), ("clm-32k", "a", 2), ("raw", "b", 2), ("clm-32k", "b", 2)]
 
 
 def test_a_trial_starts_while_a_full_run_still_fits_in_the_daily_budget(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 150))
-    assert module.trial(SimpleNamespace(label="L", arm="raw", gateway="g"), Path("."), "t", 1) == {"ran": True}
-    assert started == ["t"] and module.running == [0]
+    assert module.trial(args(), Path("."), "raw", "t", 1)["run_id"] == "L.raw.t.r1"
+    assert started == [("raw", "t")] and module.running == [0] and module.stop["reason"] is None
 
 
-def test_no_trial_starts_when_a_run_could_be_cut_off(runner, monkeypatch):
+def test_the_run_stops_before_a_trial_that_could_be_cut_off(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 149))
-    result = module.trial(SimpleNamespace(label="L", arm="raw", gateway="g"), Path("."), "t", 1)
-    assert "daily budget" in result["skipped"] and started == []
+    assert "daily budget" in module.trial(args(), Path("."), "raw", "t", 1)["skipped"]
+    monkeypatch.setattr(module, "health", budget(used=0))       # later trials are not started either
+    assert "stopped: daily budget" in module.trial(args(), Path("."), "raw", "u", 1)["skipped"] and started == []
 
 
 def test_running_trials_reserve_a_full_run_each(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 250))
     module.running[0] = 1                       # one trial still running: 150 reserved, 100 left
-    result = module.trial(SimpleNamespace(label="L", arm="raw", gateway="g"), Path("."), "t", 1)
-    assert "daily budget" in result["skipped"] and started == []
+    assert "daily budget" in module.trial(args(), Path("."), "raw", "t", 1)["skipped"] and started == []
+
+
+def test_a_low_battery_stops_the_run_and_a_charging_one_does_not(runner, monkeypatch):
+    module, started = runner
+    monkeypatch.setattr(module, "battery", lambda: (21, True))
+    module.trial(args(), Path("."), "raw", "t", 1)
+    monkeypatch.setattr(module, "battery", lambda: (15, False))    # charging (on power): no stop
+    module.trial(args(), Path("."), "raw", "u", 1)
+    monkeypatch.setattr(module, "battery", lambda: (20, True))
+    assert "battery at 20%" in module.trial(args(), Path("."), "raw", "v", 1)["skipped"]
+    assert started == [("raw", "t"), ("raw", "u")]
+
+
+def gate(module, monkeypatch, summary, totals):
+    monkeypatch.setattr(module, "measure", lambda s: totals)
+    module.check(args(gates=True), {"run_id": "L.x.t.r1", "arm": "raw", "task": "t", "repeat": 1, "calls": 5,
+                                    "reward": 1.0, "exception": None, "overflow": False, **summary})
+
+
+def test_three_invalid_calls_in_a_trial_stop_the_run(runner, monkeypatch):
+    module, _ = runner
+    gate(module, monkeypatch, {}, {"invalid": 2, "valid": 3})
+    assert module.stop["reason"] is None
+    gate(module, monkeypatch, {}, {"invalid": 3, "valid": 2})
+    assert "3 invalid calls" in module.stop["reason"]
+
+
+def test_an_arm_crashing_twice_in_a_row_stops_the_run_but_an_overflow_is_not_a_crash(runner, monkeypatch):
+    module, _ = runner
+    crash = {"reward": None, "exception": "RuntimeError"}
+    gate(module, monkeypatch, crash, {})
+    gate(module, monkeypatch, {"reward": None, "exception": "BadRequestError", "overflow": True}, {})
+    gate(module, monkeypatch, crash, {})
+    assert module.stop["reason"] is None          # the overflow (a graded FAIL) broke the streak
+    gate(module, monkeypatch, crash, {})
+    assert "crashed in 2 trials in a row" in module.stop["reason"]
+
+
+def test_jev_falling_back_on_more_than_half_its_questions_stops_the_run(runner, monkeypatch):
+    module, _ = runner
+    gate(module, monkeypatch, {"arm": "econo+jev", "jev_fallbacks": {"asked": 4, "fell_back": 2}}, {})
+    assert module.stop["reason"] is None
+    gate(module, monkeypatch, {"arm": "econo+jev", "jev_fallbacks": {"asked": 4, "fell_back": 3}}, {})
+    assert "Jev fell back on 3 of 4" in module.stop["reason"]

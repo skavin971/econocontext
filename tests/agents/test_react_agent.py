@@ -160,3 +160,9 @@ def test_without_an_api_base_the_agent_refuses_to_start(tmp_path):
     # Agents reach models only through the gateway: there is no default upstream to fall back to.
     with pytest.raises(ValueError, match="api_base is required"):
         EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b")
+
+
+def test_the_defaults_match_every_other_arm(tmp_path):
+    # 64 steps (CLM's default) and 8,192 output tokens for every arm (step 9).
+    agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
+    assert (agent.max_steps, agent.max_tokens) == (64, 8192)
