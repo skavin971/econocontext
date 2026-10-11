@@ -1,0 +1,22 @@
+diff --git a/econocontext/store/db.py b/econocontext/store/db.py
+index fb63fcf..fc79e96 100644
+--- a/econocontext/store/db.py
++++ b/econocontext/store/db.py
+@@ -199,12 +199,11 @@ class AgentDB:
+ 
+     def bump(self, run_id: str, sources: list[str]) -> None:
+         """Advance each source's version (and the workspace epoch), then invalidate."""
+-        current = self.current_versions(run_id)
+-        for source in {*sources, WORKSPACE}:
+-            version = str(int(current.get(source, "0")) + 1)
+-            self.execute("INSERT INTO source_versions VALUES(?,?,?,?) ON CONFLICT(run_id, "
+-                         "source) DO UPDATE SET version=excluded.version, "
+-                         "updated_at=excluded.updated_at", (run_id, source, version, now()))
++        for source in sorted({*sources, WORKSPACE}):
++            self.execute("INSERT INTO source_versions VALUES(?,?,'1',?) ON CONFLICT(run_id, "
++                         "source) DO UPDATE SET version=CAST(CAST(source_versions.version AS "
++                         "INTEGER) + 1 AS TEXT), updated_at=excluded.updated_at",
++                         (run_id, source, now()))
+         self.invalidate(run_id)
+ 
+     def invalidate(self, run_id: str) -> None:

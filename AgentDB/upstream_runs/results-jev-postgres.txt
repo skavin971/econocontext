@@ -1,0 +1,1091 @@
+...............F................F...F....FFFFFFF.FFFFF.......F.FFF.....F [ 83%]
+..........F.F.                                                           [100%]
+=================================== FAILURES ===================================
+______________ test_a_database_from_before_blobs_opens_unchanged _______________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_database_from_before_bl0')
+
+    def test_a_database_from_before_blobs_opens_unchanged(tmp_path):
+        path = tmp_path / "old.sqlite3"
+        conn = sqlite3.connect(path)
+        conn.executescript(old_schema())
+        assert "blob_key" not in {r[1] for r in conn.execute("PRAGMA table_info(segments)")}
+        conn.execute("INSERT INTO runs (run_id, host, arm, mode, model, temperature, "
+                     "config_fingerprint, started_at) VALUES('old','h','econo','observe','m',1,'f','t')")
+        conn.commit()
+        conn.close()
+        db = AgentDB(path)  # adds the new columns and the blobs table; keeps every row
+>       assert "blob_key" in {r[1] for r in db.conn.execute("PRAGMA table_info(segments)")}
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_blobs_dependents.py:124: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8ab9b0>
+query = 'PRAGMA table_info(segments)', params = None, prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at or near "PRAGMA"
+E           LINE 1: PRAGMA table_info(segments)
+E                   ^
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: SyntaxError
+__________ test_observe_mode_logs_but_always_returns_the_host_default __________
+
+engine = <function engine.<locals>.build at 0x10c8e0cc0>
+
+    def test_observe_mode_logs_but_always_returns_the_host_default(engine):
+        eco = engine(mode="observe")
+        req = HostRequest("run-1:root", conversation())
+        rendered = eco.plan_prompt("run-1:root", req)
+        assert not rendered.applied and [s.id for s in rendered.segments] == [s.id for s in req.segments]
+        rows = eco.db.rows("SELECT intercept, applied, mode FROM decisions")
+>       assert [tuple(r) for r in rows] == [("plan_prompt", 0, "observe")]
+E       AssertionError: assert [('intercept'...ied', 'mode')] == [('plan_promp...0, 'observe')]
+E         
+E         At index 0 diff: ('intercept', 'applied', 'mode') != ('plan_prompt', 0, 'observe')
+E         Use -v to get more diff
+
+tests/unit/test_engine.py:22: AssertionError
+________________ test_record_writes_usage_outcomes_and_a_report ________________
+
+engine = <function engine.<locals>.build at 0x10c8e19e0>
+
+    def test_record_writes_usage_outcomes_and_a_report(engine):
+        eco = engine()
+        rendered = eco.plan_prompt("run-1:root", HostRequest("run-1:root", conversation()))
+        eco.record("run-1:root", rendered.decision_id,
+                   ProviderUsage(1000, 9000, None, 200, reasoning=150,
+                                 raw={"input_tokens": 10000}, cache_write_applicable=False),
+                   outcome_id="call-1")
+>       report = eco.report()
+                 ^^^^^^^^^^^^
+
+tests/unit/test_engine.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+econocontext/engine.py:409: in report
+    return summary(self.db, run_id or self.run_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/pricing/ledger.py:96: in summary
+    tot = dict(db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b7c80>
+query = 'SELECT COUNT(*) AS calls, SUM(uncached_input) AS uncached_input, SUM(cache_read) AS cache_read, SUM(cache_write) AS c...st_complete=0 THEN 1 ELSE 0 END) AS incomplete_calls, SUM(latency_ms) AS model_latency_ms FROM outcomes WHERE run_id=?'
+params = ('run-1',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+___________ test_evidence_rows_are_written_once_and_events_in_order ____________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_evidence_rows_are_written0')
+
+    def test_evidence_rows_are_written_once_and_events_in_order(tmp_path):
+        db = AgentDB(tmp_path / "db.sqlite3")
+        ref = make_ref("file", "a.py", "sha256:1", "x")
+        read = EvidenceEvent("acquired", "read_file", "k", "a.py", ref)
+        db.add_evidence_events("r", "r:root", 1, [read, EvidenceEvent("mutated", "replace", "w", "a.py")])
+        db.add_evidence_events("r", "r:root", 3, [read])
+>       assert db.rows("SELECT COUNT(*) FROM evidence WHERE run_id='r'")[0][0] == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 0
+
+tests/unit/test_evidence.py:39: KeyError
+________ test_the_same_version_read_again_is_a_redundant_reacquisition _________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_the_same_version_read_aga0')
+
+    def test_the_same_version_read_again_is_a_redundant_reacquisition(tmp_path):
+>       first, second = labelled(tmp_path, [[read("auth.py", "v5")], [], [read("auth.py", "v5")]])
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_labels.py:32: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_labels.py:27: in labelled
+    label_evidence(db, "r")
+econocontext/learn/evidence_labels.py:37: in label_evidence
+    events = [dict(r) for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b6000>
+query = 'SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, v.source_kind, v.source_versi...events e LEFT JOIN evidence v ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+__________________ test_a_read_after_an_edit_is_not_redundant __________________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_read_after_an_edit_is_n0')
+
+    def test_a_read_after_an_edit_is_not_redundant(tmp_path):
+>       first, _ = labelled(tmp_path, [[read("auth.py", "v5")], [write("auth.py")], [read("auth.py", "v6")]])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_labels.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_labels.py:27: in labelled
+    label_evidence(db, "r")
+econocontext/learn/evidence_labels.py:37: in label_evidence
+    events = [dict(r) for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b78f0>
+query = 'SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, v.source_kind, v.source_versi...events e LEFT JOIN evidence v ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+________________ test_a_shell_command_may_have_changed_anything ________________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_shell_command_may_have_0')
+
+    def test_a_shell_command_may_have_changed_anything(tmp_path):
+        shell = EvidenceEvent("mutated", "run_shell_command", "sh", "*")
+        # Same bytes afterwards, but a write came between: not counted as redundant.
+>       first, _ = labelled(tmp_path, [[read("a.py", "v1")], [shell], [read("a.py", "v1")]])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_labels.py:47: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_labels.py:27: in labelled
+    label_evidence(db, "r")
+econocontext/learn/evidence_labels.py:37: in label_evidence
+    events = [dict(r) for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8ab7d0>
+query = 'SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, v.source_kind, v.source_versi...events e LEFT JOIN evidence v ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+____ test_a_write_elsewhere_does_not_matter_to_a_file_but_does_to_a_search _____
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_write_elsewhere_does_no0')
+
+    def test_a_write_elsewhere_does_not_matter_to_a_file_but_does_to_a_search(tmp_path):
+>       rows = labelled(tmp_path, [[read("a.py", "v1"), search("grep:x", 0)], [write("b.py")],
+                                   [read("a.py", "v1"), search("grep:x", 1)]])
+
+tests/unit/test_evidence_labels.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_labels.py:27: in labelled
+    label_evidence(db, "r")
+econocontext/learn/evidence_labels.py:37: in label_evidence
+    events = [dict(r) for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b7d70>
+query = 'SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, v.source_kind, v.source_versi...events e LEFT JOIN evidence v ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+____________ test_future_uses_are_counted_and_other_labels_survive _____________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_future_uses_are_counted_a0')
+
+    def test_future_uses_are_counted_and_other_labels_survive(tmp_path):
+        db = AgentDB(tmp_path / "db.sqlite3")
+        db.start_run("r", "omnigent:gemini", None, "econo", "observe", "m", 1.0, "f")
+        for call_no in (0, 3, 4):
+            db.add_evidence_events("r", "r:root", call_no, [read("a.py", "v1")])
+>       label_run(db, "r")  # replaces all of a run's labels, so evidence labels come after it
+        ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_labels.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+econocontext/learn/labels.py:74: in label_run
+    times = _calls(db, run_id)
+            ^^^^^^^^^^^^^^^^^^
+econocontext/learn/labels.py:58: in _calls
+    for r in db.rows("SELECT agent_id, created_at FROM outcomes WHERE run_id=? ORDER BY created_at",
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8a9af0>
+query = 'SELECT agent_id, created_at FROM outcomes WHERE run_id=? ORDER BY created_at'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_____________ test_another_range_of_the_same_file_is_not_redundant _____________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_another_range_of_the_same0')
+
+    def test_another_range_of_the_same_file_is_not_redundant(tmp_path):
+        def part(start):
+            return EvidenceEvent("acquired", "read_file", f"r{start}", "a.py",
+                                 make_ref("file", "a.py", "v1", "x", range=f'{{"start_line": {start}}}'))
+>       first, second, third = labelled(tmp_path, [[part(1)], [part(50)], [part(50)]])
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_labels.py:74: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_labels.py:27: in labelled
+    label_evidence(db, "r")
+econocontext/learn/evidence_labels.py:37: in label_evidence
+    events = [dict(r) for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c988920>
+query = 'SELECT e.seq, e.agent_id, e.call_no, e.event, e.source_key, e.tool_name, e.evidence_id, v.source_kind, v.source_versi...events e LEFT JOIN evidence v ON v.run_id = e.run_id AND v.evidence_id = e.evidence_id WHERE e.run_id=? ORDER BY e.seq'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_______ test_a_read_only_turn_is_removable_and_charged_for_its_evidence ________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_read_only_turn_is_remov0')
+
+    def test_a_read_only_turn_is_removable_and_charged_for_its_evidence(tmp_path):
+>       rows = run(tmp_path, [("root", [READ], False, 0.10, []),
+                              ("root", [EDIT], False, 0.20, [evidence("a.py")]),
+                              ("root", [], True, 0.05, [])])
+
+tests/unit/test_evidence_oracle.py:54: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_oracle.py:45: in run
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/oracle/evidence_schedule.py:55: in schedule
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b7470>
+query = "SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h FROM runtime_spans s LEFT JOIN outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' ORDER BY s.started_at"
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_______________ test_mixed_turns_are_reported_but_never_claimed ________________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_mixed_turns_are_reported_0')
+
+    def test_mixed_turns_are_reported_but_never_claimed(tmp_path):
+>       rows = run(tmp_path, [("root", [GREP], True, 0.10, []), ("root", [], True, 0.1, [evidence("a.py")])])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_oracle.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_oracle.py:45: in run
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/oracle/evidence_schedule.py:55: in schedule
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98b590>
+query = "SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h FROM runtime_spans s LEFT JOIN outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' ORDER BY s.started_at"
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_________ test_the_consumer_is_the_next_call_of_the_same_conversation __________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_the_consumer_is_the_next_0')
+
+    def test_the_consumer_is_the_next_call_of_the_same_conversation(tmp_path):
+        # A sub-agent's call (context 'child') comes between the root's read and its result.
+>       rows = run(tmp_path, [("root", [READ], False, 0.1, []),
+                              ("child", [GREP], False, 0.1, []),
+                              ("root", [], True, 0.1, [evidence("a.py")]),
+                              ("child", [], True, 0.1, [evidence("b.py")])])
+
+tests/unit/test_evidence_oracle.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_oracle.py:45: in run
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/oracle/evidence_schedule.py:55: in schedule
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98a690>
+query = "SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h FROM runtime_spans s LEFT JOIN outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' ORDER BY s.started_at"
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+____________ test_a_turn_without_a_price_still_counts_as_removable _____________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_turn_without_a_price_st0')
+
+    def test_a_turn_without_a_price_still_counts_as_removable(tmp_path):
+>       rows = run(tmp_path, [("root", [READ], False, None, []), ("root", [], True, 0.1, [evidence("a.py")])])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_evidence_oracle.py:85: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_oracle.py:45: in run
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/oracle/evidence_schedule.py:55: in schedule
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c989f40>
+query = "SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h FROM runtime_spans s LEFT JOIN outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' ORDER BY s.started_at"
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+__________ test_a_removed_turn_hands_its_cache_write_to_the_next_call __________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_a_removed_turn_hands_its_0')
+
+    def test_a_removed_turn_hands_its_cache_write_to_the_next_call(tmp_path):
+        # Call 0 wrote 40 tokens to the cache; without it, call 1 writes them instead of reading.
+>       rows = run(tmp_path, [("root", [READ], False, 0.10, []), ("root", [], True, 0.1, [evidence("a.py")])],
+                   writes={0: 40})
+
+tests/unit/test_evidence_oracle.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_evidence_oracle.py:45: in run
+    return schedule(db, "r", {"input": 0.001, "cache_read": 0.0001, "cache_write": 0.00125})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+econocontext/oracle/evidence_schedule.py:55: in schedule
+    for r in db.rows("SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98b020>
+query = "SELECT s.native_id, s.metadata, o.cost_usd, o.cache_write, o.cache_write_1h FROM runtime_spans s LEFT JOIN outcomes o ON o.outcome_id = s.native_id WHERE s.run_id=? AND s.kind='model' ORDER BY s.started_at"
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+______ test_labels_mark_the_quoted_result_needed_and_the_ignored_one_not _______
+
+db = <agent_db.postgres.PostgresAgentDB object at 0x10c989f40>
+
+    def test_labels_mark_the_quoted_result_needed_and_the_ignored_one_not(db):
+>       build(db)
+
+tests/unit/test_learn.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_learn.py:31: in build
+    db.execute("INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)",
+../agent_db/agent_db/postgres.py:127: in execute
+    self.conn.execute(sql, args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c988530>
+query = 'INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)'
+params = ('r1:root', 'r1', None, None, 'idle', None, ...), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 8 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_________________ test_predictors_learn_from_other_tasks_only __________________
+
+db = <agent_db.postgres.PostgresAgentDB object at 0x10c98e510>
+
+    def test_predictors_learn_from_other_tasks_only(db):
+>       build(db, "r1", "inst-1")
+
+tests/unit/test_learn.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_learn.py:31: in build
+    db.execute("INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)",
+../agent_db/agent_db/postgres.py:127: in execute
+    self.conn.execute(sql, args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98f6e0>
+query = 'INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)'
+params = ('r1:root', 'r1', None, None, 'idle', None, ...), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 8 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+__________________ test_empty_history_falls_back_to_the_prior __________________
+
+db = <agent_db.postgres.PostgresAgentDB object at 0x10c8b6330>
+
+    def test_empty_history_falls_back_to_the_prior(db):
+>       history = History(db)
+                  ^^^^^^^^^^^
+
+tests/unit/test_learn.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+econocontext/learn/predictors.py:34: in __init__
+    runs = [r["run_id"] for r in db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8b4e00>
+query = 'SELECT DISTINCT r.run_id FROM runs r JOIN labels l ON l.run_id = r.run_id WHERE r.instance_id IS NOT ? OR ? IS NULL'
+params = (None, None), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 2 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+____________ test_replay_points_out_only_what_was_not_needed_again _____________
+
+db = <agent_db.postgres.PostgresAgentDB object at 0x10c8aa9c0>
+
+    def test_replay_points_out_only_what_was_not_needed_again(db):
+>       build(db)
+
+tests/unit/test_learn.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_learn.py:31: in build
+    db.execute("INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)",
+../agent_db/agent_db/postgres.py:127: in execute
+    self.conn.execute(sql, args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c8a9490>
+query = 'INSERT INTO agents VALUES(?,?,?,?,?,?,?,?)'
+params = ('r1:root', 'r1', None, None, 'idle', None, ...), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 8 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+____________ test_ledger_persists_cost_and_reports_incomplete_runs _____________
+
+cfg = Config(raw={'mode': 'observe', 'model': {'provider': 'vertex_gemini', 'name': 'gemini-3.6-flash', 'temperature': 1.0},....0, cache_write_1h_per_mtok=None)]}])}, fingerprint='77c274a912a9ba467abc817881c4a1374363e1725419130bb41e8cdec684373f')
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_ledger_persists_cost_and_0')
+
+    def test_ledger_persists_cost_and_reports_incomplete_runs(cfg, tmp_path):
+        db = AgentDB(tmp_path / "db.sqlite3")
+        db.start_run("r", "test", None, "econo", "observe", cfg.card.model, 1.0, "fp")
+        book = ledger.Ledger(db, cfg.card)
+        usage = ProviderUsage(100, 900, None, 10, cache_write_applicable=False)
+        assert book.record("o1", "r", "r:root", None, "agent", usage,
+                           date(2026, 9, 27)) == pytest.approx(0.00018)
+        row = db.rows("SELECT cost_nu, cost_usd, cost_complete, price_period FROM outcomes")[0]
+        assert row["cost_nu"] == pytest.approx(240) and row["cost_complete"] == 1
+        assert "2026-12-31" in row["price_period"]
+>       assert book.run_cost("r")["complete"]
+               ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_ledger.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+econocontext/pricing/ledger.py:77: in run_cost
+    row = self.db.rows(
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98d820>
+query = 'SELECT COALESCE(SUM(cost_usd), 0) AS usd, COALESCE(SUM(cost_nu), 0) AS nu, SUM(CASE WHEN cost_complete=0 THEN 1 ELSE 0 END) AS incomplete, COUNT(*) AS calls FROM outcomes WHERE run_id=?'
+params = ('r',), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_________ test_runtime_spans_track_parallel_activity_and_close_cleanly _________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_runtime_spans_track_paral0')
+
+    def test_runtime_spans_track_parallel_activity_and_close_cleanly(tmp_path):
+        eco = EconoContext("config", Host(), "r", host_name="test", arm="econo",
+                           db_path=str(tmp_path / "db.sqlite3"), mode="observe")
+        agent = "r:task:one"
+        eco.registry.ensure_agent(agent)
+        eco.start_span("s1", agent, "model", "chat", native_id="m1")
+        eco.start_span("s2", agent, "tool", "read_file", native_id="t1")
+        assert eco.db.rows("SELECT status FROM runtime_spans WHERE status='open'")
+>       assert eco.db.rows("SELECT status FROM agents WHERE agent_id=?", (agent,))[0]["status"] == "busy"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_runtime_spans.py:18: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c9897f0>
+query = 'SELECT status FROM agents WHERE agent_id=?', params = ('r:task:one',)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 1 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+_______________ test_keyword_search_finds_by_path_and_identifier _______________
+
+tmp_path = PosixPath('/private/var/folders/cb/q4c00nqs3cv8vn2k26gctcyh0000gn/T/pytest-of-libinzhou/pytest-14/test_keyword_search_finds_by_p0')
+
+    def test_keyword_search_finds_by_path_and_identifier(tmp_path):
+        from econocontext.monitor.registry import Registry
+        db = db_with_run(tmp_path)
+        reg = Registry(db, "run-1")
+        reg.sync_window("run-1:root", conversation())
+>       hits = retrieval.search(db, "run-1", "look at src/app.py", exclude_in_window=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_store.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+econocontext/store/retrieval.py:47: in search
+    rows = db.rows("SELECT s.* FROM segments_fts f JOIN segments s ON s.rowid = f.rowid "
+../agent_db/agent_db/postgres.py:131: in rows
+    return [_clean(r) for r in self.conn.execute(sql, args).fetchall()]
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (database=postgres) at 0x10c98b950>
+query = 'SELECT s.* FROM segments_fts f JOIN segments s ON s.rowid = f.rowid WHERE segments_fts MATCH ? AND s.run_id=? ORDER BY rank LIMIT ?'
+params = ('"src/app.py" OR "look"', 'run-1', 20), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.ProgrammingError: the query has 0 placeholders but 3 parameters were passed
+
+../agent_db/venv/lib/python3.12/site-packages/psycopg/connection.py:304: ProgrammingError
+=========================== short test summary info ============================
+FAILED tests/unit/test_blobs_dependents.py::test_a_database_from_before_blobs_opens_unchanged
+FAILED tests/unit/test_engine.py::test_observe_mode_logs_but_always_returns_the_host_default
+FAILED tests/unit/test_engine.py::test_record_writes_usage_outcomes_and_a_report
+FAILED tests/unit/test_evidence.py::test_evidence_rows_are_written_once_and_events_in_order
+FAILED tests/unit/test_evidence_labels.py::test_the_same_version_read_again_is_a_redundant_reacquisition
+FAILED tests/unit/test_evidence_labels.py::test_a_read_after_an_edit_is_not_redundant
+FAILED tests/unit/test_evidence_labels.py::test_a_shell_command_may_have_changed_anything
+FAILED tests/unit/test_evidence_labels.py::test_a_write_elsewhere_does_not_matter_to_a_file_but_does_to_a_search
+FAILED tests/unit/test_evidence_labels.py::test_future_uses_are_counted_and_other_labels_survive
+FAILED tests/unit/test_evidence_labels.py::test_another_range_of_the_same_file_is_not_redundant
+FAILED tests/unit/test_evidence_oracle.py::test_a_read_only_turn_is_removable_and_charged_for_its_evidence
+FAILED tests/unit/test_evidence_oracle.py::test_mixed_turns_are_reported_but_never_claimed
+FAILED tests/unit/test_evidence_oracle.py::test_the_consumer_is_the_next_call_of_the_same_conversation
+FAILED tests/unit/test_evidence_oracle.py::test_a_turn_without_a_price_still_counts_as_removable
+FAILED tests/unit/test_evidence_oracle.py::test_a_removed_turn_hands_its_cache_write_to_the_next_call
+FAILED tests/unit/test_learn.py::test_labels_mark_the_quoted_result_needed_and_the_ignored_one_not
+FAILED tests/unit/test_learn.py::test_predictors_learn_from_other_tasks_only
+FAILED tests/unit/test_learn.py::test_empty_history_falls_back_to_the_prior
+FAILED tests/unit/test_learn.py::test_replay_points_out_only_what_was_not_needed_again
+FAILED tests/unit/test_ledger.py::test_ledger_persists_cost_and_reports_incomplete_runs
+FAILED tests/unit/test_runtime_spans.py::test_runtime_spans_track_parallel_activity_and_close_cleanly
+FAILED tests/unit/test_store.py::test_keyword_search_finds_by_path_and_identifier
+22 failed, 64 passed in 1.30s
