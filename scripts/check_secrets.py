@@ -1,10 +1,14 @@
-"""Fail if a secret from .env appears in what is about to be committed or pushed.
+"""Fail if a secret from .env, or Purdue's access-grant metadata, is about to be committed or pushed.
 
 Why it exists: every step's commit is checked before it is made, and the branch before it is pushed.
 A secret is any .env value of 12 or more characters that is not just an identifier. An UPPER_CASE
-variable name, such as AGENT_PLATFORM_API_KEY, names where a key lives; it is not a key. The check
-reads added lines only (`git diff --cached`, or `git log -p` over a range, binary files as text). It
-prints file names and counts, never a value, and exits 1 on any hit.
+variable name, such as AGENT_PLATFORM_API_KEY, names where a key lives; it is not a key.
+Purdue's access-grant metadata must not be published either (2026-10-10): GET /api/models (Open WebUI)
+lists who may use each model, as access_control.read/write with group_ids and user_ids, and the
+owner's user_id. Any of these as a JSON key is a hit; inside a JSON string, as in a call log, the key's
+quotes are escaped and do not match.
+The check reads added lines only (`git diff --cached`, or `git log -p` over a range, binary files as
+text). It prints file names and counts, never a value, and exits 1 on any hit.
 
 Run: .venv/bin/python scripts/check_secrets.py                          (staged changes)
      .venv/bin/python scripts/check_secrets.py --range econo-jev-final..HEAD   (every commit in a range)
@@ -18,6 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+GRANTS = re.compile(r'"(access_control|group_ids|user_ids|user_id)"\s*:')
 
 
 def secrets() -> tuple[list[str], int]:
@@ -58,12 +63,17 @@ def main() -> None:
     files = added_lines(a.range)
     hits = {f: sum(text.count(v) for v in values for text in lines) for f, lines in files.items()}
     hits = {f: n for f, n in hits.items() if n}
+    grants = {f: sum(len(GRANTS.findall(text)) for text in lines) for f, lines in files.items()}
+    grants = {f: n for f, n in grants.items() if n}
     where = f"commits {a.range}" if a.range else "staged changes"
     print(f"secrets check ({where}): {len(values)} .env values checked ({names} variable names skipped) "
           f"against added lines in {len(files)} files; files with a secret: {len(hits)}")
     for f, n in sorted(hits.items()):
         print(f"  {f}: {n} occurrence(s)")
-    sys.exit(1 if hits else 0)
+    print(f"access-grant check ({where}): files with an access-grant field: {len(grants)}")
+    for f, n in sorted(grants.items()):
+        print(f"  {f}: {n} field(s)")
+    sys.exit(1 if hits or grants else 0)
 
 
 if __name__ == "__main__":

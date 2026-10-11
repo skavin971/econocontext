@@ -1,0 +1,400 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app /app_target 2>&1; echo ---; ls -la /etc/cron.d /etc/systemd/system 2>&1 | head -50"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "find /app_target -type f -o -type l | head -50; echo ---; cat /etc/cron.d/backdoor_cron; echo ---; cat /etc/systemd/system/persistence.service"
+  },
+  {
+    "step": 3,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "for f in /app_target/scripts/evil.sh /app_target/etc/rc.local /app_target/etc/systemd/system/app_backdoor.service /app_target/etc/cron.d/app_cron /app_target/home/victim/.ssh/authorized_keys; do echo "
+  },
+  {
+    "step": 4,
+    "llm_s": 2.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /etc/rc.local /etc/rc.d/rc.local /var/spool/cron/crontabs /root/.ssh /home 2>&1; echo ---; cat /etc/crontab 2>/dev/null; echo ---; ls /usr/lib/systemd/system 2>/dev/null | head; echo ---; ls -l"
+  },
+  {
+    "step": 5,
+    "llm_s": 2.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /etc/rc.local; echo ---; cat /var/spool/cron/crontabs/root; echo ---; cat /root/.ssh/authorized_keys; echo ---; find /home/testuser -type f -o -type l; echo ---; find / -maxdepth 2 -name \"*whiteli"
+  },
+  {
+    "step": 6,
+    "llm_s": 4.0,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /home/testuser/.ssh/authorized_keys; echo ---; find / -xdev \\( -name \"*whitelist*\" -o -name \"*legit*\" -o -name \"*known_keys*\" \\) 2>/dev/null | grep -v proc; echo ---; ls -la /app_target/etc /app_t"
+  },
+  {
+    "step": 7,
+    "llm_s": 89.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /etc/cron.d/e2scrub_all; jq --version; bash --version | head -1"
+  },
+  {
+    "step": 8,
+    "context_budget_nudge": 0.25,
+    "tokens": 14887
+  },
+  {
+    "step": 8,
+    "llm_s": 73.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "grep -lE 'ExecStart=.*(curl |wget |base64|/tmp/|/var/tmp/|/dev/shm|backdoor|attacker|while true)' /usr/lib/systemd/system/* 2>/dev/null; echo \"exit=$?\"; grep -hE 'ExecStart=' /usr/lib/systemd/system/*"
+  },
+  {
+    "step": 9,
+    "llm_s": 46.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'SCRIPT_EOF' > /app/scan_persistence.sh\n#!/usr/bin/env bash\n#\n# scan_persistence.sh - Scan a Linux sandbox for post-exploitation\n# persistence artifacts and emit a structured JSON report.\n#\n# Re"
+  },
+  {
+    "step": 10,
+    "llm_s": 2.9,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "/app/scan_persistence.sh; echo \"exit=$?\"; jq . /app/persistence_report.json"
+  },
+  {
+    "step": 11,
+    "llm_s": 43.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold_start=s.index(\"cron_suspicious() {\")\nold_end=s.index(\"scan_cron_file() {\")\nnew_fn='''cron_suspicious() {\n    local cmd=$1\n"
+  },
+  {
+    "step": 12,
+    "context_budget_nudge": 0.5,
+    "tokens": 16971
+  },
+  {
+    "step": 12,
+    "llm_s": 1.8,
+    "bash_s": 0.6,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "/app/scan_persistence.sh && echo \"exit=0\" && jq -c '.summary, (.artifacts[] | {type, path, line: .details.line_number, user: .details.user})' /app/persistence_report.json"
+  },
+  {
+    "step": 13,
+    "llm_s": 3.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -i \"s/s\\/^\\[@-!+\\]+\\/\\/\\/'/'s\\/^[-@!+]++\\/\\/\\/'/\" /app/scan_persistence.sh 2>/dev/null; grep -n 's/\\^' /app/scan_persistence.sh | head"
+  },
+  {
+    "step": 14,
+    "context_budget_nudge": 0.5,
+    "tokens": 16326
+  },
+  {
+    "step": 14,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "grep -n 'ExecStartPre' /app/scan_persistence.sh | head -3; grep -n 's/^\\[' /app/scan_persistence.sh"
+  },
+  {
+    "step": 15,
+    "llm_s": 2.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -n '130,140p' /app/scan_persistence.sh"
+  },
+  {
+    "step": 16,
+    "llm_s": 2.7,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\ns=s.replace(\"sed -E 's/^[@-!+]+//'\", \"sed -E 's/^[-@!+]+//'\")\nopen(p,\"w\").write(s)\nPY\nbash -n /app/scan_persistence.sh && grep -n 's/^\\["
+  },
+  {
+    "step": 17,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -c '.summary' /app/persistence_report.json; jq -r '.artifacts[] | \"\\(.type)  \\(.path)  L\\(.details.line_number)  \\(.details.user // \"-\")\"' /app/persistence_report.json"
+  },
+  {
+    "step": 18,
+    "llm_s": 3.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | \"\\(.type)  \\(.path)  L\\(.details.line_number)\"' /app/persistence_report.json | head -20; echo ===; cat /usr/lib/systemd/system/motd-news.service /usr/lib/systemd/system/rc-local."
+  },
+  {
+    "step": 19,
+    "llm_s": 14.8,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\ns=s.replace('''scan_cron_file() {\n    local file=$1''','''scan_cron_file() {\n    local file=$1 fmt=${2:-user}''')\ns=s.replace('''       "
+  },
+  {
+    "step": 20,
+    "llm_s": 2.8,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | \"\\(.type)  \\(.path)  L\\(.details.line_number)  user=\\(.details.user // \"-\")\"' /app/persistence_report.json; echo ===; cp /app/persistence_report.json /tmp/run1.json && /app/scan_"
+  },
+  {
+    "step": 21,
+    "llm_s": 4.5,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | \"\\(.sha256)  \\(.path)\"' /app/persistence_report.json | sort -u | while read h p; do a=$(sha256sum \"$p\" | awk '{print $1}'); [ \"$h\" = \"$a\" ] && echo \"OK $p\" || echo \"MISMATCH $p\";"
+  },
+  {
+    "step": 22,
+    "llm_s": 10.7,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\ns=open(\"/app/scan_persistence.sh\").read()\ns=s.replace('REPORT=\"/app/persistence_report.json\"','REPORT=\"/tmp/test_report.json\"')\ns=s.replace('TARGET=\"/app_target\"','TARGET=\"/tmp/testta"
+  },
+  {
+    "step": 23,
+    "llm_s": 7.5,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | select(.path | contains(\"ird\")) | .path' /tmp/test_report.json; python3 -c 'import json; d=json.load(open(\"/tmp/test_report.json\")); print(\"VALID\", [a[\"path\"] for a in d[\"artifac"
+  },
+  {
+    "step": 24,
+    "llm_s": 8.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /tmp/testtarget/etc/cron.d/; bash -c 'set -u; d=/tmp/testtarget/etc/cron.d; for f in \"$d\"/*; do echo \"F=[$f]\"; done'"
+  },
+  {
+    "step": 25,
+    "llm_s": 11.9,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold='''        # a job line needs 5 time fields + (user) + command\n        local start=6 minfields=6\n        [[ $fmt == system ]] && { s"
+  },
+  {
+    "step": 26,
+    "llm_s": 9.5,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold=\"done | LC_ALL=C sort -t $'\\\\t' -k1,1 -k2,2)\"\nnew=\"done | LC_ALL=C sort -t $'\\\\t' -k1,1 -k2,2 | awk '!seen[$0]++')\"\nassert old in s,"
+  },
+  {
+    "step": 27,
+    "llm_s": 8.0,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold=\"awk '!seen[$0]++')\"\nnew=\"awk -F'\\\\t' '!seen[$1 SUBSEP $2 SUBSEP $4]++')\"\nassert old in s\ns=s.replace(old,new)\nopen(p,\"w\").write(s)\n"
+  },
+  {
+    "step": 28,
+    "llm_s": 7.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -n '118,160p' /app/scan_persistence.sh"
+  },
+  {
+    "step": 29,
+    "llm_s": 18.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "bash -c 'dir=/tmp/testtarget/etc/systemd/system; for f in \"$dir\"/* \"$dir\"/.*; do echo \"VISIT: $f\"; done'"
+  },
+  {
+    "step": 30,
+    "llm_s": 5.2,
+    "bash_s": 1.7,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "/app/scan_persistence.sh; echo \"exit=$?\"; echo \"--- summary ---\"; jq -c '.summary' /app/persistence_report.json; echo \"--- sorted check ---\"; jq -r '.artifacts | map([.type,.path]) | . == (sort_by(.[0"
+  },
+  {
+    "step": 31,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | \"\\(.type)  \\(.path)  L\\(.details.line_number)  \\(.details.content_preview)\"' /app/persistence_report.json"
+  },
+  {
+    "step": 32,
+    "llm_s": 16.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "source <(sed -n '/^cron_suspicious()/,/^}/p' /app/scan_persistence.sh)\nfor line in '17 *\t* * *\troot    cd / && run-parts --report /etc/cron.hourly' '25 6\t* * *\troot\ttest -x /usr/sbin/anacron || ( cd /"
+  },
+  {
+    "step": 33,
+    "llm_s": 3.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | select(.path==\"/etc/crontab\") | \"L\\(.details.line_number): \\(.details.content_preview)\"' /app/persistence_report.json"
+  },
+  {
+    "step": 34,
+    "llm_s": 2.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "jq -r '.artifacts[] | \"\\(.type)  \\(.path)\"' /app/persistence_report.json | cat -n"
+  },
+  {
+    "step": 35,
+    "llm_s": 4.6,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "rm -rf /tmp/testtarget /tmp/test_report.json /tmp/test_scan*.sh /tmp/r1.json /tmp/run1.json\n# final full run + validation\n/app/scan_persistence.sh; echo \"exit=$?\"\njq empty /app/persistence_report.json"
+  },
+  {
+    "step": 36,
+    "context_budget_nudge": 0.75,
+    "tokens": 24085
+  },
+  {
+    "step": 36,
+    "llm_s": 5.2,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold='''        if jq empty \"$tmp\" 2>/dev/null; then\n            mv -- \"$tmp\" \"$REPORT\"\n        else\n            cp -- \"$tmp\" \"$REPORT\"\n "
+  },
+  {
+    "step": 37,
+    "llm_s": 4.7,
+    "bash_s": 1.0,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cp /app/persistence_report.json /tmp/a.json && /app/scan_persistence.sh && diff -q /tmp/a.json /app/persistence_report.json && echo IDEMPOTENT && rm -f /tmp/a.json\n# verify all seeded artifacts presen"
+  },
+  {
+    "step": 38,
+    "llm_s": 11.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": true,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/tmp/.live_ctx/LIVE_CTX_MAIN.txt\"; s=open(p).read()\n# Collapse all turns up to the final verification, keeping a compact summary.\n# Find the last occurrence of the final "
+  },
+  {
+    "step": 39,
+    "llm_s": 7.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": true,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/tmp/.live_ctx/LIVE_CTX_MAIN.txt\"; s=open(p).read()\nprint(\"total chars:\", len(s), \"approx tokens:\", len(s)//4)\nheads=[(m.start(),m.group(0)) for m in re.finditer(r\"\\[\\[CT"
+  },
+  {
+    "step": 40,
+    "llm_s": 12.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": true,
+    "ctx_synced": true,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/tmp/.live_ctx/LIVE_CTX_MAIN.txt\"; s=open(p).read()\nheads=[(m.start(),m.group(0)) for m in re.finditer(r\"\\[\\[CTX_TURN \\d+ [^\\]]*\\]\\]\", s)]\ncut = heads[-1][0]   # keep onl"
+  },
+  {
+    "step": 41,
+    "llm_s": 2.5,
+    "bash_s": 0.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "test -x /app/scan_persistence.sh && echo \"script OK\" && jq -r '.summary' /app/persistence_report.json && bash /app/scan_persistence.sh && echo \"exit=$?\" && jq -r '.summary.total_artifacts' /app/persis"
+  },
+  {
+    "step": 42,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

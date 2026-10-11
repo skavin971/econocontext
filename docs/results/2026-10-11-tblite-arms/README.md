@@ -18,8 +18,8 @@
 | Model | `qwen3.8:27b` = Qwen/Qwen3.8-27B-FP8 (rev 017b9c7) on Purdue GenAI Studio (vLLM 0.30); window 65,536 tokens |
 | Gateway | Ours (`gateway/`); every call logged. It sets `reasoning_effort=medium` and `return_token_ids`, removes earlier reasoning from assistant messages, and allows 20 requests a minute |
 | Tasks | The 10 frozen TBLite tasks (`benchmarks/tblite/tasks.py`) |
-| Repeats | 3 per task per arm (r1–r3), label `tc9`, interleaved (for each repeat, for each task, all 4 arms), 2 workers |
-| When | 2026-10-11, 03:03–07:37 UTC (4 h 34 min), on AC power, no sleep |
+| Repeats | 3 per task per arm (r1–r3), label `tc9`, interleaved (for each repeat, for each task, all 4 arms), 2 workers; the 3 scan-linux r3 trials that never started were rerun one at a time (see the notes) |
+| When | 2026-10-11, 03:03–07:37 UTC (4 h 34 min), on AC power, no sleep; the 3 reruns 13:54–14:21 UTC |
 | `raw` | Our agent (`agents/react/agent.py`); keeps everything; the model's real window |
 | `econo+jev` | Our agent plus EconoContext as it is (Jev, cache in decisions on); the real window |
 | `clm-32k` | CLM's agent (`clm-minimal`, submodule at 18dc111) at its published setting, `context_budget_tokens=32000` |
@@ -73,20 +73,20 @@ Passes out of the repeats (an overflow is a FAIL; NG = not graded), mean PFLOPs 
 | malicious-package-forensics | clm-32k | 3/3 | 3.704 (2.135-4.576) | 12.7 | 57,354 | 10,883 | 0 |
 | malicious-package-forensics | clm-full | 3/3 | 4.651 (2.616-6.666) | 16.7 | 67,033 | 13,933 | 0 |
 | scan-linux-persistence-artifacts | raw | 2/3 | 6.272 (5.433-6.911) | 33.7 | 43,893 | 66,541 | 1 |
-| scan-linux-persistence-artifacts | econo+jev | 2/3 (1 NG) | 4.072 (2.311-5.832) | 35.5 | 27,874 | 46,336 | 0 |
-| scan-linux-persistence-artifacts | clm-32k | 2/3 (1 NG) | 3.006 (2.110-3.903) | 21.5 | 34,348 | 22,141 | 0 |
-| scan-linux-persistence-artifacts | clm-full | 2/3 (1 NG) | 3.314 (2.772-3.855) | 30.0 | 32,950 | 27,192 | 0 |
+| scan-linux-persistence-artifacts | econo+jev | 3/3 | 3.960 (2.311-5.832) | 33.7 | 28,699 | 43,381 | 0 |
+| scan-linux-persistence-artifacts | clm-32k | 3/3 | 3.192 (2.110-3.903) | 28.3 | 32,493 | 27,041 | 0 |
+| scan-linux-persistence-artifacts | clm-full | 3/3 | 3.232 (2.772-3.855) | 27.0 | 28,551 | 30,664 | 0 |
 
 ## 3. Per arm
 
-Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 21 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320.
+Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 22 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320.
 
-| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 21 all-pass cells | calls |
+| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 22 all-pass cells | calls |
 |---|---|---|---|---|---|---|---|---|---|
-| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 27.96 | 468 |
-| econo+jev | 26 | 29 | 1 | 56.34 | 23.32 | 26.53 | 6.49 | 29.95 | 524 |
-| clm-32k | 28 | 29 | 0 | 41.91 | 25.12 | 13.55 | 3.24 | 26.05 | 381 |
-| clm-full | 25 | 28 | 0 | 46.16 | 26.11 | 15.18 | 4.86 | 28.77 | 409 |
+| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 34.43 | 468 |
+| econo+jev | 27 | 30 | 1 | 60.08 | 24.80 | 28.36 | 6.93 | 33.69 | 554 |
+| clm-32k | 29 | 30 | 0 | 45.48 | 26.52 | 15.35 | 3.60 | 29.61 | 423 |
+| clm-full | 26 | 29 | 0 | 49.23 | 27.08 | 17.01 | 5.14 | 31.84 | 430 |
 
 ## 4. The three long-context tasks
 
@@ -95,9 +95,9 @@ These are the tasks where context management can matter: scan-linux, bandit and 
 | task | arm | passes | overflows | mean peak P | PFLOPs mean | PFLOPs by repeat |
 |---|---|---|---|---|---|---|
 | scan-linux-persistence-artifacts | raw | 2/3 | 1 | 43,622 | 6.272 | r1 5.433 pass r2 6.911 OVF r3 6.471 pass |
-| scan-linux-persistence-artifacts | econo+jev | 2/3 (1 NG) | 0 | 27,583 | 4.072 | r1 5.832 pass r2 2.311 pass r3 NG |
-| scan-linux-persistence-artifacts | clm-32k | 2/3 (1 NG) | 0 | 23,400 | 3.006 | r1 3.903 pass r2 2.110 pass r3 NG |
-| scan-linux-persistence-artifacts | clm-full | 2/3 (1 NG) | 0 | 31,304 | 3.314 | r1 3.855 pass r2 2.772 pass r3 NG |
+| scan-linux-persistence-artifacts | econo+jev | 3/3 | 0 | 28,419 | 3.960 | r1 5.832 pass r2 2.311 pass r3 3.738 pass |
+| scan-linux-persistence-artifacts | clm-32k | 3/3 | 0 | 24,501 | 3.192 | r1 3.903 pass r2 2.110 pass r3 3.564 pass |
+| scan-linux-persistence-artifacts | clm-full | 3/3 | 0 | 27,398 | 3.232 | r1 3.855 pass r2 2.772 pass r3 3.068 pass |
 | bandit-delayed-feedback | raw | 0/3 | 1 | 43,101 | 6.347 | r1 9.599 OVF r2 6.244 fail r3 3.198 fail |
 | bandit-delayed-feedback | econo+jev | 0/3 | 1 | 44,596 | 6.545 | r1 5.654 fail r2 6.096 fail r3 7.886 OVF |
 | bandit-delayed-feedback | clm-32k | 2/3 | 0 | 23,841 | 3.463 | r1 4.599 fail r2 2.129 pass r3 3.661 pass |
@@ -120,13 +120,13 @@ These are the tasks where context management can matter: scan-linux, bandit and 
 | sales-data-csv-analysis | 0/0/0 | 0 | 0 | 0 | 0 | 0 / 0 | 0 / 0 |
 | bandit-delayed-feedback | 0/1/0 | 0 | 0 | 13 | 0 | 3 / 0 | 0 / 0 |
 | malicious-package-forensics | 6/15/0 | 0 | 1 | 31 | 1 (Jev HTTP 400 max_tokens_exceeded x1) | 6 / 0 | 1 / 0 |
-| scan-linux-persistence-artifacts | 2/4/0 | 0 | 0 | 15 | 0 | 2 / 0 | 1 / 0 |
+| scan-linux-persistence-artifacts | 4/7/0 | 0 | 0 | 28 | 0 | 3 / 0 | 1 / 0 |
 
 - **EconoContext, over its 30 trials:**
-  - 8 arrivals kept in full and 28 sliced, 0 previews;
+  - 10 arrivals kept in full and 31 sliced, 0 previews;
   - 0 evictions and 1 compaction (malicious-package);
-  - Jev asked 69 questions, with 1 fallback (max_tokens_exceeded).
-- **CLM:** clm-32k edited its context 11 times and clm-full 2 times. Neither ever hit its budget, so there were 0 forced rollbacks.
+  - Jev asked 82 questions, with 1 fallback (max_tokens_exceeded).
+- **CLM:** clm-32k edited its context 12 times and clm-full 2 times. Neither ever hit its budget, so there were 0 forced rollbacks.
 
 ## 6. Paired comparisons with raw, by task and repeat
 
@@ -134,28 +134,28 @@ PFLOPs: the arm's trial minus raw's in the same task and repeat (negative = the 
 
 | arm vs raw | pairs (both passed) | mean ΔPFLOPs | median Δ | arm lower / higher | sign p | pairs (both ran) | mean ΔPFLOPs | arm lower / higher | sign p | outcome pairs | arm-only pass / raw-only pass | sign p |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| econo+jev | 24 | +0.140 | +0.026 | 9 / 15 | 0.307 | 29 | -0.011 | 12 / 17 | 0.458 | 29 | 2 / 0 | 0.500 |
-| clm-32k | 24 | -0.054 | +0.061 | 7 / 17 | 0.064 | 29 | -0.509 | 10 / 19 | 0.136 | 29 | 4 / 0 | 0.125 |
-| clm-full | 21 | +0.039 | +0.123 | 5 / 16 | 0.027 | 29 | -0.362 | 10 / 19 | 0.136 | 28 | 4 / 2 | 0.688 |
+| econo+jev | 25 | +0.025 | +0.023 | 10 / 15 | 0.424 | 30 | -0.102 | 13 / 17 | 0.585 | 30 | 2 / 0 | 0.500 |
+| clm-32k | 25 | -0.168 | +0.061 | 8 / 17 | 0.108 | 30 | -0.589 | 11 / 19 | 0.200 | 30 | 4 / 0 | 0.125 |
+| clm-full | 22 | -0.118 | +0.117 | 6 / 16 | 0.052 | 30 | -0.464 | 11 / 19 | 0.200 | 29 | 4 / 2 | 0.688 |
 
 n = 3 per task (at most 30 pairs per comparison, fewer once ungraded trials are removed). These are small samples. The table states what was measured; it supports no claim of a general effect.
 
 ## 7. Checks
 
-- **Validation:** 1,782 of 1,782 answered calls validated (0 invalid), over 117 measured trials; 3 trial(s) made no call.
+- **Validation:** 1,875 of 1,875 answered calls validated (0 invalid), over 120 measured trials; 0 trial(s) made no call.
 - **Totals re-derived from calls.jsonl** (the server's own usage) against measure/ (our rebuild):
 
 | arm | answered calls (log / measured) | ΣG server | ΣG measured | ΣP server | ΣP rebuilt | ΣP difference |
 |---|---|---|---|---|---|---|
 | raw | 468 / 468 | 596,064 | 596,064 | 7,463,899 | 7,464,124 | -225 |
-| econo+jev | 524 / 524 | 544,771 | 544,771 | 7,259,626 | 7,259,901 | -275 |
-| clm-32k | 381 / 381 | 278,323 | 278,323 | 3,353,406 | 3,353,407 | -1 |
-| clm-full | 409 / 409 | 311,738 | 311,738 | 4,965,211 | 4,965,218 | -7 |
+| econo+jev | 554 / 554 | 582,242 | 582,242 | 7,803,452 | 7,803,739 | -287 |
+| clm-32k | 423 / 423 | 315,164 | 315,164 | 4,050,126 | 4,050,128 | -2 |
+| clm-full | 430 / 430 | 349,346 | 349,346 | 5,191,157 | 5,191,164 | -7 |
 
 ΣG must match exactly. ΣP differs only by Purdue's random reordering of tool-schema keys, which changes the served prompt by a few tokens per call (validation accepts it only inside the tools block).
 
-- **CLM cross-check** (`tests/measure/clm_crosscheck.py --from-calls`, CLM's own block functions on our rebuilt token ids, all 58 CLM runs that made calls):
-  - 58 runs: prefill exactly equal in 58; equal except fully covered prompts (identical repeats, or exact earlier prefixes on a block boundary) in 0, where our extra uncached tokens equal the predicted gap exactly ([]); unexplained differences: 0
+- **CLM cross-check** (`tests/measure/clm_crosscheck.py --from-calls`, CLM's own block functions on our rebuilt token ids, all 60 CLM runs):
+  - 60 runs: prefill exactly equal in 60; equal except fully covered prompts (identical repeats, or exact earlier prefixes on a block boundary) in 0, where our extra uncached tokens equal the predicted gap exactly ([]); unexplained differences: 0
   - decode attention pairs, CLM's averaged formula vs per-call G_t: median -7.6%, range -37.3% to +22.0%
   - the same gap as a share of total F: median -0.133%, range -1.822% to +1.002%
 
@@ -163,17 +163,23 @@ n = 3 per task (at most 30 pairs per comparison, fewer once ungraded trials are 
 
 ## Trials that need a note
 
-- **Not graded (4).** On scan-linux r3, three arms' Docker environments did not start:
+- **Not graded (1).** clm-full on maven r3 stopped on CLM's 120 s command timeout, after 20 validated calls.
+- **Reruns (3).** In the overnight run, three arms' Docker environments on scan-linux r3 did not start:
   - econo+jev and clm-full: `EnvironmentStartTimeoutError` after 600 s;
-  - clm-32k: `docker compose` failed.
+  - clm-32k: `docker compose` failed (BuildKit: "lease does not exist").
 
-  They made 0 calls, so no model work happened; raw's scan-linux r3 had started first and passed. Separately, clm-full on maven r3 stopped on CLM's 120 s command timeout, after 20 validated calls.
+  The cause was two workers building the same image at once. Harbor serializes builds only within one process. Those trials made 0 calls.
+
+  In step 10a they were rerun with tc9's settings (Jev at 2.5 characters per token, CLM's 120 s command timeout, max_tokens 8,192). The image was built once first, then the three trials ran one at a time. All three passed: econo+jev in 30 calls, clm-32k in 42, clm-full in 21.
+
+  The failed attempts are kept in `runs/tc9-envfail/`.
 - **Overflows (3, counted as FAIL):** raw bandit r1, raw scan-linux r2 and econo+jev bandit r3. Neither CLM arm overflowed.
-- **Calls:** 1,785 logged, of which 1,782 were answered and measured; the 3 refused were the overflows. There were 0 upstream retries.
+- **Calls:** 1,878 logged, of which 1,875 were answered and measured; the 3 refused were the overflows. There were 0 upstream retries.
 
 ## Files
 
 - **Per run, call, task and arm:** `runs/tc9/report.csv` (runs), `runs/tc9/calls.csv` (calls), `runs/tc9/arms.csv` (task × arm), `runs/tc9/profile.csv` (context profile).
 - **The run:** `runs/tier-a/step9-progress.md` (every trial and gate decision); `runs/tier-a/step9a-report.md` and `runs/tier-a/step9b-report.md`.
+- **The reruns:** `runs/tier-a/step10a-progress.md` and `runs/tier-a/step10a-rerun-*.out`; the failed first attempts in `runs/tc9-envfail/`.
 - **Raw evidence:** `runs/tc9/<arm>/<task>-r<n>/` (summary.json and the Harbor trial); `runs/gateway/tc9.*/calls.jsonl` (every call as sent and as returned).
 - **Rebuilt by:** `.venv/bin/python -m measure.report runs/tc9`, `-m measure.profile runs/tc9`, `-m measure.compare runs/tc9`.

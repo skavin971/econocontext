@@ -17,8 +17,9 @@ from . import LIFETIMES
 URL = "https://api.typesafe.ai/v1/systemone"
 # Jev's own tokens are smaller than chars/4: real states measured 2.55-2.67 characters per Jev token
 # (2026-10-10, runs/2026-10-10-jev400/), and the 2026-10-06 probe accepted 60,000 characters (30,290
-# Jev tokens) and refused 100,000. Budgeting at 2.5 keeps a margin.
-CHARS_PER_JEV_TOKEN = 2.5
+# Jev tokens) and refused 100,000. At 2.5, tc9 still had 1 fallback (max_tokens_exceeded) in 69
+# questions; 2.3 (Kavin, step 10) keeps a wider margin.
+CHARS_PER_JEV_TOKEN = 2.3
 ERROR_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")   # an identifier like max_tokens_exceeded, never content
 
 
@@ -66,13 +67,13 @@ class Jev:
 
     def fit(self, state: dict, questions: dict | None = None) -> dict:
         """Keep the request under Jev's input limit, budgeted in Jev's own units: max_input_tokens Jev
-        tokens of CHARS_PER_JEV_TOKEN characters each (28,000 -> 70,000 characters). The whole request
+        tokens of CHARS_PER_JEV_TOKEN characters each (28,000 -> 64,400 characters). The whole request
         counts: the state and the questions. Cuts, in order, until it fits:
           1. the conversation from the front, keeping the last two turns (recent turns matter most);
           2. a long new tool result to its head and tail lines (lines cut cannot be chosen as relevant,
              so a slice never contains them);
           3. the remaining turns' texts and tool-call arguments, oldest first, to their head and tail."""
-        limit = int(self.max_input_tokens * CHARS_PER_JEV_TOKEN)
+        limit = round(self.max_input_tokens * CHARS_PER_JEV_TOKEN)   # int() would give 64,399
         extra = len(json.dumps(questions)) if questions else 0
 
         def size() -> int:

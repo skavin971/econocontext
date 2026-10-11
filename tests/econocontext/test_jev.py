@@ -1,5 +1,5 @@
-"""Jev's request budget (econocontext/predictor/jev.py): measured in Jev's own units (2.5 characters per
-Jev token; 28,000 Jev tokens = 70,000 characters, state and questions together), and its error
+"""Jev's request budget (econocontext/predictor/jev.py): measured in Jev's own units (2.3 characters per
+Jev token; 28,000 Jev tokens = 64,400 characters, state and questions together), and its error
 messages (Jev's error type only: no key, no content). No network: urlopen is replaced."""
 
 import io
@@ -11,7 +11,7 @@ import pytest
 from econocontext.predictor import jev as jev_module
 from econocontext.predictor.jev import CHARS_PER_JEV_TOKEN, Jev
 
-LIMIT = int(28_000 * CHARS_PER_JEV_TOKEN)                     # 70,000 characters
+LIMIT = round(28_000 * CHARS_PER_JEV_TOKEN)                   # 64,400 characters
 QUESTIONS = {"segment_done": {"type": "noul", "instructions": "Has the agent finished a part of the work?"}}
 
 
@@ -19,8 +19,8 @@ def request_size(state, questions=QUESTIONS):
     return len(json.dumps(state)) + len(json.dumps(questions))
 
 
-def test_the_budget_is_28000_jev_tokens_of_2_5_characters():
-    assert CHARS_PER_JEV_TOKEN == 2.5 and LIMIT == 70_000
+def test_the_budget_is_28000_jev_tokens_of_2_3_characters():
+    assert CHARS_PER_JEV_TOKEN == 2.3 and LIMIT == 64_400
 
 
 def test_a_state_at_the_limit_fits_unchanged():

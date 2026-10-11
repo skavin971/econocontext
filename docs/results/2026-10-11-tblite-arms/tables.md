@@ -41,29 +41,29 @@ Passes out of the repeats (an overflow is a FAIL; NG = not graded), mean PFLOPs 
 | malicious-package-forensics | clm-32k | 3/3 | 3.704 (2.135-4.576) | 12.7 | 57,354 | 10,883 | 0 |
 | malicious-package-forensics | clm-full | 3/3 | 4.651 (2.616-6.666) | 16.7 | 67,033 | 13,933 | 0 |
 | scan-linux-persistence-artifacts | raw | 2/3 | 6.272 (5.433-6.911) | 33.7 | 43,893 | 66,541 | 1 |
-| scan-linux-persistence-artifacts | econo+jev | 2/3 (1 NG) | 4.072 (2.311-5.832) | 35.5 | 27,874 | 46,336 | 0 |
-| scan-linux-persistence-artifacts | clm-32k | 2/3 (1 NG) | 3.006 (2.110-3.903) | 21.5 | 34,348 | 22,141 | 0 |
-| scan-linux-persistence-artifacts | clm-full | 2/3 (1 NG) | 3.314 (2.772-3.855) | 30.0 | 32,950 | 27,192 | 0 |
+| scan-linux-persistence-artifacts | econo+jev | 3/3 | 3.960 (2.311-5.832) | 33.7 | 28,699 | 43,381 | 0 |
+| scan-linux-persistence-artifacts | clm-32k | 3/3 | 3.192 (2.110-3.903) | 28.3 | 32,493 | 27,041 | 0 |
+| scan-linux-persistence-artifacts | clm-full | 3/3 | 3.232 (2.772-3.855) | 27.0 | 28,551 | 30,664 | 0 |
 
 ## Per arm
 
-Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 21 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320.
+Total PFLOPs over every trial that made calls, split into linear prefill (C_token·ΣU), linear output (C_token·ΣG) and attention; and PFLOPs on the 22 cells (task, repeat) where all four arms passed (like-for-like work). C_token = 48,701,112,320.
 
-| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 21 all-pass cells | calls |
+| arm | passes / 30 | graded | overflows | total PFLOPs | linear prefill | linear output | attention | PFLOPs on the 22 all-pass cells | calls |
 |---|---|---|---|---|---|---|---|---|---|
-| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 27.96 | 468 |
-| econo+jev | 26 | 29 | 1 | 56.34 | 23.32 | 26.53 | 6.49 | 29.95 | 524 |
-| clm-32k | 28 | 29 | 0 | 41.91 | 25.12 | 13.55 | 3.24 | 26.05 | 381 |
-| clm-full | 25 | 28 | 0 | 46.16 | 26.11 | 15.18 | 4.86 | 28.77 | 409 |
+| raw | 25 | 30 | 2 | 63.13 | 25.39 | 29.03 | 8.72 | 34.43 | 468 |
+| econo+jev | 27 | 30 | 1 | 60.08 | 24.80 | 28.36 | 6.93 | 33.69 | 554 |
+| clm-32k | 29 | 30 | 0 | 45.48 | 26.52 | 15.35 | 3.60 | 29.61 | 423 |
+| clm-full | 26 | 29 | 0 | 49.23 | 27.08 | 17.01 | 5.14 | 31.84 | 430 |
 
 ## The three long-context tasks
 
 | task | arm | passes | overflows | mean peak P | PFLOPs mean | PFLOPs by repeat |
 |---|---|---|---|---|---|---|
 | scan-linux-persistence-artifacts | raw | 2/3 | 1 | 43,622 | 6.272 | r1 5.433 pass r2 6.911 OVF r3 6.471 pass |
-| scan-linux-persistence-artifacts | econo+jev | 2/3 (1 NG) | 0 | 27,583 | 4.072 | r1 5.832 pass r2 2.311 pass r3 NG |
-| scan-linux-persistence-artifacts | clm-32k | 2/3 (1 NG) | 0 | 23,400 | 3.006 | r1 3.903 pass r2 2.110 pass r3 NG |
-| scan-linux-persistence-artifacts | clm-full | 2/3 (1 NG) | 0 | 31,304 | 3.314 | r1 3.855 pass r2 2.772 pass r3 NG |
+| scan-linux-persistence-artifacts | econo+jev | 3/3 | 0 | 28,419 | 3.960 | r1 5.832 pass r2 2.311 pass r3 3.738 pass |
+| scan-linux-persistence-artifacts | clm-32k | 3/3 | 0 | 24,501 | 3.192 | r1 3.903 pass r2 2.110 pass r3 3.564 pass |
+| scan-linux-persistence-artifacts | clm-full | 3/3 | 0 | 27,398 | 3.232 | r1 3.855 pass r2 2.772 pass r3 3.068 pass |
 | bandit-delayed-feedback | raw | 0/3 | 1 | 43,101 | 6.347 | r1 9.599 OVF r2 6.244 fail r3 3.198 fail |
 | bandit-delayed-feedback | econo+jev | 0/3 | 1 | 44,596 | 6.545 | r1 5.654 fail r2 6.096 fail r3 7.886 OVF |
 | bandit-delayed-feedback | clm-32k | 2/3 | 0 | 23,841 | 3.463 | r1 4.599 fail r2 2.129 pass r3 3.661 pass |
@@ -86,7 +86,7 @@ Total PFLOPs over every trial that made calls, split into linear prefill (C_toke
 | sales-data-csv-analysis | 0/0/0 | 0 | 0 | 0 | 0 | 0 / 0 | 0 / 0 |
 | bandit-delayed-feedback | 0/1/0 | 0 | 0 | 13 | 0 | 3 / 0 | 0 / 0 |
 | malicious-package-forensics | 6/15/0 | 0 | 1 | 31 | 1 (Jev HTTP 400 max_tokens_exceeded x1) | 6 / 0 | 1 / 0 |
-| scan-linux-persistence-artifacts | 2/4/0 | 0 | 0 | 15 | 0 | 2 / 0 | 1 / 0 |
+| scan-linux-persistence-artifacts | 4/7/0 | 0 | 0 | 28 | 0 | 3 / 0 | 1 / 0 |
 
 ## Paired comparisons with raw, by task and repeat
 
@@ -94,20 +94,20 @@ PFLOPs: the arm's trial minus raw's in the same task and repeat (negative = the 
 
 | arm vs raw | pairs (both passed) | mean ΔPFLOPs | median Δ | arm lower / higher | sign p | pairs (both ran) | mean ΔPFLOPs | arm lower / higher | sign p | outcome pairs | arm-only pass / raw-only pass | sign p |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| econo+jev | 24 | +0.140 | +0.026 | 9 / 15 | 0.307 | 29 | -0.011 | 12 / 17 | 0.458 | 29 | 2 / 0 | 0.500 |
-| clm-32k | 24 | -0.054 | +0.061 | 7 / 17 | 0.064 | 29 | -0.509 | 10 / 19 | 0.136 | 29 | 4 / 0 | 0.125 |
-| clm-full | 21 | +0.039 | +0.123 | 5 / 16 | 0.027 | 29 | -0.362 | 10 / 19 | 0.136 | 28 | 4 / 2 | 0.688 |
+| econo+jev | 25 | +0.025 | +0.023 | 10 / 15 | 0.424 | 30 | -0.102 | 13 / 17 | 0.585 | 30 | 2 / 0 | 0.500 |
+| clm-32k | 25 | -0.168 | +0.061 | 8 / 17 | 0.108 | 30 | -0.589 | 11 / 19 | 0.200 | 30 | 4 / 0 | 0.125 |
+| clm-full | 22 | -0.118 | +0.117 | 6 / 16 | 0.052 | 30 | -0.464 | 11 / 19 | 0.200 | 29 | 4 / 2 | 0.688 |
 
 ## Checks
 
-- **Validation:** 1,782 of 1,782 answered calls validated (0 invalid), over 117 measured trials; 3 trial(s) made no call.
+- **Validation:** 1,875 of 1,875 answered calls validated (0 invalid), over 120 measured trials; 0 trial(s) made no call.
 - **Totals re-derived from calls.jsonl** (the server's own usage) against measure/ (our rebuild):
 
 | arm | answered calls (log / measured) | ΣG server | ΣG measured | ΣP server | ΣP rebuilt | ΣP difference |
 |---|---|---|---|---|---|---|
 | raw | 468 / 468 | 596,064 | 596,064 | 7,463,899 | 7,464,124 | -225 |
-| econo+jev | 524 / 524 | 544,771 | 544,771 | 7,259,626 | 7,259,901 | -275 |
-| clm-32k | 381 / 381 | 278,323 | 278,323 | 3,353,406 | 3,353,407 | -1 |
-| clm-full | 409 / 409 | 311,738 | 311,738 | 4,965,211 | 4,965,218 | -7 |
+| econo+jev | 554 / 554 | 582,242 | 582,242 | 7,803,452 | 7,803,739 | -287 |
+| clm-32k | 423 / 423 | 315,164 | 315,164 | 4,050,126 | 4,050,128 | -2 |
+| clm-full | 430 / 430 | 349,346 | 349,346 | 5,191,157 | 5,191,164 | -7 |
 
 ΣG must match exactly. ΣP differs only by Purdue's random reordering of tool-schema keys, which changes the served prompt by a few tokens per call (validation accepts it only inside the tools block).

@@ -184,3 +184,19 @@ The full list is in `docs/cleanup-map.md`.
   - three design documents;
   - logs;
   - Claude Code configs.
+
+### Housekeeping (10a)
+
+- **The push gate also checks Purdue's access-grant fields.** `scripts/check_secrets.py` now fails on any of these appearing as a JSON key in added lines: `access_control`, `group_ids`, `user_ids` and `user_id`. Open WebUI's `GET /api/models` lists them for each model. Inside a call log's JSON strings, the quotes around a key are escaped, so the same words there do not match.
+  - The check runs on every commit and, over `econo-jev-final..HEAD`, before every push.
+  - It prints file names and counts, never values.
+- **Jev's budget is 2.3 characters per Jev token.** That is 28,000 Jev tokens = 64,400 characters.
+  - Measured real states gave 2.55–2.67 characters per Jev token. At 2.5, tc9 still had 1 fallback (`max_tokens_exceeded`) in 69 questions.
+  - The limit is now computed with `round()`. With `int()`, 28,000 × 2.3 truncates to 64,399, because it is 64,399.99… in floating point.
+- **CLM's command timeout is 180 s, passed as a setting.** CLM's harness exposes `command_timeout` as an agent setting (`harness.py:190`, default 120). It is passed to its environment's `exec` as `timeout_sec` (`context_env/env.py:110`).
+  - `baselines/clm/run.sh` now passes `command_timeout=180`. That is the paper's TBLite setting ("180 s per shell command") and our agent's value. CLM's code is unchanged.
+  - One difference remains, and it is CLM's own design. A timed-out command stops CLM's run, as it did on maven r3 in tc9. Our agent instead reports the timeout to the model.
+- **tc9 is complete: 120 of 120 trials made calls.**
+  - The 3 scan-linux r3 trials that never started were rerun with tc9's settings, one at a time, after the image was built once. All three passed.
+  - The overnight failures came from two workers building the same image at once; Harbor serializes builds only within one process.
+  - The failed attempts are kept in `runs/tc9-envfail/`, and the results README notes the reruns.

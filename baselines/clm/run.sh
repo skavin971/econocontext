@@ -7,6 +7,7 @@
 # CLM's own FLOPs block is filled with our constants (measure/model_constants.json: n_body = C_token/2;
 # model key 27b gives the attention geometry 16 layers x 6144) and the measured model's tokenizer.
 # max_tokens is 8,192 for every arm (our agent's; CLM's default is 16,384), per Kavin's decision of 2026-10-10.
+# command_timeout is 180 s (CLM's TBLite setting and our agent's; the harness default is 120), step 10a.
 #
 # Usage: baselines/clm/run.sh <label> <task> <context_budget_tokens> [repeat] [arm]
 #   e.g. baselines/clm/run.sh tc1 acl-permissions-inheritance 32000
@@ -41,7 +42,7 @@ left=$(echo "$health" | "$ROOT/.venv/bin/python" -c "import json, sys; h = json.
 mkdir -p "$out"
 cmd=("$ROOT/.venv-clm/bin/clm-harbor" trial start -p "$tblite/$task" -e docker -a clm-minimal -m "openai/$model"
      --agent-kwarg "api_base=$gateway/run/$run_id/v1" --agent-kwarg "context_budget_tokens=$budget"
-     --agent-kwarg "max_tokens=8192"
+     --agent-kwarg "max_tokens=8192" --agent-kwarg "command_timeout=180"
      --agent-kwarg "cost_metric=flops" --agent-kwarg "flops_model_key=27b" --agent-kwarg "flops_n_body=$n_body"
      --agent-kwarg "flops_tokenizer=$hf_id"
      --agent-timeout-multiplier 4 --trials-dir "$out/harbor" --trial-name "${arm}-${task}-r${repeat}")
