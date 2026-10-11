@@ -1,0 +1,155 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls /app/ && cat /app/input.txt 2>/dev/null | head -50"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.5,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/ 2>&1; find / -name \"input.txt\" 2>/dev/null | head; find / -name \"*canonical*\" 2>/dev/null | grep -v proc | head"
+  },
+  {
+    "step": 3,
+    "llm_s": 77.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/canonicalize.py\nimport re\n\nMETHODS = {\"GET\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\"}\nPERMS = {\"ALLOW\", \"DENY\"}\nVAR_RE = re.compile(r\"\\{[A-Za-z0-9_-]+\\}\")\n\n\ndef norm_path(p):\n    return VA"
+  },
+  {
+    "step": 4,
+    "llm_s": 2.7,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/input.txt\n/api/users/{user_id} GET admin ALLOW\n/api/users/{uid} GET admin DENY\n/api/users POST admin ALLOW\n/api/orders/{order_id} DELETE editor ALLOW\n/api/orders GET viewer ALLOW\n/a"
+  },
+  {
+    "step": 5,
+    "llm_s": 6.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport canonicalize as c\nendpoints, base, exclude, plan = c.parse(open('input.txt').read().split('\\n'))\nprint(endpoints); print(base, exclude, plan)\n\""
+  },
+  {
+    "step": 6,
+    "llm_s": 10.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport canonicalize as c\nendpoints, base, exclude, plan = c.parse(open('input.txt').read().split('\\n'))\ndef base_ok(e): return base is None or e[0].startswith(base)\ndef eligibl"
+  },
+  {
+    "step": 7,
+    "llm_s": 4.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nlines=open('input.txt').read().split('\\n')\nfor i,l in enumerate(lines): print(i, repr(l))\n\""
+  },
+  {
+    "step": 8,
+    "llm_s": 12.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'EOF'\nimport re\nMETHODS = {\"GET\",\"POST\",\"PUT\",\"DELETE\",\"PATCH\"}\nPERMS = {\"ALLOW\",\"DENY\"}\nVAR_RE = re.compile(r\"\\{[A-Za-z0-9_-]+\\}\")\ndef norm_path(p): return VAR_RE.sub(\"{var}\", "
+  },
+  {
+    "step": 9,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\ns='/api/users/{id} GET admin'\nf=s.split(); print(f, len(f))\nprint(f[1].upper() in {'GET','POST','PUT','DELETE','PATCH'})\n\""
+  },
+  {
+    "step": 10,
+    "llm_s": 3.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/input.txt\n/api/users/{user_id} GET admin ALLOW\n/api/users/{uid} GET admin DENY\n/api/users POST admin ALLOW\n/api/orders/{order_id} DELETE editor ALLOW\n/api/orders GET viewer ALLOW\n/a"
+  },
+  {
+    "step": 11,
+    "llm_s": 8.8,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\n# Test: empty PLAN, base filter\ncat <<'EOF' > input.txt\n/a GET admin ALLOW\n/b GET admin DENY\n/c/x POST admin ALLOW\n\nbase /a\n\nEOF\npython3 canonicalize.py && echo \"---T1\" && cat -A output.txt\n# "
+  },
+  {
+    "step": 12,
+    "llm_s": 5.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\n# T4: parent has only excluded-role endpoints -> include them\ncat <<'EOF' > input.txt\n/parent GET viewer ALLOW\n/parent/child POST admin ALLOW\n\nexclude viewer\n\n/parent/child POST admin\nEOF\npyth"
+  },
+  {
+    "step": 13,
+    "llm_s": 8.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\ncat <<'EOF' > input.txt\n/parent GET viewer ALLOW\n/parent/child POST admin ALLOW\n\nexclude viewer\n\n/parent/child POST\nEOF\npython3 canonicalize.py && echo \"---T4\" && cat -A output.txt\ncat <<'EOF'"
+  },
+  {
+    "step": 14,
+    "llm_s": 7.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\ncat <<'EOF' > input.txt\n/apiary GET admin allow\n/api GET admin deny\n/a/{x y} GET admin ALLOW\n/a/{x-y_1} GET admin ALLOW\n\nbase /api\n\n/api get admin\n/unknown GET admin\nEOF\npython3 canonicalize.p"
+  },
+  {
+    "step": 15,
+    "llm_s": 5.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\n# T10: empty exclude, PLAN uses different var name than ENDPOINTS\ncat <<'EOF' > input.txt\n/a/{foo} GET admin ALLOW\n/a/{bar} POST admin DENY\n\nexclude\n\n/a/{anything} GET admin\n/a/{z} POST admin\n"
+  },
+  {
+    "step": 16,
+    "llm_s": 4.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app\ncat <<'EOF' > input.txt\n/api/users/{user_id} GET admin ALLOW\n/api/users/{uid} GET admin DENY\n/api/users POST admin ALLOW\n/api/orders/{order_id} DELETE editor ALLOW\n/api/orders GET viewer ALLOW"
+  },
+  {
+    "step": 17,
+    "llm_s": 3.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

@@ -1,0 +1,106 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.6,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la && find / -name \"sensor_train.csv\" 2>/dev/null | head"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la data/ && for f in data/*.csv; do echo \"== $f\"; head -3 \"$f\"; wc -l \"$f\"; done"
+  },
+  {
+    "step": 3,
+    "llm_s": 3.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat data/both_train.csv data/both_test.csv data/movie_train.csv data/movie_test.csv data/news_train.csv data/news_test.csv"
+  },
+  {
+    "step": 4,
+    "llm_s": 3.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport csv\nrows=list(csv.DictReader(open('data/sensor_train.csv')))\nvals=[float(r['value']) for r in rows]; lab=[int(r['label']) for r in rows]\nimport statistics as st\nprint('n',len(rows)"
+  },
+  {
+    "step": 5,
+    "llm_s": 4.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport csv\nrows=list(csv.DictReader(open('data/sensor_train.csv')))\nvals=[(float(r['value']),int(r['label'])) for r in rows]\na=sorted(v for v,l in vals if l==1); n=sorted(v for v,l in val"
+  },
+  {
+    "step": 6,
+    "llm_s": 3.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport csv\nrows=list(csv.DictReader(open('data/network_train.csv')))\nimport collections\nc=collections.Counter(int(r['label']) for r in rows)\nprint(c)\nfor l in (0,1):\n    sub=[(float(r['du"
+  },
+  {
+    "step": 7,
+    "llm_s": 3.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport csv\nt=list(csv.DictReader(open('data/network_test.csv')))\nsrc=[float(r['src_bytes']) for r in t]; dst=[float(r['dst_bytes']) for r in t]\nprint('src range',min(src),max(src)); print"
+  },
+  {
+    "step": 8,
+    "llm_s": 6.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport csv\nt=list(csv.DictReader(open('data/network_test.csv')))\nc=sum(1 for r in t if float(r['src_bytes'])>1000 and float(r['dst_bytes'])>1000)\nprint('n flagged',c)\nfor r in t:\n    s,d="
+  },
+  {
+    "step": 9,
+    "context_budget_nudge": 0.25,
+    "tokens": 8377
+  },
+  {
+    "step": 9,
+    "llm_s": 6.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat > solve.py <<'EOF'\nimport csv, json\n\ndef rank_by(path, feat, reverse=True):\n    out={}\n    for r in csv.DictReader(open(path)):\n        out.setdefault(r['query_id'],[]).append((float(r[feat]), r['"
+  },
+  {
+    "step": 10,
+    "llm_s": 3.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport json,csv\nr=json.load(open('results.json'))\nassert set(r)=={'sensor','network','movie_rank','news_rank','both_rank'}\nassert len(r['sensor'])==100 and len(r['network'])==150\nfor key,"
+  },
+  {
+    "step": 11,
+    "llm_s": 4.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

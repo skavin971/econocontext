@@ -1,0 +1,83 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/data/ && ls -la /app/ 2>/dev/null && xxd /app/data/artifact.bin | head -20"
+  },
+  {
+    "step": 2,
+    "llm_s": 3.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\ndata = open('/app/data/artifact.bin','rb').read()\nprint(len(data))\n# find PK\\x03\\x04 offsets\noff = -1\noffs = []\nwhile True:\n    off = data.find(b'PK\\x03\\x04', off+1)\n    if off < 0: b"
+  },
+  {
+    "step": 3,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport zipfile, io\ndata = open('/app/data/artifact.bin','rb').read()\nz = zipfile.ZipFile(io.BytesIO(data[336:]))\nprint(z.namelist())\nfor n in z.namelist():\n    d = z.read(n)\n    print"
+  },
+  {
+    "step": 4,
+    "llm_s": 3.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport struct, zlib\npng = open('/tmp/hidden.png','rb').read()\npos = 8\nwhile pos < len(png):\n    length = struct.unpack('>I', png[pos:pos+4])[0]\n    ctype = png[pos+4:pos+8]\n    cdata "
+  },
+  {
+    "step": 5,
+    "llm_s": 9.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport base64, string\ntext = open('/tmp/png_text.txt').read().strip()\nraw = base64.b64decode(text)\nprint(len(raw), raw[:20])\nB64CHARS = set(string.ascii_uppercase+string.ascii_lowerca"
+  },
+  {
+    "step": 6,
+    "llm_s": 4.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport base64, codecs\ntext = open('/tmp/png_text.txt').read().strip()\nraw = base64.b64decode(text)\nx = bytes(b ^ 90 for b in raw)\ninter = codecs.decode(x.decode('ascii'), 'rot13')\npri"
+  },
+  {
+    "step": 7,
+    "llm_s": 6.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 - <<'PY'\nimport re, json\ndec = open('/tmp/decrypted.txt').read()\nchunks = re.findall(r'\\[CHUNK:(\\d+):([^\\]]+)\\]', dec)\nseq = [int(n) for n,_ in chunks]\nfinal = ''.join(c for n,c in sorted(chun"
+  },
+  {
+    "step": 8,
+    "llm_s": 2.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"import json; d=json.load(open('/app/output/extraction_chain.json')); print(json.dumps({k:{kk:(vv[:50] if isinstance(vv,str) else vv) for kk,vv in v.items()} for k,v in d.items()}, indent=1"
+  },
+  {
+    "step": 9,
+    "llm_s": 3.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

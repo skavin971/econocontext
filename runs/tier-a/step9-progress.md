@@ -15,3 +15,126 @@ cap, or (added because the Mac is on battery) the battery at 20% or less while d
 - 2026-10-11 03:01:10 UTC | clm-full | acl-permissions-inheritance | r1 | pass | 5 calls | 0.217 PFLOPs | valid 5/5 | retries 0 | repeats 0
 - 2026-10-11 03:01:10 UTC | END | tc9s: 4 of 4 trials finished
 - 2026-10-11 03:03:00 UTC | GATE | after 9a: PASS (4/4 smoke runs finished and passed, 20/20 calls valid, 87 passed in 13.21s, estimate ~3,263 calls fits 7,862 left today). Starting 9b.
+- 2026-10-11 03:03:07 UTC | START | tc9: 120 trials (raw, econo+jev, clm-32k, clm-full; 10 tasks; repeats 1-3), 2 workers; 138 of 8000 requests used today
+- 2026-10-11 03:06:35 UTC | raw | api-endpoint-permission-canonicalizer | r1 | pass | 12 calls | 1.089 PFLOPs | valid 12/12 | retries 0 | repeats 0
+- 2026-10-11 03:11:07 UTC | clm-32k | api-endpoint-permission-canonicalizer | r1 | pass | 20 calls | 1.553 PFLOPs | valid 20/20 | retries 0 | repeats 0
+- 2026-10-11 03:14:29 UTC | clm-full | api-endpoint-permission-canonicalizer | r1 | pass | 17 calls | 1.093 PFLOPs | valid 17/17 | retries 0 | repeats 0
+- 2026-10-11 03:15:41 UTC | econo+jev | api-endpoint-permission-canonicalizer | r1 | pass | 28 calls | 3.668 PFLOPs | valid 28/28 | retries 0 | repeats 0 | Jev 2 asked, 0 fallbacks 
+- 2026-10-11 03:15:56 UTC | raw | sales-data-csv-analysis | r1 | pass | 5 calls | 0.555 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 03:17:13 UTC | econo+jev | sales-data-csv-analysis | r1 | pass | 7 calls | 0.720 PFLOPs | valid 7/7 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 03:17:38 UTC | clm-32k | sales-data-csv-analysis | r1 | pass | 5 calls | 0.653 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 03:18:17 UTC | raw | acl-permissions-inheritance | r1 | pass | 5 calls | 0.150 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 03:18:54 UTC | econo+jev | acl-permissions-inheritance | r1 | pass | 4 calls | 0.114 PFLOPs | valid 4/4 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 03:18:58 UTC | clm-full | sales-data-csv-analysis | r1 | pass | 4 calls | 0.695 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 03:19:37 UTC | clm-32k | acl-permissions-inheritance | r1 | pass | 4 calls | 0.169 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 03:19:45 UTC | clm-full | acl-permissions-inheritance | r1 | pass | 6 calls | 0.224 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 03:23:50 UTC | raw | maven-slf4j-conflict | r1 | pass | 20 calls | 0.958 PFLOPs | valid 20/20 | retries 0 | repeats 0
+- 2026-10-11 03:24:01 UTC | econo+jev | maven-slf4j-conflict | r1 | pass | 22 calls | 0.947 PFLOPs | valid 22/22 | retries 0 | repeats 0 | Jev 1 asked, 0 fallbacks 
+- 2026-10-11 03:27:57 UTC | clm-full | maven-slf4j-conflict | r1 | pass | 16 calls | 0.892 PFLOPs | valid 16/16 | retries 0 | repeats 0
+- 2026-10-11 03:27:58 UTC | clm-32k | maven-slf4j-conflict | r1 | pass | 26 calls | 1.096 PFLOPs | valid 26/26 | retries 0 | repeats 0
+- 2026-10-11 03:28:56 UTC | raw | chained-forensic-extraction_20260101_011957 | r1 | pass | 9 calls | 0.402 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 03:30:05 UTC | clm-32k | chained-forensic-extraction_20260101_011957 | r1 | pass | 9 calls | 0.463 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 03:30:27 UTC | econo+jev | chained-forensic-extraction_20260101_011957 | r1 | pass | 14 calls | 1.178 PFLOPs | valid 14/14 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 03:31:10 UTC | raw | pandas-etl | r1 | pass | 6 calls | 0.262 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 03:31:47 UTC | clm-full | chained-forensic-extraction_20260101_011957 | r1 | pass | 11 calls | 0.824 PFLOPs | valid 11/11 | retries 0 | repeats 0
+- 2026-10-11 03:31:51 UTC | econo+jev | pandas-etl | r1 | pass | 6 calls | 0.263 PFLOPs | valid 6/6 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 03:32:41 UTC | clm-full | pandas-etl | r1 | pass | 6 calls | 0.420 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 03:32:46 UTC | clm-32k | pandas-etl | r1 | pass | 10 calls | 0.566 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 03:36:48 UTC | econo+jev | malicious-package-forensics | r1 | pass | 14 calls | 2.835 PFLOPs | valid 14/14 | retries 0 | repeats 0 | Jev 10 asked, 0 fallbacks 
+- 2026-10-11 03:40:27 UTC | clm-32k | malicious-package-forensics | r1 | pass | 16 calls | 4.401 PFLOPs | valid 16/16 | retries 0 | repeats 0
+- 2026-10-11 03:46:40 UTC | clm-full | malicious-package-forensics | r1 | pass | 26 calls | 6.666 PFLOPs | valid 26/26 | retries 0 | repeats 0
+- 2026-10-11 03:47:23 UTC | raw | malicious-package-forensics | r1 | pass | 20 calls | 5.775 PFLOPs | valid 20/20 | retries 0 | repeats 0
+- 2026-10-11 04:06:13 UTC | econo+jev | bandit-delayed-feedback | r1 | fail | 33 calls | 5.654 PFLOPs | valid 33/33 | retries 0 | repeats 0 | Jev 3 asked, 0 fallbacks 
+- 2026-10-11 04:11:09 UTC | raw | bandit-delayed-feedback | r1 | overflow (FAIL) | 56 calls | 9.599 PFLOPs | valid 55/55 | retries 0 | repeats 0
+- 2026-10-11 04:19:59 UTC | clm-full | bandit-delayed-feedback | r1 | pass | 33 calls | 3.666 PFLOPs | valid 33/33 | retries 0 | repeats 0
+- 2026-10-11 04:20:25 UTC | clm-32k | bandit-delayed-feedback | r1 | fail | 34 calls | 4.599 PFLOPs | valid 34/34 | retries 0 | repeats 0
+- 2026-10-11 04:21:03 UTC | raw | anomaly-detection-ranking | r1 | pass | 10 calls | 0.605 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 04:21:32 UTC | econo+jev | anomaly-detection-ranking | r1 | pass | 11 calls | 0.634 PFLOPs | valid 11/11 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 04:22:13 UTC | clm-32k | anomaly-detection-ranking | r1 | pass | 10 calls | 0.666 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 04:22:48 UTC | clm-full | anomaly-detection-ranking | r1 | pass | 11 calls | 0.656 PFLOPs | valid 11/11 | retries 0 | repeats 0
+- 2026-10-11 04:34:22 UTC | raw | scan-linux-persistence-artifacts | r1 | pass | 31 calls | 5.433 PFLOPs | valid 31/31 | retries 0 | repeats 0
+- 2026-10-11 04:39:26 UTC | econo+jev | scan-linux-persistence-artifacts | r1 | pass | 52 calls | 5.832 PFLOPs | valid 52/52 | retries 0 | repeats 0 | Jev 8 asked, 0 fallbacks 
+- 2026-10-11 04:41:28 UTC | clm-32k | scan-linux-persistence-artifacts | r1 | pass | 25 calls | 3.903 PFLOPs | valid 25/25 | retries 0 | repeats 0
+- 2026-10-11 04:44:41 UTC | raw | api-endpoint-permission-canonicalizer | r2 | fail | 7 calls | 0.912 PFLOPs | valid 7/7 | retries 0 | repeats 0
+- 2026-10-11 04:47:56 UTC | clm-full | scan-linux-persistence-artifacts | r1 | pass | 42 calls | 3.855 PFLOPs | valid 42/42 | retries 0 | repeats 0
+- 2026-10-11 04:48:44 UTC | econo+jev | api-endpoint-permission-canonicalizer | r2 | pass | 17 calls | 1.235 PFLOPs | valid 17/17 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 04:50:50 UTC | clm-32k | api-endpoint-permission-canonicalizer | r2 | pass | 12 calls | 0.916 PFLOPs | valid 12/12 | retries 0 | repeats 0
+- 2026-10-11 04:51:23 UTC | clm-full | api-endpoint-permission-canonicalizer | r2 | pass | 10 calls | 0.871 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 04:52:39 UTC | econo+jev | sales-data-csv-analysis | r2 | pass | 6 calls | 0.501 PFLOPs | valid 6/6 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 04:52:42 UTC | raw | sales-data-csv-analysis | r2 | pass | 10 calls | 0.696 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 04:54:04 UTC | clm-full | sales-data-csv-analysis | r2 | pass | 6 calls | 0.531 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 04:54:11 UTC | clm-32k | sales-data-csv-analysis | r2 | pass | 5 calls | 0.582 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 04:54:41 UTC | raw | acl-permissions-inheritance | r2 | pass | 4 calls | 0.131 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 04:54:52 UTC | econo+jev | acl-permissions-inheritance | r2 | pass | 4 calls | 0.154 PFLOPs | valid 4/4 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 04:55:34 UTC | clm-32k | acl-permissions-inheritance | r2 | pass | 6 calls | 0.232 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 04:55:39 UTC | clm-full | acl-permissions-inheritance | r2 | pass | 5 calls | 0.194 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 04:59:07 UTC | raw | maven-slf4j-conflict | r2 | pass | 18 calls | 0.942 PFLOPs | valid 18/18 | retries 0 | repeats 0
+- 2026-10-11 04:59:23 UTC | econo+jev | maven-slf4j-conflict | r2 | pass | 22 calls | 1.007 PFLOPs | valid 22/22 | retries 0 | repeats 0 | Jev 1 asked, 0 fallbacks 
+- 2026-10-11 05:02:29 UTC | clm-32k | maven-slf4j-conflict | r2 | pass | 17 calls | 0.937 PFLOPs | valid 17/17 | retries 0 | repeats 0
+- 2026-10-11 05:03:39 UTC | raw | chained-forensic-extraction_20260101_011957 | r2 | pass | 10 calls | 0.552 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 05:03:46 UTC | clm-full | maven-slf4j-conflict | r2 | pass | 19 calls | 1.125 PFLOPs | valid 19/19 | retries 0 | repeats 0
+- 2026-10-11 05:04:57 UTC | clm-32k | chained-forensic-extraction_20260101_011957 | r2 | pass | 8 calls | 0.517 PFLOPs | valid 8/8 | retries 0 | repeats 0
+- 2026-10-11 05:06:19 UTC | clm-full | chained-forensic-extraction_20260101_011957 | r2 | fail | 10 calls | 0.595 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 05:06:58 UTC | raw | pandas-etl | r2 | pass | 5 calls | 0.206 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 05:07:22 UTC | econo+jev | chained-forensic-extraction_20260101_011957 | r2 | pass | 22 calls | 1.817 PFLOPs | valid 22/22 | retries 0 | repeats 0 | Jev 3 asked, 0 fallbacks 
+- 2026-10-11 05:07:38 UTC | econo+jev | pandas-etl | r2 | pass | 6 calls | 0.229 PFLOPs | valid 6/6 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 05:08:05 UTC | clm-32k | pandas-etl | r2 | pass | 5 calls | 0.258 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 05:08:26 UTC | clm-full | pandas-etl | r2 | pass | 6 calls | 0.409 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 05:12:40 UTC | raw | malicious-package-forensics | r2 | pass | 8 calls | 3.143 PFLOPs | valid 8/8 | retries 0 | repeats 0
+- 2026-10-11 05:13:41 UTC | econo+jev | malicious-package-forensics | r2 | pass | 14 calls | 3.300 PFLOPs | valid 14/14 | retries 0 | repeats 0 | Jev 10 asked, 0 fallbacks 
+- 2026-10-11 05:16:18 UTC | clm-32k | malicious-package-forensics | r2 | pass | 12 calls | 4.576 PFLOPs | valid 12/12 | retries 0 | repeats 0
+- 2026-10-11 05:16:34 UTC | clm-full | malicious-package-forensics | r2 | pass | 12 calls | 4.672 PFLOPs | valid 12/12 | retries 0 | repeats 0
+- 2026-10-11 05:35:22 UTC | raw | bandit-delayed-feedback | r2 | fail | 38 calls | 6.244 PFLOPs | valid 38/38 | retries 0 | repeats 0
+- 2026-10-11 05:41:44 UTC | clm-32k | bandit-delayed-feedback | r2 | pass | 18 calls | 2.129 PFLOPs | valid 18/18 | retries 0 | repeats 0
+- 2026-10-11 05:45:07 UTC | econo+jev | bandit-delayed-feedback | r2 | fail | 41 calls | 6.096 PFLOPs | valid 41/41 | retries 0 | repeats 0 | Jev 3 asked, 0 fallbacks 
+- 2026-10-11 05:46:02 UTC | raw | anomaly-detection-ranking | r2 | pass | 10 calls | 0.530 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 05:47:15 UTC | econo+jev | anomaly-detection-ranking | r2 | pass | 11 calls | 0.666 PFLOPs | valid 11/11 | retries 0 | repeats 0 | Jev 1 asked, 0 fallbacks 
+- 2026-10-11 05:48:29 UTC | clm-32k | anomaly-detection-ranking | r2 | pass | 11 calls | 0.607 PFLOPs | valid 11/11 | retries 0 | repeats 0
+- 2026-10-11 05:49:51 UTC | clm-full | anomaly-detection-ranking | r2 | pass | 10 calls | 0.653 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 05:54:10 UTC | clm-full | bandit-delayed-feedback | r2 | pass | 30 calls | 4.416 PFLOPs | valid 30/30 | retries 0 | repeats 0
+- 2026-10-11 06:01:05 UTC | econo+jev | scan-linux-persistence-artifacts | r2 | pass | 19 calls | 2.311 PFLOPs | valid 19/19 | retries 0 | repeats 0 | Jev 7 asked, 0 fallbacks 
+- 2026-10-11 06:04:49 UTC | raw | scan-linux-persistence-artifacts | r2 | overflow (FAIL) | 43 calls | 6.911 PFLOPs | valid 42/42 | retries 0 | repeats 0
+- 2026-10-11 06:06:58 UTC | clm-32k | scan-linux-persistence-artifacts | r2 | pass | 18 calls | 2.110 PFLOPs | valid 18/18 | retries 0 | repeats 0
+- 2026-10-11 06:10:28 UTC | clm-full | scan-linux-persistence-artifacts | r2 | pass | 18 calls | 2.772 PFLOPs | valid 18/18 | retries 0 | repeats 0
+- 2026-10-11 06:14:43 UTC | raw | api-endpoint-permission-canonicalizer | r3 | pass | 20 calls | 2.298 PFLOPs | valid 20/20 | retries 0 | repeats 0
+- 2026-10-11 06:18:14 UTC | clm-32k | api-endpoint-permission-canonicalizer | r3 | pass | 15 calls | 1.091 PFLOPs | valid 15/15 | retries 0 | repeats 0
+- 2026-10-11 06:20:52 UTC | econo+jev | api-endpoint-permission-canonicalizer | r3 | pass | 42 calls | 3.420 PFLOPs | valid 42/42 | retries 0 | repeats 0 | Jev 1 asked, 0 fallbacks 
+- 2026-10-11 06:21:45 UTC | clm-full | api-endpoint-permission-canonicalizer | r3 | pass | 10 calls | 1.087 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 06:22:13 UTC | raw | sales-data-csv-analysis | r3 | pass | 6 calls | 0.541 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 06:23:11 UTC | econo+jev | sales-data-csv-analysis | r3 | pass | 7 calls | 0.647 PFLOPs | valid 7/7 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 06:23:49 UTC | clm-32k | sales-data-csv-analysis | r3 | pass | 4 calls | 0.610 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 06:24:28 UTC | raw | acl-permissions-inheritance | r3 | pass | 4 calls | 0.148 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 06:24:41 UTC | clm-full | sales-data-csv-analysis | r3 | fail | 5 calls | 0.706 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 06:25:10 UTC | econo+jev | acl-permissions-inheritance | r3 | pass | 5 calls | 0.141 PFLOPs | valid 5/5 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 06:25:27 UTC | clm-32k | acl-permissions-inheritance | r3 | pass | 5 calls | 0.194 PFLOPs | valid 5/5 | retries 0 | repeats 0
+- 2026-10-11 06:26:08 UTC | clm-full | acl-permissions-inheritance | r3 | pass | 9 calls | 0.260 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 06:28:45 UTC | raw | maven-slf4j-conflict | r3 | pass | 19 calls | 0.748 PFLOPs | valid 19/19 | retries 0 | repeats 0
+- 2026-10-11 06:30:03 UTC | econo+jev | maven-slf4j-conflict | r3 | pass | 20 calls | 0.743 PFLOPs | valid 20/20 | retries 0 | repeats 0 | Jev 1 asked, 0 fallbacks 
+- 2026-10-11 06:32:08 UTC | clm-32k | maven-slf4j-conflict | r3 | pass | 16 calls | 1.324 PFLOPs | valid 16/16 | retries 0 | repeats 0
+- 2026-10-11 06:33:27 UTC | raw | chained-forensic-extraction_20260101_011957 | r3 | pass | 14 calls | 0.634 PFLOPs | valid 14/14 | retries 0 | repeats 0
+- 2026-10-11 06:34:36 UTC | clm-full | maven-slf4j-conflict | r3 | not graded (RuntimeError) | 20 calls | 1.282 PFLOPs | valid 20/20 | retries 0 | repeats 0
+- 2026-10-11 06:35:36 UTC | econo+jev | chained-forensic-extraction_20260101_011957 | r3 | pass | 11 calls | 0.897 PFLOPs | valid 11/11 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 06:36:37 UTC | NOTE | clm-full maven r3 not graded: CLM's agent raised RuntimeError 'Command timed out after 120 seconds' (CLM's own command_timeout default; our agent uses 180 s and reports a timeout to the model instead of stopping). One crash: the 2-in-a-row gate has not tripped. Nothing changed mid-run.
+- 2026-10-11 06:37:01 UTC | clm-32k | chained-forensic-extraction_20260101_011957 | r3 | pass | 11 calls | 1.057 PFLOPs | valid 11/11 | retries 0 | repeats 0
+- 2026-10-11 06:37:34 UTC | clm-full | chained-forensic-extraction_20260101_011957 | r3 | pass | 13 calls | 0.843 PFLOPs | valid 13/13 | retries 0 | repeats 0
+- 2026-10-11 06:37:39 UTC | raw | pandas-etl | r3 | pass | 6 calls | 0.223 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 06:38:09 UTC | econo+jev | pandas-etl | r3 | pass | 6 calls | 0.203 PFLOPs | valid 6/6 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 06:38:25 UTC | clm-32k | pandas-etl | r3 | pass | 6 calls | 0.397 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 06:38:55 UTC | clm-full | pandas-etl | r3 | pass | 6 calls | 0.402 PFLOPs | valid 6/6 | retries 0 | repeats 0
+- 2026-10-11 06:42:51 UTC | econo+jev | malicious-package-forensics | r3 | pass | 16 calls | 2.778 PFLOPs | valid 16/16 | retries 0 | repeats 0 | Jev 11 asked, 1 fallbacks {'Jev HTTP 400 max_tokens_exceeded': 1}
+- 2026-10-11 06:43:54 UTC | raw | malicious-package-forensics | r3 | pass | 11 calls | 3.271 PFLOPs | valid 11/11 | retries 0 | repeats 0
+- 2026-10-11 06:45:16 UTC | clm-32k | malicious-package-forensics | r3 | pass | 10 calls | 2.135 PFLOPs | valid 10/10 | retries 0 | repeats 0
+- 2026-10-11 06:46:52 UTC | clm-full | malicious-package-forensics | r3 | pass | 12 calls | 2.616 PFLOPs | valid 12/12 | retries 0 | repeats 0
+- 2026-10-11 06:56:56 UTC | raw | bandit-delayed-feedback | r3 | fail | 26 calls | 3.198 PFLOPs | valid 26/26 | retries 0 | repeats 0
+- 2026-10-11 07:06:19 UTC | clm-32k | bandit-delayed-feedback | r3 | pass | 34 calls | 3.661 PFLOPs | valid 34/34 | retries 0 | repeats 0
+- 2026-10-11 07:06:49 UTC | econo+jev | bandit-delayed-feedback | r3 | overflow (FAIL) | 56 calls | 7.886 PFLOPs | valid 55/55 | retries 0 | repeats 0 | Jev 7 asked, 0 fallbacks 
+- 2026-10-11 07:07:48 UTC | raw | anomaly-detection-ranking | r3 | pass | 9 calls | 0.504 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 07:08:42 UTC | econo+jev | anomaly-detection-ranking | r3 | pass | 9 calls | 0.466 PFLOPs | valid 9/9 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 07:09:45 UTC | clm-32k | anomaly-detection-ranking | r3 | pass | 9 calls | 0.512 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 07:10:56 UTC | clm-full | anomaly-detection-ranking | r3 | pass | 9 calls | 0.655 PFLOPs | valid 9/9 | retries 0 | repeats 0
+- 2026-10-11 07:13:38 UTC | clm-full | bandit-delayed-feedback | r3 | fail | 27 calls | 3.077 PFLOPs | valid 27/27 | retries 0 | repeats 0
+- 2026-10-11 07:23:40 UTC | econo+jev | scan-linux-persistence-artifacts | r3 | not graded (EnvironmentStartTimeoutError) | 0 calls | 0.000 PFLOPs | valid 0/0 | retries 0 | repeats 0 | Jev 0 asked, 0 fallbacks 
+- 2026-10-11 07:27:37 UTC | clm-32k | scan-linux-persistence-artifacts | r3 | not graded (RuntimeError) | 0 calls | 0.000 PFLOPs | valid 0/0 | retries 0 | repeats 0
+- 2026-10-11 07:30:06 UTC | raw | scan-linux-persistence-artifacts | r3 | pass | 28 calls | 6.471 PFLOPs | valid 28/28 | retries 0 | repeats 0
+- 2026-10-11 07:37:41 UTC | clm-full | scan-linux-persistence-artifacts | r3 | not graded (EnvironmentStartTimeoutError) | 0 calls | 0.000 PFLOPs | valid 0/0 | retries 0 | repeats 0
+- 2026-10-11 07:37:41 UTC | END | tc9: 120 of 120 trials finished

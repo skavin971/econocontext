@@ -1,0 +1,92 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/data/ && xxd /app/data/artifact.bin | head -50"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\ndata=open('/app/data/artifact.bin','rb').read()\nprint(len(data))\nimport re\noffs=[m.start() for m in re.finditer(b'PK\\x03\\x04', data)]\nprint('local headers at:', offs)\nprint(data[:200])\n\""
+  },
+  {
+    "step": 3,
+    "llm_s": 4.4,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport zipfile, io, re, zlib, base64, codecs\n\ndata = open('/app/data/artifact.bin','rb').read()\nfirst, second = 80, 336\nz = zipfile.ZipFile(io.BytesIO(data[second:]))\nprint(z.namelist("
+  },
+  {
+    "step": 4,
+    "llm_s": 4.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport zlib, base64, codecs, re\npng = open('/tmp/hidden.png','rb').read()\noff = png.find(b'tEXt')\nstart = off - 4\nlength = int.from_bytes(png[start:start+4],'big')\ncdata = png[start+8:"
+  },
+  {
+    "step": 5,
+    "llm_s": 4.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport zlib, base64, codecs, re\npng = open('/tmp/hidden.png','rb').read()\noff = png.find(b'tEXt')\nstart = off - 4\nlength = int.from_bytes(png[start:start+4],'big')\ncdata = png[start+8:"
+  },
+  {
+    "step": 6,
+    "llm_s": 9.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport base64, codecs, re, zlib\npng = open('/tmp/hidden.png','rb').read()\noff = png.find(b'tEXt')\nstart = off - 4\nlength = int.from_bytes(png[start:start+4],'big')\ncdata = png[start+8:"
+  },
+  {
+    "step": 7,
+    "llm_s": 6.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport base64, codecs, re, json, os\npng = open('/tmp/hidden.png','rb').read()\noff = png.find(b'tEXt')\nstart = off - 4\nlength = int.from_bytes(png[start:start+4],'big')\ncdata = png[star"
+  },
+  {
+    "step": 8,
+    "llm_s": 10.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 << 'PY'\nimport base64, codecs, re, json, os, zlib, io, zipfile\n\ndata = open('/app/data/artifact.bin','rb').read()\nimport re as _re\noffs=[m.start() for m in _re.finditer(b'PK\\x03\\x04', data)]\nf"
+  },
+  {
+    "step": 9,
+    "llm_s": 3.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "python3 -c \"\nimport json\nd=json.load(open('/app/output/extraction_chain.json'))\nprint(json.dumps(d, indent=1)[:600])\nassert d['stage1_zip']['second_zip_offset'] > d['stage1_zip']['first_zip_offset']\na"
+  },
+  {
+    "step": 10,
+    "llm_s": 3.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

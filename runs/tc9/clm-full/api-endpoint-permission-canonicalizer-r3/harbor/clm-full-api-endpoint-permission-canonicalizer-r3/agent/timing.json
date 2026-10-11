@@ -1,0 +1,97 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/ && cat /app/input.txt 2>/dev/null | head -50"
+  },
+  {
+    "step": 2,
+    "llm_s": 102.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": ""
+  },
+  {
+    "step": 3,
+    "llm_s": 25.6,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat > /app/canonicalize.py << 'EOF'\n#!/usr/bin/env python3\n\"\"\"API Endpoint Permission Canonicalizer.\n\nReads /app/input.txt and writes the canonical permission configuration to\n/app/output.txt.\n\"\"\"\nimp"
+  },
+  {
+    "step": 4,
+    "llm_s": 6.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /tmp && cat > t1.txt << 'EOF'\n/api/users/{id} GET admin ALLOW\n/api/users/{userId} GET user ALLOW\n/api/users POST admin DENY\n/api/orders/{oid} DELETE admin ALLOW\n/api/orders/{oid} PATCH admin ALLOW\n"
+  },
+  {
+    "step": 5,
+    "context_budget_nudge": 0.25,
+    "tokens": 14355
+  },
+  {
+    "step": 5,
+    "llm_s": 6.7,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /tmp && cat > t2.txt << 'EOF'\n/api/a GET admin ALLOW\n/api/a GET temp DENY\n/api/a/b GET admin ALLOW\n/api/a/b GET temp DENY\n/other GET admin ALLOW\n\nbase /api\nexclude temp\n\nEOF\npython3 /app/canonicali"
+  },
+  {
+    "step": 6,
+    "llm_s": 11.8,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - << 'EOF'\nimport re\ns = open('canonicalize.py').read()\nold = \"\"\"    selected = []\n    for ep in deduped:\n        n = norm_of[ep[0]]\n        if n not in needed:\n            continue"
+  },
+  {
+    "step": 7,
+    "llm_s": 8.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /tmp && for t in 1 2 4 5; do python3 /app/canonicalize.py t$t.txt o$t.txt; done && echo \"t1:\" && cat o1.txt && echo \"t2:\" && cat o2.txt && echo \"t4:\" && cat o4.txt && echo \"t5:\" && od -c o5.txt\ncat"
+  },
+  {
+    "step": 8,
+    "llm_s": 8.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /tmp && printf '/api/a GET admin ALLOW\\n/api/a/b GET admin ALLOW\\n\\n/api/a/b GET\\n' > t8.txt && python3 /app/canonicalize.py t8.txt o8.txt && echo \"--- t8 (no base/exclude section):\" && cat o8.txt\n"
+  },
+  {
+    "step": 9,
+    "llm_s": 2.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cp /tmp/t1.txt /app/input.txt && python3 /app/canonicalize.py && cat /app/output.txt && rm -f /app/input.txt /app/output.txt && ls -la /app/"
+  },
+  {
+    "step": 10,
+    "llm_s": 6.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

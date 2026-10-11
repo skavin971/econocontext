@@ -1,0 +1,151 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/service && cat /app/service/pom.xml"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "find /app/service/src -type f | head -50 && echo --- && for f in $(find /app/service/src -type f -name '*.java'); do echo \"== $f\"; cat \"$f\"; done"
+  },
+  {
+    "step": 3,
+    "llm_s": 6.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && mvn -v 2>&1 | head -5; ls ~/.m2 2>/dev/null; echo ---; timeout 300 mvn -q dependency:tree 2>&1 | grep -Ei 'slf4j|logback|log4j|conflict|omitted' | head -40"
+  },
+  {
+    "step": 4,
+    "llm_s": 1.3,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls /opt /usr/local 2>/dev/null; find / -maxdepth 4 -name 'mvn' -type f 2>/dev/null | head; which java; java -version 2>&1"
+  },
+  {
+    "step": 5,
+    "llm_s": 2.2,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls /root/.m2 2>/dev/null; find / -maxdepth 5 -name 'apache-maven*' 2>/dev/null | head; apt list --installed 2>/dev/null | grep -i maven; echo ---; timeout 15 curl -sI https://repo.maven.apache.org/mav"
+  },
+  {
+    "step": 6,
+    "llm_s": 2.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": true,
+    "cmd": "(apt-get install -y maven 2>&1 | tail -2) || (cd /opt && curl -sL https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.6/apache-maven-3.9.6-bin.tar.gz -o m.tgz && tar xzf m.tgz -C /o"
+  },
+  {
+    "step": 7,
+    "llm_s": 2.8,
+    "bash_s": 0.7,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /opt && curl -sL https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.6/apache-maven-3.9.6-bin.tar.gz -o m.tgz && tar xzf m.tgz -C /opt && ln -sf /opt/apache-maven-3.9.6/bin/mvn /"
+  },
+  {
+    "step": 8,
+    "llm_s": 2.0,
+    "bash_s": 16.0,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 600 mvn dependency:tree 2>&1 | grep -Ei 'slf4j|logback|log4j|conflict' | head -40"
+  },
+  {
+    "step": 9,
+    "context_budget_nudge": 0.25,
+    "tokens": 8789
+  },
+  {
+    "step": 9,
+    "llm_s": 2.4,
+    "bash_s": 1.5,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": true,
+    "cmd": "cd /app/service && timeout 600 mvn -q dependency:tree 2>/dev/null | grep -Ei 'slf4j|logback|log4j|conflict|omitted'"
+  },
+  {
+    "step": 10,
+    "llm_s": 3.0,
+    "bash_s": 1.6,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 600 mvn dependency:tree -Dverbose 2>&1 | grep -E '^\\[INFO\\] [+\\\\\\\\|]|conflict' | grep -Ei 'slf4j|logback|log4j|conflict|:com.example' | head -50"
+  },
+  {
+    "step": 11,
+    "llm_s": 9.7,
+    "bash_s": 1.8,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 300 mvn dependency:tree -Dverbose 2>&1 | grep -E '^\\[INFO\\]' | sed -n '/com.example/,/BUILD/p' | grep -Ei 'elasticsearch|kafka|hibernate|log4j|slf4j|logback' | head -30"
+  },
+  {
+    "step": 12,
+    "llm_s": 30.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat > /app/service/pom.xml << 'EOF'\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xs"
+  },
+  {
+    "step": 13,
+    "llm_s": 2.6,
+    "bash_s": 8.7,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 600 mvn clean compile 2>&1 | tail -3 && echo ===TREE=== && timeout 300 mvn dependency:tree -Dverbose 2>&1 | grep -Ei 'conflict|omitted for' | grep -Ei 'slf4j|logback|log4j' "
+  },
+  {
+    "step": 14,
+    "llm_s": 3.0,
+    "bash_s": 4.9,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 300 mvn dependency:tree 2>&1 | grep -Ei 'slf4j|logback|log4j' && echo ===TEST=== && timeout 600 mvn test 2>&1 | grep -E 'Tests run|BUILD|ERROR' | head"
+  },
+  {
+    "step": 15,
+    "llm_s": 4.8,
+    "bash_s": 31.6,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 120 mvn -q dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt >/dev/null 2>&1 && (timeout 30 java -cp target/classes:$(cat /tmp/cp.txt) com.example.service.LoggingServ"
+  },
+  {
+    "step": 16,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

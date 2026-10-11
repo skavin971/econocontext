@@ -1,0 +1,101 @@
+[
+  {
+    "step": 1,
+    "llm_s": 2.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/ && echo \"---\" && ls -la /app/data/ && echo \"---\" && file /app/data/artifact.bin && echo \"---\" && ls -la /app/output/ 2>/dev/null || echo \"no output dir\""
+  },
+  {
+    "step": 2,
+    "llm_s": 1.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "xxd /app/data/artifact.bin | head -80"
+  },
+  {
+    "step": 3,
+    "llm_s": 2.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\ndata = open('/app/data/artifact.bin','rb').read()\nprint(\"len\", len(data))\n# find ZIP signatures\nsig = b'PK\\x03\\x04'\nidx = -1\nwhile True:\n    idx = data.find(sig, idx+1)\n   "
+  },
+  {
+    "step": 4,
+    "llm_s": 2.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\ndata = open('/app/data/artifact.bin','rb').read()\n# second zip starts at 336\nsecond = data[336:]\nprint(\"second zip len\", len(second))\nprint(repr(second[:200]))\n# find end o"
+  },
+  {
+    "step": 5,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport zipfile, io\ndata = open('/app/data/artifact.bin','rb').read()\nsecond = data[336:]\nzf = zipfile.ZipFile(io.BytesIO(second))\nprint(\"names:\", zf.namelist())\npng = zf.re"
+  },
+  {
+    "step": 6,
+    "llm_s": 8.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport struct, zlib\npng = open('/tmp/hidden.png','rb').read() if False else None\nimport zipfile, io\ndata = open('/app/data/artifact.bin','rb').read()\nsecond = data[336:]\nzf"
+  },
+  {
+    "step": 7,
+    "llm_s": 20.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport base64, codecs, re\ntext = 'LSgsK3VvM28uKCApcRdxEW48GDExAmkMLhdpLmM5aSMscRgTI3FoETwrcT4tKDQXbDltMC0XaSkyYiBtMGw/CDNiDj0tFhgfPAACaWk/MzZtbxgJbTk1biIYNSI7GB0pM2MgaTA/Ch"
+  },
+  {
+    "step": 8,
+    "llm_s": 8.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport base64, codecs\ntext = 'LSgsK3VvM28uKCApcRdxEW48GDExAmkMLhdpLmM5aSMscRgTI3FoETwrcT4tKDQXbDltMC0XaSkyYiBtMGw/CDNiDj0tFhgfPAACaWk/MzZtbxgJbTk1biIYNSI7GB0pM2MgaTA/Chs/Ki"
+  },
+  {
+    "step": 9,
+    "llm_s": 13.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport base64, codecs, re, json\ntext = 'LSgsK3VvM28uKCApcRdxEW48GDExAmkMLhdpLmM5aSMscRgTI3FoETwrcT4tKDQXbDltMC0XaSkyYiBtMGw/CDNiDj0tFhgfPAACaWk/MzZtbxgJbTk1biIYNSI7GB0pM2Mg"
+  },
+  {
+    "step": 10,
+    "llm_s": 2.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"import json; d=json.load(open('/app/output/extraction_chain.json')); print(json.dumps(d, indent=2))\""
+  },
+  {
+    "step": 11,
+    "llm_s": 5.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

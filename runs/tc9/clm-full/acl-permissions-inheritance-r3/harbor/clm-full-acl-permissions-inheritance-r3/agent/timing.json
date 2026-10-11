@@ -1,0 +1,83 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "id alice; id bob; getent group research; which setfacl getfacl; ls -ld /srv 2>/dev/null; whoami"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "mkdir -p /srv/shared && chown root:research /srv/shared && chmod 2770 /srv/shared && ls -ld /srv/shared"
+  },
+  {
+    "step": 3,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "setfacl -m u:alice:rwx,u:bob:rwx,g:research:rwx,o::---,m::rwx /srv/shared && setfacl -m d:u:alice:rwx,d:u:bob:rwx,d:g:research:rwx,d:o::---,d:m::rwx /srv/shared && getfacl -p /srv/shared"
+  },
+  {
+    "step": 4,
+    "llm_s": 2.9,
+    "bash_s": 0.1,
+    "return_code": 127,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sudo -u alice touch /srv/shared/alice_file && sudo -u bob sh -c 'cat /srv/shared/alice_file >/dev/null && echo \"bob can read alice_file\"' && sudo -u bob touch /srv/shared/bobdir_test && mkdir -p /tmp/"
+  },
+  {
+    "step": 5,
+    "llm_s": 2.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "runuser -u alice -- touch /srv/shared/alice_file && runuser -u bob -- sh -c 'echo data > /tmp/bobtest && cat /srv/shared/alice_file >/dev/null && echo \"bob can read alice_file\"' && runuser -u bob -- m"
+  },
+  {
+    "step": 6,
+    "llm_s": 2.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "grep -v 'nologin\\|false' /etc/passwd; id testuser 2>/dev/null || echo \"no testuser\""
+  },
+  {
+    "step": 7,
+    "llm_s": 2.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "runuser -u ubuntu -- ls /srv/shared 2>&1; runuser -u ubuntu -- cat /srv/shared/alice_file 2>&1; echo \"exit codes checked\""
+  },
+  {
+    "step": 8,
+    "llm_s": 2.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "rm -rf /srv/shared/alice_file /srv/shared/bobsub /tmp/bobtest /tmp/keep && ls -la /srv/shared && ls -ld /srv/shared && getfacl -p /srv/shared"
+  },
+  {
+    "step": 9,
+    "llm_s": 5.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]
