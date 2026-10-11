@@ -125,3 +125,15 @@ The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had
   - Duplicate computations are reported per run: `retries` (upstream retries, e.g. after a 600 s timeout) and `repeats` (a prompt sent again identically, e.g. a client's resend).
   - On maven, CLM's call 10 timed out upstream and was resent as call 11.
 
+## Step 9: the first full comparison (2026-10-11)
+
+- **The framing.** FLOPs are compute, not cost; dollar claims come only from real bills (tier C). The question is how raw, EconoContext and CLM compare in real settings on quality (pass rate, overflow rescues) and compute (prefix-reuse FLOPs).
+- **Real settings only, no artificial budgets.** The 8k CLM run of step 7 was a measurement test and is not part of results.
+- **The arms.**
+  - `raw` and `econo+jev`: our agent, at the model's real window. A request over Purdue's 65,536 tokens is refused, and the run is a FAIL (overflow).
+  - `clm-32k`: CLM's published setting.
+  - `clm-full`: `context_budget_tokens=57344`, i.e. 65,536 − 8,192.
+- **Shared settings.** For every arm: `max_tokens` 8,192 and a 64-step limit (our agent's default changed from 60 to 64). Temperatures are as each agent sends them: ours 0.7; CLM 0.7 with `top_p` 0.95.
+- **A difference found in the run.** The shell command timeout is 180 s in our agent (reported to the model) and 120 s in CLM's (it stops the run).
+- **A gate added overnight.** The runner stops cleanly between trials if the battery is at 20% or less while discharging. The Mac was on battery when step 9 started.
+

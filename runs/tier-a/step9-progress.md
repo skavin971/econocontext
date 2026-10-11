@@ -138,3 +138,5 @@ cap, or (added because the Mac is on battery) the battery at 20% or less while d
 - 2026-10-11 07:30:06 UTC | raw | scan-linux-persistence-artifacts | r3 | pass | 28 calls | 6.471 PFLOPs | valid 28/28 | retries 0 | repeats 0
 - 2026-10-11 07:37:41 UTC | clm-full | scan-linux-persistence-artifacts | r3 | not graded (EnvironmentStartTimeoutError) | 0 calls | 0.000 PFLOPs | valid 0/0 | retries 0 | repeats 0
 - 2026-10-11 07:37:41 UTC | END | tc9: 120 of 120 trials finished
+- 2026-10-11 07:38:59 UTC | GATE | after 9b: the run finished (120/120, no gate fired); on to 9c.
+- 2026-10-11 07:44:39 UTC | NOTE | 9c done: docs/results/2026-10-11-tblite-arms/README.md; 1,782/1,782 calls valid; CLM cross-check 58/58 prefill equal; 87 passed in 14.38s.

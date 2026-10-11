@@ -59,6 +59,9 @@ def runs(paths: list[str]) -> list[dict]:
             summary = json.loads(summary_path.read_text())
             if summary.get("skipped") or not summary.get("calls_log"):
                 continue
+            if not (ROOT / summary["calls_log"]).exists():     # the trial made no call (e.g. its environment never started)
+                print(f"no calls logged for {summary['run_id']} ({summary.get('exception')}): nothing to measure")
+                continue
             found.append({"calls_log": ROOT / summary["calls_log"], "summary": summary, "dir": summary_path.parent})
     return found
 
