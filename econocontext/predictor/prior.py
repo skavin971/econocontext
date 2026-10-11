@@ -11,13 +11,6 @@ class Prior:
         return {"needed_again": NEEDED_AGAIN.get(item["tool"], DEFAULT), "lifetime": "few_calls",
                 "relevant": None}, None
 
-    def live(self, task, convo, items):
-        # Without knowledge of the trajectory, nothing is ever judged done: no compaction.
-        return {"done": {i["id"]: 0.0 for i in items}, "phase": None, "portion_done": 0.0}, None
-
-    def subtask(self, task, convo, prompt, items):
-        return {"needed": {i["id"]: DEFAULT for i in items}}, None
-
     def segment(self, task, turns, items, boundaries):
         # Without knowledge of the trajectory, no segment is judged finished and nothing evicted.
         return {"done": {i["id"]: 0.0 for i in items}, "segment_done": 0.0, "segment_end": None}, None

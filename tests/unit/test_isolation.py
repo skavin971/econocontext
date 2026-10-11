@@ -7,12 +7,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_THIRD_PARTY = {"yaml"}
-# Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/).
+# Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/;
+# baselines/ joined in step 10).
 PROVIDER_HOSTS = ("genai.rcac.purdue.edu", "googleapis.com", "anthropic.com", "openai.com")
 PROVIDER_KEYS = ("GENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                  "ECONOCONTEXT_ANTHROPIC_KEY", "AGENT_PLATFORM_API_KEY")
 # The SDKs' own base-URL settings: a client that read them would have a default upstream.
 DEFAULT_UPSTREAM = ("OPENAI_BASE_URL", "OPENAI_API_BASE")
+
+
+def ours(pattern: str):
+    """Our files under agents/ and baselines/: a baseline's own code (baselines/<name>/upstream/) is
+    its authors', run through the api_base our wrapper gives it."""
+    for folder in ("agents", "baselines"):
+        for path in (ROOT / folder).rglob(pattern):
+            if path.is_file() and not {"upstream", "__pycache__"} & set(path.relative_to(ROOT).parts):
+                yield path
 
 
 def imports(path: Path) -> set[str]:
@@ -40,10 +50,9 @@ def test_measure_never_imports_the_method():
 
 def test_agents_reach_models_only_through_the_gateway():
     # An agent is given an api_base on gateway/ and a placeholder key; it never names a provider's
-    # host or reads a provider's key. Every file under agents/ (code, scripts, docs) is checked.
-    for path in (ROOT / "agents").rglob("*"):
-        if not path.is_file() or "__pycache__" in path.parts:
-            continue
+    # host or reads a provider's key. Every file of ours under agents/ and baselines/ (code, scripts,
+    # docs) is checked.
+    for path in ours("*"):
         text = path.read_text(errors="ignore")
         named = [name for name in PROVIDER_HOSTS + PROVIDER_KEYS if name in text]
         assert not named, f"{path.relative_to(ROOT)} names {named}"
@@ -52,7 +61,7 @@ def test_agents_reach_models_only_through_the_gateway():
 def test_agents_use_only_the_api_base_they_are_given():
     # Every client an agent builds gets base_url from a variable (the api_base it was given), never a
     # literal URL, and no agent reads the SDK's base-URL settings: there is no default upstream.
-    for path in (ROOT / "agents").rglob("*.py"):
+    for path in ours("*.py"):
         text = path.read_text()
         named = [name for name in DEFAULT_UPSTREAM if name in text]
         assert not named, f"{path.relative_to(ROOT)} names {named}"

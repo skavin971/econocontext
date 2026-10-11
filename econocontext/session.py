@@ -121,10 +121,6 @@ class Session:
         cols = ", ".join(f"{k}=?" for k in fields)
         self.db.execute(f"UPDATE items SET {cols} WHERE id=?", (*fields.values(), item_id))
 
-    def live_big(self, agent: str, min_tokens: int):
-        return self.db.execute("SELECT * FROM items WHERE agent=? AND in_context=1 AND "
-                               "shown_tokens>=? ORDER BY id", (agent, min_tokens)).fetchall()
-
     def in_context(self, agent: str):
         return self.db.execute("SELECT * FROM items WHERE agent=? AND in_context=1 ORDER BY id",
                                (agent,)).fetchall()

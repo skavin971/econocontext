@@ -3,7 +3,8 @@
 Why it exists: every experiment runs the same tasks, so the list is defined once, here. It was chosen
 by EconoCLM's seed 20261003, and every task's oracle solution was health-checked. The tasks
 themselves are OpenThoughts-TBLite, outside this repo; TBLITE_DIR overrides the default location.
-(The constants are verbatim from the old Claude Code runner, archive/claude_code/benchmarks/run.py.)
+(The constants are verbatim from the old Claude Code runner, benchmarks/tblite/run.py at tag
+econo-jev-final.)
 """
 
 import os

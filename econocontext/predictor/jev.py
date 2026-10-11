@@ -12,7 +12,7 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from . import LIFETIMES, PHASES
+from . import LIFETIMES
 
 URL = "https://api.typesafe.ai/v1/systemone"
 # Jev's own tokens are smaller than chars/4: real states measured 2.55-2.67 characters per Jev token
@@ -143,32 +143,6 @@ class Jev:
             probs = answers["relevant"].get("probabilities") or {}
             out["relevant"] = {int(k[1:]): float(v) for k, v in probs.items() if k[1:].isdigit()}
         return out, usage
-
-    def live(self, task, convo, items):
-        state = {"task": task, "conversation": convo,
-                 "items_in_context": [{"id": i["id"], "tool": i["tool"], "input": i["input"],
-                                       "tokens": i["tokens"]} for i in items]}
-        questions = {f"done_{i['id']}": {"type": "noul", "instructions": (
-            f"Is the agent finished using the result of item {i['id']} in `items_in_context`, "
-            "so it will not need it for the rest of the task?")} for i in items}
-        questions["phase"] = {"type": "choice", "criteria": PHASES,
-                              "instructions": "Which phase of the task is the agent in now?"}
-        questions["portion_done"] = {"type": "noul", "instructions": (
-            "Has the agent just finished a distinct part of its task (for example, it found the "
-            "cause and is moving on to fixing it), so earlier work could be summarized?")}
-        answers, usage = self.ask(state, questions)
-        return {"done": {i["id"]: self._p(answers[f"done_{i['id']}"]) for i in items},
-                "phase": answers["phase"].get("choice"),
-                "portion_done": self._p(answers["portion_done"])}, usage
-
-    def subtask(self, task, convo, prompt, items):
-        state = {"task": task, "conversation": convo, "new_subtask": prompt,
-                 "worker_items": [{"id": i["id"], "tool": i["tool"], "input": i["input"]} for i in items]}
-        questions = {f"needed_{i['id']}": {"type": "noul", "instructions": (
-            f"Will the new sub-task `new_subtask` need the information in worker item {i['id']}?")}
-            for i in items}
-        answers, usage = self.ask(state, questions)
-        return {"needed": {i["id"]: self._p(answers[f"needed_{i['id']}"]) for i in items}}, usage
 
     def segment(self, task, turns, items, boundaries):
         """Rules 6 and 7 in a harness that owns its context. `turns` = the conversation as numbered

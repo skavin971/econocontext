@@ -116,7 +116,7 @@ Ignoring the cache is what let the dropping rule act at all.
 
 ## Earlier on 2026-10-05/06: Claude Code + Sonnet 5 (paused)
 
-The first track ran EconoContext inside Claude Code through its hooks ([runs/2026-10-05-v2/RESULTS-1b.md](../../../runs/2026-10-05-v2/RESULTS-1b.md), [runs/2026-10-05-v2-spike/RESULTS-1a.md](../../../runs/2026-10-05-v2-spike/RESULTS-1a.md)).
+The first track ran EconoContext inside Claude Code through its hooks ([runs/2026-10-05-v2/RESULTS-1b.md](https://github.com/skavin971/econocontext/blob/econo-jev-final/runs/2026-10-05-v2/RESULTS-1b.md), [runs/2026-10-05-v2-spike/RESULTS-1a.md](https://github.com/skavin971/econocontext/blob/econo-jev-final/runs/2026-10-05-v2-spike/RESULTS-1a.md); both at tag `econo-jev-final`).
 
 | | Result |
 |---|---|

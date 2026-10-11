@@ -1,7 +1,7 @@
 """Cross-check our prefix cache and attention pairs against CLM's own code, on synthetic token-id runs.
 
 Why it exists: measure/ reimplements CLM's FLOPs accounting. CLM's code
-(third_party/context-language-models, clm_harness.flops_metrics.kv_cache_flops) is the reference:
+(baselines/clm/upstream, clm_harness.flops_metrics.kv_cache_flops) is the reference:
 - `_units_from_token_ids(ids, 16)` + `accumulate_prefill` must give exactly our ΣP and Σ(P − R),
   and our prefill attention pairs Σ½(P² − R²);
 - decode differs by design: CLM averages generation over turns (g·ΣP + G²/2n, with g = G/n), while

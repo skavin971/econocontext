@@ -5,7 +5,7 @@ records. The arms:
   raw          our agent (agents/react/agent.py); it sends its whole conversation every call
   econo+jev    our agent with EconoContext, Jev answering its questions
   econo+prior  the same rules with fixed guesses (no Jev)
-  clm-32k      CLM's own agent (agents/clm/run.sh) at its published setting: context_budget_tokens 32,000
+  clm-32k      CLM's own agent (baselines/clm/run.sh) at its published setting: context_budget_tokens 32,000
   clm-full     CLM's agent at the real window: 57,344 = Purdue's 65,536 minus max_tokens 8,192
 Start the gateway first (.venv/bin/python -m gateway.server --provider purdue). Every call is logged
 to <gateway log dir>/<run_id>/calls.jsonl (run id <label>.<arm>.<task>.r<n>), the input of measure/.
@@ -154,7 +154,7 @@ def run_trial(a, log_dir: Path, arm: str, task: str, repeat: int, run_id: str, o
     started = time.time()
     if arm in CLM:
         name = f"{arm}-{task}-r{repeat}"
-        command = [str(ROOT / "agents" / "clm" / "run.sh"), a.label, task, str(CLM[arm]), str(repeat), arm]
+        command = [str(ROOT / "baselines" / "clm" / "run.sh"), a.label, task, str(CLM[arm]), str(repeat), arm]
         with (out / "clm-run.out").open("w") as log:
             code = subprocess.run(command, env={**env, "GATEWAY": a.gateway, "MODEL": a.model}, stdout=log,
                                   stderr=subprocess.STDOUT, cwd=ROOT).returncode

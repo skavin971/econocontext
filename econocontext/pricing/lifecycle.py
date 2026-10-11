@@ -1,4 +1,4 @@
-"""Prices of keeping, shrinking, compacting and placing context, over the rest of a session.
+"""Prices of keeping, shrinking and compacting context, over the rest of a session.
 
 Why it exists: every v2 rule compares options in one unit. The unit is "input-token
 equivalents": 1 = one uncached input token. A token written to the cache costs `cache_write`,
@@ -29,9 +29,6 @@ class Prices:
     def c(self) -> float:
         """Cost of one resident token on one later call."""
         return self.hit_share * self.cache_read + (1 - self.hit_share)
-
-    def usd(self, units: float) -> float:
-        return units * self.input_usd_per_mtok / 1e6
 
 
 def from_card(provider: str, model: str, hit_share: float = 0.95, expected_output: int = 500,
@@ -103,13 +100,3 @@ def compaction(p: Prices, prompt: float, prefix: float, summary: float, calls_le
     h_star = fixed / saving_per_call if saving_per_call > 0 else float("inf")
     return {"keep": carry, "compact": summary_call + after + risk, "h_star": h_star}
 
-
-def placement(p: Prices, worker_history: float, follow_up_calls: float,
-              fresh_first: float, rereads_saved: list[tuple[float, float]], prompt: float) -> dict[str, float]:
-    """A follow-up sub-task: continue an idle worker (its history comes along on every call)
-    or start a new one (it re-reads what it needs). `rereads_saved` = [(chance needed, tokens)]
-    for what the idle worker already holds."""
-    resume = worker_history * p.c * follow_up_calls
-    fresh = fresh_first * p.cache_write + sum(
-        chance * reread(p, prompt, tokens, follow_up_calls / 2) for chance, tokens in rereads_saved)
-    return {"resume": resume, "fresh": fresh}

@@ -56,7 +56,7 @@ class Provider:
 
 PROVIDERS = {"purdue": Provider("purdue", "https://genai.rcac.purdue.edu/api", "GENAI_API_KEY",
                                 {"reasoning_effort": "medium", "return_token_ids": True})}
-# TODO(vertex): the Gemini route of the archived Omnigent gateway (archive/omnigent/) is not ported yet.
+# TODO(vertex): the Gemini route of the Omnigent gateway (omnigent_layer/ at tag econo-jev-final) is not ported yet.
 
 
 def read_env(name: str, env: Path = ROOT / ".env") -> str:

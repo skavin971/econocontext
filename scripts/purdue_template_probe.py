@@ -17,6 +17,10 @@ A sixth request sends the follow-up with the assistant's reasoning under vLLM's 
 `reasoning`, to see whether the server reads it there. Requests are spaced under the 20-per-minute
 limit. The key is read from .env, never printed, and redacted from saved files.
 
+It is the one script besides gateway/ that calls a model provider directly. Its helpers (ROOT to
+save) are copied verbatim from the step-1 smoke test, scripts/purdue_smoke.py, removed in step 10
+(at tag tier-a-step9).
+
 Run (needs transformers): .venv-clm/bin/python scripts/purdue_template_probe.py [--live all|1,3,...]
   --live picks the probes to send; the others are judged again from their saved request and response.
 """
@@ -27,10 +31,80 @@ import copy
 import json
 import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from transformers import AutoTokenizer
 
-from purdue_smoke import BASE, MODEL, PROMPT, ROOT, TOOLS, patient, read_key, save
+ROOT = Path(__file__).resolve().parents[1]
+BASE = "https://genai.rcac.purdue.edu/api"
+MODEL = "qwen3.8:27b"
+PROMPT = "List the files in the current directory. Use one of your tools to do it."
+# Our agent's 4 tools, copied from agents/react/agent.py (TOOLS) on 2026-10-10.
+TOOLS = [
+    {"type": "function", "function": {
+        "name": "bash", "description": "Run a bash command in the container; returns its output and exit code.",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "read_file", "description": "Read lines of a text file, with line numbers (default: lines 1-400).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"}},
+            "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "write_file", "description": "Write a whole text file (creates directories; replaces the file).",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                       "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "submit", "description": "Finish: call this once the task is fully done.",
+        "parameters": {"type": "object", "properties": {}}}},
+]
+
+
+def read_key(env: Path) -> str:
+    for line in env.read_text().splitlines():
+        if line.startswith("GENAI_API_KEY="):
+            key = line.split("=", 1)[1].strip().strip('"').strip("'")
+            if key:
+                return key
+    raise SystemExit("GENAI_API_KEY is not set in .env")
+
+
+def request(method: str, url: str, key: str, body: dict | None = None) -> dict:
+    """One request. Returns status, the parsed body (None if not JSON, or a JSON null), raw text, seconds."""
+    data = json.dumps(body).encode() if body is not None else None
+    req = Request(url, data=data, method=method,
+                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    started = time.monotonic()
+    try:
+        with urlopen(req, timeout=600) as response:
+            status, raw = response.status, response.read().decode()
+    except HTTPError as exc:
+        status, raw = exc.code, exc.read().decode(errors="replace")
+    except (URLError, TimeoutError) as exc:
+        status, raw = None, f"{type(exc).__name__}: {exc}"
+    seconds = round(time.monotonic() - started, 2)
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        parsed = None
+    return {"status": status, "body": parsed, "raw": raw, "seconds": seconds}
+
+
+def patient(method: str, url: str, key: str, body: dict | None = None) -> dict:
+    """The documented over-limit reply is a JSON null: wait and retry (twice at most), never flood."""
+    for wait in (0, 20, 40):
+        time.sleep(wait)
+        result = request(method, url, key, body)
+        result["waited_s"] = wait
+        if result["body"] is not None and result["status"] == 200:
+            return result
+        print(f"  status {result['status']}, body {result['raw'][:200]!r}; waiting before a retry")
+    return result
+
+
+def save(path: Path, data, key: str) -> None:
+    path.write_text(json.dumps(data, indent=1).replace(key, "[REDACTED]") + "\n")
+
 
 HF_ID, REVISION = "Qwen/Qwen3.8-27B-FP8", "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
 OUT = ROOT / "runs" / "purdue-smoke" / "template-probe"

@@ -107,11 +107,11 @@ The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had
 
 ## Boundaries and environments
 
-- **Boundaries.** `measure/` never imports `econocontext/`. `agents/` names no provider host or key and reaches models only through `gateway/`.
+- **Boundaries.** `measure/` never imports `econocontext/`. `agents/` and our wrappers in `baselines/` name no provider host or key and reach models only through `gateway/`. A baseline's own code (`baselines/<name>/upstream/`) is its authors'; our wrapper gives it the gateway's api_base.
 - **Environments.**
   - transformers goes in `.venv` as the optional `[measure]` extra.
   - The meta-device parameter check runs in `.venv-clm`.
-  - A fresh lock for `.venv` is generated at the end of step 4; the old `requirements.lock` is archived.
+  - A fresh lock for `.venv` is generated at the end of step 4; the old `requirements.lock` is at tag `econo-jev-final`.
 
 ## Publishing
 
@@ -121,7 +121,7 @@ The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had
 ## Decisions after the maven runs (2026-10-10)
 
 - **No EconoContext threshold changes yet.** The `harness` settings in `config/v2.yaml` stay as they are, including the 30k compaction minimum, even though Qwen3.8's prompts on maven peaked near 10k. A context profile of all 10 tasks comes first.
-- **The same `max_tokens` for every arm: 8,192.** That is our agent's value. CLM's agent gets `max_tokens=8192` through `agents/clm/run.sh` (its own default is 16,384).
+- **The same `max_tokens` for every arm: 8,192.** That is our agent's value. CLM's agent gets `max_tokens=8192` through its wrapper (then `agents/clm/run.sh`, now `baselines/clm/run.sh`); its own default is 16,384. Step 10 changes this to 2,048 (below).
   - Duplicate computations are reported per run: `retries` (upstream retries, e.g. after a 600 s timeout) and `repeats` (a prompt sent again identically, e.g. a client's resend).
   - On maven, CLM's call 10 timed out upstream and was resent as call 11.
 
@@ -137,3 +137,50 @@ The first rule, |ΔP| ≤ 1, was replaced: the one real gateway call already had
 - **A difference found in the run.** The shell command timeout is 180 s in our agent (reported to the model) and 120 s in CLM's (it stops the run).
 - **A gate added overnight.** The runner stops cleanly between trials if the battery is at 20% or less while discharging. The Mac was on battery when step 9 started.
 
+## Step 10: CLM's design for every arm (2026-10-11)
+
+### Why
+
+Step 9 showed that our agent and CLM sample differently:
+- CLM: temperature 0.7, top_p 0.95, thinking on;
+- ours: temperature 0.7, no top_p.
+
+That may be why ours writes about 2× the output. We now follow CLM's design:
+- every method runs zero-shot, on the same model and settings;
+- the main setting is a 32,000-token budget for every arm;
+- every arm uses CLM's sampling;
+- the main comparison is Base, Summary, CLM and (later) EconoContext, all at 32k;
+- the repo keeps only what this work needs.
+
+Removed things stay at a tag:
+- what came before Tier A is at `econo-jev-final`;
+- what was written during Tier A is at `tier-a-step9` (`a4b4a2c`, the last commit before the clean-up).
+
+### Decisions
+
+- **max_tokens 2,048 for every arm (from 10b).** This is CLM's TBLite paper setting, "up to 2,048 generated tokens per call".
+  - The gateway pins it on every request and lists the change in `edits`.
+  - 8,192 becomes a later sensitivity run.
+  - We use CLM's published setting so that CLM is not moved off its own setup. 2,048 cuts our agent's replies more often than CLM's: in step 9, 14–17% of our calls went over 2,048, against 9% of CLM's.
+- **A run that hits its limit is graded as it stands (from 10c).** CLM's App. E says: "a request that would exceed it ends the run", and "whenever a run ends … or exceeds the budget, the verifier scores the final state of the container".
+  - Our agent stops before the call that would exceed the limit. The limit is budget − 2,048 for Base, and Purdue's 65,536-token window, which the server enforces, for any arm.
+  - It records `end` as `budget_exceeded` or `overflow` and returns normally, so the verifier grades the final state of the container.
+  - Step 9's three overflows ended in an exception and were never graded. They stay FAILs in tc9's tables.
+- **The limit is budget − 2,048.** 2,048 is CLM's `reserve` default. "Over" means P > budget − 2,048, as in CLM's `tc > strict_target`; a prompt exactly at the limit is allowed.
+- **Order inside 10a.** The 3 scan-linux r3 reruns of tc9 run first, with tc9's settings: Jev at 2.5 characters per token, CLM's 120 s command timeout and max_tokens 8,192. Only then do Jev 2.3 and CLM 180 s apply.
+- **Arm names with a budget.** An arm with a budget is named `<arm>-<N/1000>k`: `raw-32k` (Base), `summary-32k` and `clm-32k`. `clm-32k` is the old name, so it carries over. Old labels such as `clm-full` stay readable.
+- **The Summary rebuild (10d).** Codex's compaction prompt is used at 75% of the budget. The conversation then becomes the system prompt, the task, and one user message `{SUMMARY_PREFIX}\n{summary}`.
+  - Our nudges are harness messages, not real user messages. Codex keeps only real user messages.
+  - CLM's Table 4 says the same: "everything except the system prompt and this task message is then replaced by one message".
+
+### The clean-up (10.0)
+
+The full list is in `docs/cleanup-map.md`.
+- **CLM moved.** CLM's code is now in `baselines/clm/upstream`; the submodule keeps its internal name, `third_party/context-language-models`. Our wrapper moved to `baselines/clm/`. Later baselines follow the same pattern: `baselines/<name>/upstream` plus our wrapper.
+- **Unused code removed:** `Jev.live`, `Jev.subtask`, `Prior.live`, `Prior.subtask`, `PHASES`, `Session.live_big`, `Prices.usd` and `lifecycle.placement`.
+  - `Jev.live`/`subtask`, `PHASES` and `lifecycle.placement` can be recovered at tag `tier-a-step9` if the EconoContext redesign needs the phase question or worker placement.
+- **Untracked files moved out of the repo.** Untracked files under the removed paths were never in git, so no tag holds them. They were moved to `~/EconoContext-untracked/`, outside the repo:
+  - v0's data;
+  - three design documents;
+  - logs;
+  - Claude Code configs.
