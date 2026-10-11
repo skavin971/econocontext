@@ -23,7 +23,7 @@ from .models import MEASURED, load
 from .report import runs
 
 BIG = 1_000
-COLUMNS = ["task", "pass", "calls", "peak_P", "peak_call", "P", "U", "G", "PFLOPs", "largest_tool_output",
+COLUMNS = ["task", "arm", "repeat", "pass", "calls", "peak_P", "peak_call", "P", "U", "G", "PFLOPs", "largest_tool_output",
            "tool_outputs", "tool_outputs_ge_1000", "valid", "run_id"]
 
 
@@ -53,15 +53,17 @@ def main() -> None:
         peak = max(rows, key=lambda r: r["P"]) if rows else {"P": 0, "call_no": None}
         outputs = tool_outputs(run["calls_log"], tokenizer)
         parts = run["summary"]["run_id"].split(".")
-        table.append({"task": parts[2] if len(parts) == 4 else run["summary"]["run_id"], "pass": run["summary"].get("reward"),
+        table.append({"task": parts[2] if len(parts) == 4 else run["summary"]["run_id"],
+                      "arm": parts[1] if len(parts) == 4 else "", "repeat": parts[3] if len(parts) == 4 else "",
+                      "pass": run["summary"].get("reward"),
                       "calls": t["calls"], "peak_P": peak["P"], "peak_call": peak["call_no"], "P": t["P"], "U": t["U"],
                       "G": t["G"], "PFLOPs": round(t["F"] / 1e15, 4), "largest_tool_output": max(outputs, default=0),
                       "tool_outputs": len(outputs), "tool_outputs_ge_1000": sum(n >= BIG for n in outputs),
                       "valid": f"{t['valid']}/{t['valid'] + t['invalid']}", "run_id": run["summary"]["run_id"]})
-    print(f"{'task':40s} {'pass':>4s} {'calls':>5s} {'peak P':>7s} {'@call':>5s} {'ΣP':>9s} {'ΣU':>8s} {'ΣG':>7s} "
+    print(f"{'task':40s} {'arm':10s} {'rep':>3s} {'pass':>4s} {'calls':>5s} {'peak P':>7s} {'@call':>5s} {'ΣP':>9s} {'ΣU':>8s} {'ΣG':>7s} "
           f"{'PFLOPs':>7s} {'max out':>7s} {'outs':>4s} {'>=1k':>4s} {'valid':>6s}")
     for r in table:
-        print(f"{r['task'][:40]:40s} {str(r['pass']):>4s} {r['calls']:5d} {r['peak_P']:7,d} {str(r['peak_call']):>5s} "
+        print(f"{r['task'][:40]:40s} {r['arm']:10s} {r['repeat']:>3s} {str(r['pass']):>4s} {r['calls']:5d} {r['peak_P']:7,d} {str(r['peak_call']):>5s} "
               f"{r['P']:9,d} {r['U']:8,d} {r['G']:7,d} {r['PFLOPs']:7.3f} {r['largest_tool_output']:7,d} "
               f"{r['tool_outputs']:4d} {r['tool_outputs_ge_1000']:4d} {r['valid']:>6s}")
     out = Path(a.out or a.paths[0])
