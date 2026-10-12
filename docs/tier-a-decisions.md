@@ -321,3 +321,8 @@ The full list is in `docs/cleanup-map.md`.
   - **Cut replies.** A reply that hit the output limit has its tool calls not run, because vLLM returns a cut call with its cut parameter dropped (10b). Each call gets "Not run: your reply was cut off at the output limit, so this call may be incomplete. Keep your reasoning short and make your next single action again."
   - **Tools:** bash, read_file, write_file and submit, unchanged.
 - **The legacy interface (`--interface legacy`)** reproduces steps 9 and 10: the old system prompt and nudge, every call runs, and cut calls run.
+- **Validation (`runs/tier-a/step11-report.md`).** The candidate is commit `8b8cdc3`. Base's share of calls at the 2,048 cap is 25%: bandit 14%, down from 51% under the legacy interface, and scan-linux 31% (CLM: 28%). That is over about 15%, so **the interface is not frozen**. Per the rule, this was reported and nothing was iterated.
+  - Summary's second compaction on bandit produced a 2,048-token summary, cut while still visible text, so it was reported as the 10d rule requires.
+  - All 178 calls validated.
+- **The budget unit.** The Qwen prompt is a median 1.179× CLM's tiktoken count. CLM's real Qwen peak at its 32k setting is 28,735, under our 29,952 limit, so `context_budget_tokens` stays 32,000.
+- **Correction to 10e.** Raw's calls right after a nudge that were cut: 10 of 16, not 16 of 16.

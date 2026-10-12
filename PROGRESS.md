@@ -15,7 +15,13 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State at handoff: step 11 is in progress, committed part-way.** The new harness and the policies are written. Some tests are not yet ported, and the step's validation run has not been done (section 5).
+**State (2026-10-12): step 11 is done, waiting for Kavin's decision.**
+- Tests: 119 pass.
+- Validation (`runs/tier-a/step11-report.md`): Base hit the 2,048 cap on 25% of its calls (bandit 14%, scan-linux 31%; CLM 28% on scan-linux), so the interface was **not frozen**.
+- One Summary summary hit the cap.
+- Budget unit: CLM's real peak at 32k is 28,735 tokens, under our 29,952 limit, so no change is needed.
+
+Section 5 below is kept as the record of how step 11 was specified.
 
 ---
 
@@ -145,7 +151,7 @@ It is to be re-run under the aligned settings after step 10. See `docs/results/2
 
 **Not ours:** `AgentDB/` (commit `401f1da`) is Kavin's own addition.
 
-## 5. Step 11: our own harness, with the baselines separated (IN PROGRESS)
+## 5. Step 11: our own harness, with the baselines separated (done; see the state at the top)
 
 ### Kavin's spec (verbatim)
 

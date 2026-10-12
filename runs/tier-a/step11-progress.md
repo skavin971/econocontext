@@ -1,0 +1,11 @@
+- 2026-10-12 18:05:01 UTC | START | tc11v: 2 trials (base-32k; interface ours; 2 tasks; repeats 1-1), 1 workers; 0 of 8000 requests used today
+- 2026-10-12 18:14:31 UTC | base-32k | bandit-delayed-feedback | r1 | fail | 21 calls | 2.162 PFLOPs | valid 21/21 | retries 0 | repeats 0
+- 2026-10-12 18:25:31 UTC | base-32k | scan-linux-persistence-artifacts | r1 | pass | 39 calls | 2.949 PFLOPs | valid 39/39 | retries 0 | repeats 0
+- 2026-10-12 18:25:31 UTC | END | tc11v: 2 of 2 trials finished
+- 2026-10-12 18:25:32 UTC | START | tc11v: 1 trials (summary-32k; interface ours; 1 tasks; repeats 1-1), 1 workers; 60 of 8000 requests used today
+- 2026-10-12 18:48:06 UTC | summary-32k | bandit-delayed-feedback | r1 | fail | 60 calls | 8.408 PFLOPs | valid 60/60 | retries 0 | repeats 0 | compactions 2, summary G [1530, 2048], P after [4185, 4707]
+- 2026-10-12 18:48:06 UTC | GATE | stop after tc11v.summary-32k.bandit-delayed-feedback.r1: 1 summary call(s) hit the output cap in tc11v.summary-32k.bandit-delayed-feedback.r1 (G [2048])
+- 2026-10-12 18:48:06 UTC | END | tc11v: 1 of 1 trials finished; stopped: 1 summary call(s) hit the output cap in tc11v.summary-32k.bandit-delayed-feedback.r1 (G [2048]) (0 not run)
+- 2026-10-12 18:48:06 UTC | START | tc11v: 1 trials (clm-32k; interface ours; 1 tasks; repeats 1-1), 1 workers; 120 of 8000 requests used today
+- 2026-10-12 19:03:35 UTC | clm-32k | scan-linux-persistence-artifacts | r1 | pass | 58 calls | 4.177 PFLOPs | valid 58/58 | retries 0 | repeats 0
+- 2026-10-12 19:03:35 UTC | END | tc11v: 1 of 1 trials finished
