@@ -26,8 +26,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from econocontext.types import (AgentNode, Decision, ProviderUsage, Representation, Segment,
-                                SegmentKind, Zone)
+from .records import (AgentNode, Decision, ProviderUsage, Representation, Segment,
+                      SegmentKind, Zone)
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 WORKSPACE = "*"          # the workspace epoch: bumped on every change
@@ -156,6 +156,14 @@ class PostgresAgentDB:
 
     def list_runs(self, label: str) -> list[dict]:
         return self.rows("SELECT * FROM runs WHERE run_id LIKE %s ORDER BY run_id", (f"{label}:%",))
+
+    def runs_of_host(self, host: str, instance_id: str | None = None) -> list[dict]:
+        """Runs of one host, optionally of one task (instance), oldest first. A reader beyond
+        the contract: run ids are opaque here, so hosts whose ids are not '<label>:...' need it."""
+        if instance_id is None:
+            return self.rows("SELECT * FROM runs WHERE host=%s ORDER BY started_at, run_id", (host,))
+        return self.rows("SELECT * FROM runs WHERE host=%s AND instance_id=%s "
+                         "ORDER BY started_at, run_id", (host, instance_id))
 
     def labelled_runs(self, exclude_instance: str | None = None) -> list[str]:
         rows = self.rows(
@@ -339,7 +347,7 @@ class PostgresAgentDB:
         """Every tool result of the run with its segment text, oldest first (labels)."""
         return self.rows(
             "SELECT t.tool_result_id, t.agent_id, t.tool_name, t.args_key, t.read_set, "
-            "t.created_at, s.text FROM tool_results t JOIN segments s "
+            "t.side_effect, t.valid, t.created_at, s.text FROM tool_results t JOIN segments s "
             "ON s.segment_id = t.result_segment_id WHERE t.run_id=%s ORDER BY t.created_at",
             (run_id,))
 

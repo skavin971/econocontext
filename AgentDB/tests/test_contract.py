@@ -9,10 +9,9 @@ import threading
 
 import pytest
 
-from econocontext.evidence import EvidenceEvent, make_ref
-from econocontext.store.blobs import blob_key
-from econocontext.types import (AgentNode, AgentStatus, Candidate, CostBreakdown, Decision,
-                                Intercept, OperatorType, ProviderUsage, Rejection, SegmentKind)
+from agent_db.records import (AgentNode, AgentStatus, Candidate, CostBreakdown, Decision,
+                              EvidenceEvent, Intercept, OperatorType, ProviderUsage, Rejection,
+                              SegmentKind, make_ref, sha256)
 
 from tests.conftest import ROOT, RUN, WORKER, J, conversation, peek, reads, seg, tick
 
@@ -65,8 +64,8 @@ def test_segments_are_write_once_and_the_window_round_trips(db):
 
 def test_identical_blobs_are_stored_once_and_large_text_gets_a_key(db):
     data = BIG.encode()
-    assert db.blobs.put(data) == db.blobs.put(data) == blob_key(data)
-    assert db.blobs.get(blob_key(data)) == data
+    assert db.blobs.put(data) == db.blobs.put(data) == sha256(data)
+    assert db.blobs.get(sha256(data)) == data
     with pytest.raises(KeyError):
         db.blobs.get("0" * 64)
     big = seg(ROOT, "t1", SegmentKind.TOOL_RESULT, BIG)

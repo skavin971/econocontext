@@ -7,11 +7,13 @@ import time
 
 import pytest
 
-from econocontext.engine import make_segment
-from econocontext.store.db import AgentDB as SqliteAgentDB
-from econocontext.types import AgentNode, SegmentKind
-
 from agent_db import PostgresAgentDB
+from agent_db.records import AgentNode, SegmentKind, make_segment
+
+try:  # the SQLite reference, when an EconoContext with store/db.py (branch econo-jev) is installed
+    from econocontext.store.db import AgentDB as SqliteAgentDB
+except ImportError:  # pragma: no cover
+    SqliteAgentDB = None
 
 RUN = "lbl:econo:inst-1"
 ROOT = f"{RUN}:root"
@@ -38,6 +40,8 @@ def postgres(pg_uri):
 
 @pytest.fixture
 def sqlite(tmp_path):
+    if SqliteAgentDB is None:
+        pytest.skip("the SQLite reference needs EconoContext (branch econo-jev) installed")
     return SqliteAgentDB(tmp_path / "db.sqlite3")
 
 

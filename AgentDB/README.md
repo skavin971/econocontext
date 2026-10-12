@@ -15,15 +15,40 @@ uv pip install -e ".[dev]" -e <path to an EconoContext checkout, branch econo-je
 pytest -q      # starts its own Postgres; the Neo4j tests skip when no server is reachable
 ```
 
-The second install is EconoContext itself: the records the operations take (`Segment`,
-`AgentNode`, `Decision`, `ProviderUsage`, `EvidenceEvent`) come from `econocontext.types`
-and `econocontext.evidence`, and the conformance tests compare against its SQLite store.
+The second install is optional: the records the operations take (`Segment`, `AgentNode`,
+`Decision`, `ProviderUsage`, `EvidenceEvent`) are the package's own, in
+`agent_db/records.py`, mirroring `econocontext.types` so either package's objects work.
+With EconoContext (branch econo-jev) installed, the conformance tests also compare every
+behaviour against its SQLite store; without it, those comparisons skip.
 
 Postgres comes from the `pgserver` package (Postgres 16, from pip). To use one that is
 already running, pass its DSN: `PostgresAgentDB("postgresql://user:pw@host/db")`. The
 schema is applied on construction with `CREATE ... IF NOT EXISTS`. Neo4j takes
 `NEO4J_URI` (default `bolt://localhost:7687`) and `NEO4J_AUTH` as `user:password` from
 the environment, or the same as arguments: `Neo4jAgentDB(uri, ("neo4j", "pw"))`.
+
+## The memory layer (Tier A)
+
+`agent_db/memory.py` is cross-session memory for EconoContext's Tier A harness (branch
+`tier-a-purdue`), where each trial is an isolated session with its own SQLite file:
+
+- `ingest_session(db, session.sqlite3, run_id, passed)` puts a finished session into the
+  shared store with content identity;
+- `recall(db, pool, task, tool, args, epoch)` answers an identical read-only call from an
+  earlier session of the same task, only while this session has written nothing (write
+  epoch 0), when the output is provably what the tool would return;
+- `Pool(labels, same_task, only_passed)` is the experimental condition, named per run;
+- `MemoryPolicy(store, labels, inner=...)` is a policy of that harness wrapping any other
+  (`Base`, `Econo`), adding recall, recording and a report with provenance.
+
+Measured on the archived Purdue run (10 tasks x 3 repeats, `experiments/replay_sessions.py`
+and `experiments/recall_check.py`): 11 of 49 read-only calls in later sessions are
+servable, 15% of tool-output tokens, every served output byte-identical. A served call
+saves the tool's execution, not model FLOPs: the prompt is unchanged. DECISIONS.md, D8.
+
+`integration/test_tier_a_policy.py` runs the policy inside the harness itself with a
+scripted model; from a checkout of the branch, in its environment, with this package
+installed: `PYTHONPATH=. python -m pytest <agent_db>/integration --rootdir=.`
 
 ## Using it from EconoContext
 

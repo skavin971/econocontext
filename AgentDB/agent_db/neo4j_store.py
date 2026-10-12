@@ -28,8 +28,8 @@ from datetime import datetime, timezone
 
 from neo4j import GraphDatabase
 
-from econocontext.types import (AgentNode, Decision, ProviderUsage, Representation, Segment,
-                                SegmentKind, Zone)
+from .records import (AgentNode, Decision, ProviderUsage, Representation, Segment,
+                      SegmentKind, Zone)
 
 from .postgres import Snapshot, read_paths
 
@@ -211,6 +211,13 @@ class Neo4jAgentDB:
     def list_runs(self, label: str) -> list[dict]:
         return self._nodes("MATCH (r:Run) WHERE r.run_id STARTS WITH $p RETURN r ORDER BY r.run_id",
                            "Run", p=f"{label}:")
+
+    def runs_of_host(self, host: str, instance_id: str | None = None) -> list[dict]:
+        if instance_id is None:
+            return self._nodes("MATCH (r:Run {host: $host}) RETURN r ORDER BY r.started_at, r.run_id",
+                               "Run", host=host)
+        return self._nodes("MATCH (r:Run {host: $host, instance_id: $inst}) RETURN r "
+                           "ORDER BY r.started_at, r.run_id", "Run", host=host, inst=instance_id)
 
     def labelled_runs(self, exclude_instance: str | None = None) -> list[str]:
         rows = self._read(
@@ -427,7 +434,8 @@ class Neo4jAgentDB:
             "MATCH (r:ToolResult {run_id: $run_id})-[:RESULT_OF]->(n:Segment) "
             "RETURN r.tool_result_id AS tool_result_id, r.agent_id AS agent_id, "
             "r.tool_name AS tool_name, r.args_key AS args_key, r.read_set AS read_set, "
-            "r.created_at AS created_at, n.text AS text ORDER BY r.created_at", run_id=run_id)]
+            "r.side_effect AS side_effect, r.valid AS valid, r.created_at AS created_at, "
+            "n.text AS text ORDER BY r.created_at", run_id=run_id)]
 
     def read_sizes(self, run_id: str) -> dict[str, int]:
         sizes: dict[str, int] = {}

@@ -187,3 +187,40 @@ of these; its callers read the tables with SQL. Proposed for Part B.
 *Why:* the contract is shared, and these additions are the content identity D3 needs.
 *Follow-up:* the reference's `add_evidence_events` computes `seq` as max+1 under its
 in-process lock only; across processes it has the same lost-update shape as D2.
+
+---
+
+## D8. The memory layer is a Tier A harness policy, served from the pool at epoch 0
+2026-10-12 · **proposed** (implemented: `agent_db/memory.py`)
+
+The labmate's active branch (`tier-a-purdue`, since 2026-10-10) replaced the Omnigent host
+with his own harness, whose policies can serve a tool result instead of running the tool.
+Each trial is one isolated session with its own SQLite file. Cross-session memory is built as
+a policy of that harness, `MemoryPolicy`, wrapping any existing policy, backed by the Agent
+DB (Postgres or Neo4j), with `ingest_session` for archived sessions.
+
+*What is served:* an identical read-only call, while this session has written nothing (write
+epoch 0), from an earlier session of the same task whose result was also taken before any
+write. Every trial starts from the task's container image, so such outputs are provably
+identical. Nothing else is served: after a write, the file's current hash is needed and a
+policy cannot see it; across tasks the containers differ.
+
+*Evidence, from the archived Purdue run (tc9: 10 tasks x 3 repeats), replayed offline with
+`experiments/replay_sessions.py`:* in the 20 later sessions, 380 tool calls, 49 read-only,
+15 identical to an earlier session's call; 11 servable at epoch 0, 16,437 of 107,352
+tool-output tokens (15.3%), outputs byte-identical in 11 of 11. After writes, identical calls
+gave identical output 2 times and different output 2 times.
+
+*What a served call saves:* the tool's execution. The model's prompt is unchanged, so under
+Tier A's cost measure (prefill FLOPs) the saving is zero. This layer therefore measures and
+reports tool time saved and provenance; whether memory can shorten trajectories (fewer calls)
+is the experiment that could move FLOPs, and it needs live runs.
+
+*Pool:* `Pool(labels, same_task, only_passed, exclude)` is the experimental condition,
+named per run; every served call records its source session (D5).
+
+*Contract impact:* none; the layer uses Part B only (`start_run`, `upsert_agent`,
+`add_segment`, `add_tool_result`, `add_evidence_events`, `list_runs`, `find_tool_result`,
+`end_run`, `set_resolved`). The package's record types are now its own
+(`agent_db/records.py`), mirroring `econocontext.types`, so the stores import without
+EconoContext installed and beside the Tier A package of the same name.
