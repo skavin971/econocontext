@@ -49,7 +49,7 @@ from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
 ARM_ORDER = ["raw", "raw-32k", "base", "base-32k", "summary-32k", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
-COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "end", "overflow", "capped", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
+COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "end", "overflow", "capped", "cut_summaries", "peak_P", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
            "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",
            "jev_input_tokens", "jev_fallbacks", "valid", "invalid"]
@@ -138,6 +138,7 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             "PFLOPs_attn_mean": round(mean("PFLOPs_attn"), 4), "PFLOPs_mean": round(mean("PFLOPs"), 4),
             "PFLOPs_by_repeat": " ".join(f"{r['PFLOPs']:.3f}" for r in runs_),
             "overflows": sum(e["overflow"] for e in acts), "capped": sum(e["capped"] for e in acts),
+            "peak_P": max(r["peak_P"] for r in runs_),
             "retries": sum(r["retries"] for r in runs_),
             "repeats": sum(r["repeats"] for r in runs_),
             "arrival_full_slice_preview": f"{arrival['full']}/{arrival['slice']}/{arrival['preview']}" if arrival else "",
@@ -147,7 +148,7 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             "clm_edits": sum(e["clm_edits"] or 0 for e in acts) if any(e["clm_edits"] is not None for e in acts) else "",
             "clm_rollbacks": sum(e["clm_rollbacks"] or 0 for e in acts) if any(e["clm_rollbacks"] is not None for e in acts) else ""})
     print(f"\n{'task':34s} {'arm':10s} {'pass':>5s} {'by rep':>7s} {'calls':>6s} {'ΣP':>9s} {'ΣU':>7s} {'ΣG':>7s} "
-          f"{'PFLOPs':>7s} {'by repeat':>20s} {'ovf':>3s} {'cap':>3s} {'ret':>3s} {'rep':>3s}  context manager")
+          f"{'PFLOPs':>7s} {'by repeat':>20s} {'ovf':>3s} {'cap':>3s} {'ret':>3s} {'rep':>3s} {'peak P':>7s}  context manager")
     for r in rows:
         if r["arm"].startswith("econo"):
             manager = (f"arrival f/s/p {r['arrival_full_slice_preview'] or '0/0/0'}, evict {r['evictions']}, compact "
@@ -161,7 +162,7 @@ def arm_summary(table: list[dict], extras: dict, out: Path) -> None:
             manager = ""
         print(f"{r['task'][:34]:34s} {r['arm']:10s} {r['passes']:>2d}/{r['graded']:<2d} {r['pass_by_repeat']:>7s} "
               f"{r['calls_mean']:6.1f} {r['P_mean']:9,d} {r['U_mean']:7,d} {r['G_mean']:7,d} {r['PFLOPs_mean']:7.3f} "
-              f"{r['PFLOPs_by_repeat']:>20s} {r['overflows']:3d} {r['capped']:3d} {r['retries']:3d} {r['repeats']:3d}  {manager}")
+              f"{r['PFLOPs_by_repeat']:>20s} {r['overflows']:3d} {r['capped']:3d} {r['retries']:3d} {r['repeats']:3d} {r['peak_P']:7,d}  {manager}")
     if rows:
         with (out / "arms.csv").open("w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -190,7 +191,8 @@ def main() -> None:
         table.append({"run_id": run_id, "task": parts[2] if len(parts) == 4 else "", "arm": parts[1] if len(parts) == 4 else "",
                       "repeat": int(repeat) if repeat else None, "pass": s.get("reward"),
                       "end": s.get("end") or ("overflow" if acts["overflow"] else None), "overflow": acts["overflow"],
-                      "capped": acts["capped"],
+                      "capped": acts["capped"], "cut_summaries": s.get("cut_summaries"),
+                      "peak_P": max((row["P"] for row in result["rows"]), default=0),
                       "calls": t["calls"], "summary_calls": t["summary_calls"],
                       "retries": t["retries"], "repeats": t["repeats"], "P": t["P"], "R": t["R"], "U": t["U"], "G": t["G"],
                       "hit_share": round(t["hit_share"], 4), "PFLOPs_lin": t["F_lin"] / 1e15,

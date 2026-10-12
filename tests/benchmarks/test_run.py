@@ -126,7 +126,7 @@ def test_econocontext_with_a_budget_and_clm_without_one_are_refused(runner, monk
         module.main()
 
 
-def test_the_summary_arm_needs_a_budget_and_a_capped_summary_stops_the_run(runner, monkeypatch):
+def test_the_summary_arm_needs_a_budget_and_a_cut_summary_is_counted_not_a_stop(runner, monkeypatch):
     module, _ = runner
     monkeypatch.setattr(sys, "argv", ["run.py", "--label", "L", "--tasks", "acl", "--model", "m", "--policy", "summary"])
     with pytest.raises(SystemExit, match="the summary arm needs --budget"):
@@ -135,7 +135,19 @@ def test_the_summary_arm_needs_a_budget_and_a_capped_summary_stops_the_run(runne
     monkeypatch.setattr(module, "measure", lambda summary: {"valid": 9, "invalid": 0})
     module.check(args(gates=True), {"run_id": "L.summary-32k.acl.r1", "arm": "summary-32k", "task": "acl", "repeat": 1,
                                     "calls": 9, "reward": 1.0, "compactions": [{"G": 2048, "capped": True, "P_after": 900}]})
-    assert "summary call(s) hit the output cap" in module.stop["reason"]
+    assert module.stop["reason"] is None
+
+
+def test_a_clm_trial_over_our_limit_is_flagged_not_stopped(runner, monkeypatch, tmp_path):
+    module, _ = runner
+    monkeypatch.setattr(module, "measure", lambda summary: {"valid": 9, "invalid": 0})
+    log = tmp_path / "progress.md"
+    for peak, flagged in ((29_952, False), (29_953, True)):
+        module.check(args(gates=True, budget=32_000, progress=str(log)),
+                     {"run_id": "L.clm-32k.acl.r1", "arm": "clm-32k", "task": "acl", "repeat": 1, "calls": 9,
+                      "reward": 1.0, "peak_P": peak})
+        assert ("FLAG" in log.read_text()) == flagged
+    assert module.stop["reason"] is None
 
 
 def test_the_directed_policy_refuses_to_run(runner, monkeypatch):

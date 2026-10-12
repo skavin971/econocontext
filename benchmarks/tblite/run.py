@@ -26,8 +26,9 @@ Stops cleanly between trials, never mid-trial:
   while discharging (a dead battery would cut trials mid-run);
 - with --gates, each finished trial's calls are rebuilt and validated (measure/), and the run stops on:
   3+ invalid calls in a trial; an arm crashing in 2 trials in a row; Jev falling back on more than
-  half its questions in a trial; a Summary compaction whose summary hit the output cap (step 10d: a cut
-  summary would quietly weaken the baseline, so the run stops for a look).
+  half its questions in a trial. A Summary summary cut at the output cap is used as it is and counted
+  (cut_summaries; Kavin, step 11), not a stop. A CLM trial whose peak prompt (Qwen tokens) is over
+  budget - 2,048 is flagged in the progress log (the calibrated CLM arm is then --policy clm --budget 27400).
 With --progress, one line per finished trial and every gate decision are appended to that file.
 
 Run: .venv/bin/python benchmarks/tblite/run.py --label tc11v --policy base,summary,clm --budget 32000 \
@@ -218,6 +219,7 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
                "overflow": any(r.get("status") == 400 and "ContextWindowExceeded" in json.dumps(r.get("response"))
                                for r in calls),
                "calls": len(calls), "calls_by_kind": dict(Counter(r["kind"] for r in calls)),
+               "peak_P": max(((r.get("usage") or {}).get("prompt_tokens") or 0 for r in calls), default=0),
                "refused": len(rows) - len(calls), "upstream_retries": sum(r.get("retries") or 0 for r in calls),
                "trial_dir": str(trial_dir.relative_to(ROOT)) if trial_dir.is_relative_to(ROOT) else str(trial_dir),
                "calls_log": str(calls_log.relative_to(ROOT)) if calls_log.is_relative_to(ROOT) else str(calls_log)}
@@ -237,7 +239,8 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
                        interface=traj.get("interface"), owner=report if traj.get("policy") == "econo" else None,
                        jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"), budget=traj.get("budget"),
                        end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"),
-                       compactions=report.get("compactions"))
+                       compactions=report.get("compactions"),
+                       cut_summaries=sum(bool(c.get("capped")) for c in report.get("compactions") or []))
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 
@@ -268,12 +271,17 @@ def check(a, summary: dict) -> None:
     with budget:
         progress(a, f"{summary['arm']} | {summary['task']} | r{summary['repeat']} | {outcome} | {summary['calls']} calls | "
                     f"{t.get('F', 0) / 1e15:.3f} PFLOPs | valid {t.get('valid', 0)}/{t.get('valid', 0) + t.get('invalid', 0)} | "
-                    f"retries {t.get('retries', 0)} | repeats {t.get('repeats', 0)}"
+                    f"retries {t.get('retries', 0)} | repeats {t.get('repeats', 0)} | peak P {summary.get('peak_P', 0):,}"
                     + (f" | Jev {jev.get('asked', 0)} asked, {jev.get('fell_back', 0)} fallbacks {jev.get('errors') or ''}"
                        if summary["arm"] == "econo+jev" else "")
                     + (f" | compactions {len(summary['compactions'])}, summary G "
                        f"{[c['G'] for c in summary['compactions']]}, P after "
-                       f"{[c['P_after'] for c in summary['compactions']]}" if summary.get("compactions") else ""))
+                       f"{[c['P_after'] for c in summary['compactions']]}, cut summaries {summary.get('cut_summaries', 0)}"
+                       if summary.get("compactions") else ""))
+        limit = (a.budget or 0) - 2048
+        if summary["arm"].startswith("clm") and a.budget and summary.get("peak_P", 0) > limit:
+            progress(a, f"FLAG | {summary['run_id']}: CLM's peak prompt {summary['peak_P']:,} is over {limit:,}; "
+                        f"add the calibrated CLM arm (--policy clm --budget 27400)")
         crashes[summary["arm"]] = crashes[summary["arm"]] + 1 if crashed else 0
         reasons = []
         if t.get("invalid", 0) >= 3:
@@ -282,10 +290,6 @@ def check(a, summary: dict) -> None:
             reasons.append(f"{summary['arm']} crashed in 2 trials in a row (last: {summary['exception']})")
         if jev.get("asked") and jev.get("fell_back", 0) > jev["asked"] / 2:
             reasons.append(f"Jev fell back on {jev['fell_back']} of {jev['asked']} questions in {summary['run_id']}")
-        capped = [c for c in summary.get("compactions") or [] if c.get("capped")]
-        if capped:
-            reasons.append(f"{len(capped)} summary call(s) hit the output cap in {summary['run_id']} "
-                           f"(G {[c['G'] for c in capped]})")
         if reasons and not stop["reason"]:
             stop["reason"] = "; ".join(reasons)
             progress(a, f"GATE | stop after {summary['run_id']}: {stop['reason']}")

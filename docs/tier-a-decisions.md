@@ -326,3 +326,16 @@ The full list is in `docs/cleanup-map.md`.
   - All 178 calls validated.
 - **The budget unit.** The Qwen prompt is a median 1.179× CLM's tiktoken count. CLM's real Qwen peak at its 32k setting is 28,735, under our 29,952 limit, so `context_budget_tokens` stays 32,000.
 - **Correction to 10e.** Raw's calls right after a nudge that were cut: 10 of 16, not 16 of 16.
+
+### Decisions after step 11 (Kavin, 2026-10-12)
+
+- **The interface is frozen at `47ccfdc`.** The acceptance test is now parity with CLM on the same task, not an absolute share of calls at the cap.
+  - On bandit: our Base was at the cap on 14% of calls, CLM on 6% (10d).
+  - On scan-linux: 31% against CLM's 28%.
+  - **Known issue, for the 8,192 sensitivity run.** On scan-linux, 8 of our 10 calls right after a nudge were cut, against 2 of CLM's 5. The cut-off nudge does not yet stop repeated long thinking on that task.
+- **A cut summary is used as it is and counted.** Each run records `cut_summaries`, and the gate no longer stops on a cut summary.
+- **CLM stays at its published 32k.**
+  - Every report shows each arm's peak prompt in Qwen tokens (`peak_P` in `report.csv`, `arms.csv` and the comparison tables).
+  - The runner flags any CLM trial whose peak is over budget − 2,048 (29,952 at 32k). If one does, we add a calibrated CLM arm with `context_budget_tokens` 27,400 (`--policy clm --budget 27400`).
+  - The peaks so far are under the limit: tc9 clm-32k 28,735; tc11v clm-32k 23,371.
+  - The other tc11v peaks: base-32k bandit 21,561, base-32k scan-linux 17,548, summary-32k bandit 24,682.
