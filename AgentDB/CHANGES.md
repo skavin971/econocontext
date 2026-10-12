@@ -29,7 +29,7 @@ This copy started from the upstream version of 2026-10-12, committed unchanged (
 - `postgres.py`, `window_results`: new read, the tool results shown in the window with their call, validity, full text and the form shown.
 - `postgres.py`, `invalidate`: `tool_results` only (no `stored_results`).
 - `postgres.py`, `add_tool_result` and `find_tool_result`: per run, without an agent, with `args`; `find_tool_result` also returns the result's tokens and orders by `seq`.
-- `records.py`: `Form` added (the six forms); `Segment` without `agent_id`, `zone` and `representation`, with `part`, `form` and `window_tokens`; `make_segment(run_id, native_id, kind, text, tokens, ...)`, identity `sha256(run_id | native_id | content_hash)`.
+- `records.py`: `Form` added (the six forms); `Segment` without `agent_id`, `zone` and `representation`, with `part` and `form`; `make_segment(run_id, native_id, kind, text, tokens, ...)`, identity `sha256(run_id | native_id | content_hash)`.
 - `agent_db/__init__.py`: exports the Postgres store and the records only.
 - `tests/conftest.py`: a pgserver Postgres per session, an empty schema and one run per test; the SQLite reference and Neo4j fixtures removed.
 - `tests/test_store.py`: new, the kept operations on Postgres, including run isolation and the absence of any cost column.

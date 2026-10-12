@@ -15,9 +15,10 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State (2026-10-12): step 12a (the agent DB, part 1) is built on branch `agentdb-12a`, waiting for Kavin's review.**
-- The report is `runs/tier-a/step12a-report.md`; the decisions are in `docs/tier-a-decisions.md` (step 12a).
-- Tests: 142 pass (`.venv/bin/python -m pytest -q`, which also runs `AgentDB/tests`).
+**State (2026-10-12): step 12b (analysis of the logs, three Owner fixes) is done on branch `agentdb-12a`, waiting for Kavin's review.**
+- The report is `runs/tier-a/step12b-report.md`; the tables are in `runs/tier-a/step12b/summary.md`.
+- Step 12a (the agent DB) was approved and pushed (`6c1eb7a`).
+- Tests: 144 pass (`.venv/bin/python -m pytest -q`, which also runs `AgentDB/tests`).
 - Setup for EconoContext runs: `pip install -e ".[dev,measure,agentdb]" -e AgentDB`, `docker compose up -d`, and `AGENTDB_DSN` in `.env`.
 - Step 11: done. The interface is frozen at `47ccfdc`.
 

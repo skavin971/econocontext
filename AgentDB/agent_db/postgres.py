@@ -129,7 +129,7 @@ class PostgresAgentDB:
 
     def set_window(self, run_id: str, segments: list[Segment]) -> None:
         """Atomic: the run's window becomes exactly these, each at its position and part, in its form,
-        with its token count (window_tokens, else the segment's own)."""
+        with its token count."""
         t = now()
         with self.lock, self.conn.transaction():
             self.conn.execute("UPDATE window_entries SET in_window=false, updated_at=%s "
@@ -140,13 +140,12 @@ class PostgresAgentDB:
                     "updated_at) VALUES (%s,%s,%s,%s,true,%s,%s,%s) ON CONFLICT (run_id, segment_id) DO UPDATE "
                     "SET position=excluded.position, part=excluded.part, in_window=true, form=excluded.form, "
                     "tokens=excluded.tokens, updated_at=excluded.updated_at",
-                    (run_id, s.id, s.position, s.part, Form(s.form).value,
-                     s.tokens if s.window_tokens is None else s.window_tokens, t))
+                    (run_id, s.id, s.position, s.part, Form(s.form).value, s.tokens, t))
 
     def window(self, run_id: str) -> list[Segment]:
         """The window in order: by position, then part."""
         rows = self.rows(
-            "SELECT s.*, w.position, w.part, w.in_window, w.form, w.tokens AS window_tokens FROM window_entries w "
+            "SELECT s.*, w.position, w.part, w.in_window, w.form FROM window_entries w "
             "JOIN segments s ON s.segment_id = w.segment_id "
             "WHERE w.run_id=%s AND w.in_window ORDER BY w.position, w.part", (run_id,))
         return [row_to_segment(r) for r in rows]
@@ -216,5 +215,4 @@ def row_to_segment(r: dict) -> Segment:
         text=r["text"], tokens=r["tokens"], content_hash=r["content_hash"], source=r["source"],
         version=r["version"], pinned=bool(r["pinned"]), needs_exact_bytes=bool(r["needs_exact_bytes"]),
         pair_id=r["pair_id"], role=r["role"], position=r.get("position", 0), part=r.get("part", 0),
-        in_window=bool(r.get("in_window", True)), form=Form(r.get("form", "FULL")),
-        window_tokens=r.get("window_tokens"))
+        in_window=bool(r.get("in_window", True)), form=Form(r.get("form", "FULL")))

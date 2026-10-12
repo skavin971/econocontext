@@ -116,14 +116,13 @@ class Owner:
                                    {"*": str(self.epoch)}, not self.repeatable(name, args))
         return self.items
 
-    def _show(self, call_id: str, text: str, form: Form, tokens: int | None = None) -> None:
+    def _show(self, call_id: str, text: str, form: Form) -> None:
         """Place a tool result's shown text in the window, where its message will be (the harness appends it
-        after this hook returns). tokens: the size the rules use for it, when not the whole text's (an
-        arrival's preview or slice counts without its note line, as before step 12a)."""
+        after this hook returns). Its size is the whole text's, note line included (step 12b)."""
         shown = make_segment(self.run, call_id, SegmentKind.TOOL_RESULT, text, self.count(text), role="tool",
                              pair_id=call_id)
         self.store.add_segment(shown)
-        shown.position, shown.form, shown.window_tokens = len(self._messages), form, tokens
+        shown.position, shown.form = len(self._messages), form
         self.store.set_window(self.run, [s for s in self.store.window(self.run) if s.pair_id != call_id or
                                          s.role != "tool" or s.part] + [shown])
         self._pending.add(call_id)
@@ -160,10 +159,8 @@ class Owner:
                 prev = results.get(call_id)
                 if prev is not None and prev.text == text:
                     place(prev, i, 0, prev.form)
-                else:   # changed by the Owner (forms), or capped by the harness: the window holds what is sent
+                else:   # changed by the Owner (forms), or capped by the harness: the window holds what is sent,
                     s = self._segment(known, call_id, SegmentKind.TOOL_RESULT, text, "tool", call_id)
-                    if prev is not None and i not in forms:   # capped: sized as before the cap, as before step 12a
-                        s.window_tokens = prev.tokens if prev.window_tokens is None else prev.window_tokens
                     place(s, i, 0, forms.get(i) or (prev.form if prev is not None else Form.FULL))
                 continue
             kind = SegmentKind.SYSTEM if role == "system" else \
@@ -275,14 +272,14 @@ class Owner:
             self._show(call_id, note, Form.NOTE)
             self.log("1 dont_repeat", "note", item)
             return note
-        shown, form, size = output, Form.FULL, None
+        shown, form = output, Form.FULL
         if name == "read_file":
             trimmed = self._delta_read(args, output, item)
             if trimmed is not None:
                 shown, form = trimmed, Form.SLICE
         if form == Form.FULL and tokens >= self.h["big_tokens"]:
-            shown, form, size = self._arrival(name, args, output, tokens, item)
-        self._show(call_id, shown, form, size)
+            shown, form = self._arrival(name, args, output, tokens, item)
+        self._show(call_id, shown, form)
         return shown
 
     def _delta_read(self, args: dict, output: str, item: int) -> str | None:
@@ -318,7 +315,7 @@ class Owner:
                                                                      self.calls_left))
         return text
 
-    def _arrival(self, name: str, args: dict, text: str, tokens: int, item: int) -> tuple[str, Form, int | None]:
+    def _arrival(self, name: str, args: dict, text: str, tokens: int, item: int) -> tuple[str, Form]:
         self._sync(self._messages)
         text = self.store.segment(self._result_id).text     # what Jev sees comes from the agent DB
         lines = text.split("\n")
@@ -342,6 +339,11 @@ class Owner:
             texts["slice"] = "\n".join(f"[lines {a}-{b}]\n" + "\n".join(lines[a - 1:b])
                                        for a, b in sorted(spans[i] for i in picked if i < len(spans)))
             miss["slice"] = p_need * (1 - mass)
+        for form in texts:        # what the model would see, note line included (step 12b)
+            what = "the parts most relevant to your task" if form == "slice" else "the first and last lines"
+            texts[form] = (NOTE + f"This output has {len(lines)} lines (about {tokens} tokens); you are seeing "
+                           f"{what}. The full output is saved: repeat the identical call to get all of it.\n"
+                           + texts[form])
         shown = {form: self.count(t) for form, t in texts.items()}
         prices = lifecycle.arrival(self.p, tokens, shown, miss, self.calls_left, self.prompt,
                                    lifecycle.reread_at(answers.get("lifetime"), self.calls_left))
@@ -352,11 +354,8 @@ class Owner:
         self.log("4 arrival", choice, item, forced=forced, prices=prices,
                  answers={"source": source, **answers}, jev_usage=usage)
         if choice == "full":
-            return text, Form.FULL, None
-        what = "the parts most relevant to your task" if choice == "slice" else "the first and last lines"
-        return (NOTE + f"This output has {len(lines)} lines (about {tokens} tokens); you are seeing {what}. "
-                "The full output is saved: repeat the identical call to get all of it.\n" + texts[choice]), \
-            Form.SLICE if choice == "slice" else Form.PREVIEW, shown[choice]
+            return text, Form.FULL
+        return texts[choice], Form.SLICE if choice == "slice" else Form.PREVIEW
 
     # Rules 6 and 7: before a model call ---------------------------------------------------
     async def before_call(self, messages: list[dict], calls: list[dict], complete) -> list[dict]:
@@ -401,7 +400,7 @@ class Owner:
             self.log("6 evict", "none", answers={"source": source, **answers}, jev_usage=usage)
             return
         first = min(i["turn"] for i in finished)
-        after = sum(self.count(json.dumps(m)) for m in messages[first + 1:])
+        after = sum(s.tokens for s in self.store.window(self.run) if s.position > first)   # the prompt after it (12b)
         saved = sum(i["tokens"] for i in finished) * self.p.c * self.calls_left
         cache_break = after * (1 - self.p.cache_read) * self.p.hit_share
         risk = sum((1 - done.get(i["id"], 0.0)) * lifecycle.reread(self.p, self.prompt, i["tokens"],

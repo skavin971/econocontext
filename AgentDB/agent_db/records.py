@@ -49,7 +49,6 @@ class Segment:
     part: int = 0
     in_window: bool = True
     form: Form = Form.FULL
-    window_tokens: int | None = None   # the size the window records for it; None: its own tokens
 
 
 def sha256(data: bytes | str) -> str:

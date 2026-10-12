@@ -381,3 +381,31 @@ What was built:
   - **The header undercount.** A preview's or slice's size, as the rules use it, excludes its one-line `[EconoContext]` header.
   - **The cap.** A full output over the harness's 30,000-character cap is sized before the cap. The window stores the capped text, but its token count for a FULL tool result is still that of the text the Owner returned.
   - **The evict price.** The price of what comes after an evicted item counts `json.dumps` of each message, not the prompt.
+
+## Step 12b: analysis of the logs, and three Owner fixes (2026-10-12)
+
+- **12a approved and pushed** (`agentdb-12a` at `6c1eb7a`, after the secrets gate).
+- **The analysis** made no API calls and changed no behaviour. It covers tc9, tc10s and tc11v: 130 runs, 2,194 calls. Script: `runs/tier-a/scripts/step12b_analysis.py`; tables: `runs/tier-a/step12b/summary.md`; report: `runs/tier-a/step12b-report.md`. It measured:
+  - the FLOPs split into prefill of new tokens, generation and attention, with new prefill split by source;
+  - line overlap of tool outputs with the context;
+  - later use of big outputs;
+  - loops;
+  - thinking against P.
+
+  Definitions:
+  - A big output counts as used if a later model turn quotes 30 or more new characters of it, or names its source path or a path that first appeared in it.
+  - A loop is 2 or more consecutive identical tool calls, or identical error outputs.
+  - Overlap counts lines of 8 or more non-space characters as possibly visible.
+- **Findings:**
+  - **FLOPs:** new prefill is 40–58% of FLOPs, generation 34–47%, attention 8–14%. Tool outputs are 36–51% of new prefill.
+  - **Overlap:** about 10% of tool-output tokens repeat lines already visible.
+  - **Later use:** 6–17% of big outputs are never used again.
+  - **Loops:** every command loop is replies cut at the 2,048 cap, up to 13% of an arm's FLOPs.
+  - **Thinking:** it barely tracks P within runs.
+  - **The Summary baseline's compaction calls** re-prefill the whole conversation, because they are sent without tools.
+- **The three Owner fixes (Kavin), with exact counts:**
+  1. a preview's or slice's size includes its note line, in the window and in the arrival price;
+  2. a capped output is sized as sent;
+  3. the eviction price uses the window's exact tokens after the item.
+
+  `window_tokens` is removed from the agent DB copy. The goldens are now the fixed Owner with exact counts. On the six scenarios the fixes change prices only, with no decision or message to the model changing (`runs/tier-a/step12b-2-owner-changes.out`).

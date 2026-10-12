@@ -1,0 +1,91 @@
+
+## capped_full
+  A -> B, exact counts alone:
+    the same 4 decisions; numbers change in 3:
+      1:4 arrival preview item 2: prices {"full": 79947.61599999998, "preview": 54354.99199999999} -> {"full": 72075.91999999998, "preview": 49812.09999999999}
+      3:3 serve_stored serve item 2: prices {"run": 74173.14799999999, "serve": 74173.14799999999} -> {"run": 66870.00999999998, "serve": 66870.00999999998}
+      4:6 evict evict: prices {"evict": 4874.095699999998, "keep": 60631.91399999999} -> {"evict": 4470.702749999999, "keep": 54662.054999999986}
+    messages to the model: 5 -> 5 requests; first change in request 3
+      message 5 (tool): '[EconoContext] This output has 601 lines (about 10654 tokens); you are seeing the first and last lines. The fu'
+                       -> '[EconoContext] This output has 601 lines (about 9605 tokens); you are seeing the first and last lines. The ful'
+  B -> C, the three fixes:
+    the same 4 decisions; numbers change in 2:
+      1:4 arrival preview item 2: prices {"full": 72075.91999999998, "preview": 49812.09999999999} -> {"full": 72075.91999999998, "preview": 50164.78799999999}
+      4:6 evict evict: prices {"evict": 4470.702749999999, "keep": 54662.054999999986} -> {"evict": 3385.118099999999, "keep": 38596.361999999994}
+    messages to the model: identical
+
+## evict_and_serve
+  A -> B, exact counts alone:
+    the same 4 decisions; numbers change in 3:
+      1:4 arrival preview item 2: prices {"full": 53308.416, "preview": 19029.4536} -> {"full": 48063.119999999995, "preview": 17430.149499999996}
+      4:3 serve_stored serve item 2: prices {"run": 47532.863999999994, "serve": 47532.863999999994} -> {"run": 42855.854999999996, "serve": 42855.854999999996}
+      5:6 evict evict forced: prices {"evict": 34126.84, "keep": 38503.67999999999} -> {"evict": 31533.549999999996, "keep": 34715.09999999999}
+    messages to the model: 7 -> 7 requests; first change in request 3
+      message 5 (tool): '[EconoContext] This output has 401 lines (about 7104 tokens); you are seeing the first and last lines. The ful'
+                       -> '[EconoContext] This output has 401 lines (about 6405 tokens); you are seeing the first and last lines. The ful'
+  B -> C, the three fixes:
+    the same 4 decisions; numbers change in 1:
+      1:4 arrival preview item 2: prices {"full": 48063.119999999995, "preview": 17430.149499999996} -> {"full": 48063.119999999995, "preview": 17782.837499999998}
+    messages to the model: identical
+
+## forced_compaction
+  A -> B, exact counts alone:
+    the same 4 decisions; numbers change in 3:
+      1:4 arrival preview item 2 forced: prices {"full": 53308.416, "preview": 19029.4536} -> {"full": 48063.119999999995, "preview": 17430.149499999996}
+      8:7 compact compacted forced: prices {"compact": 599.498, "h_star": Infinity, "keep": 0.0} -> {"compact": 616.319, "h_star": Infinity, "keep": 0.0}; note "{\"end_turn\": 17, \"summary_tokens\": 14, \"summary_call_output\": 50, \"kept\": [], \"removed_messages\": 16}" -> "{\"end_turn\": 17, \"summary_tokens\": 17, \"summary_call_output\": 50, \"kept\": [], \"removed_messages\": 16}"
+      8:3 serve_stored serve item 2: prices {"run": 39832.128, "serve": 39832.128} -> {"run": 35912.83499999999, "serve": 35912.83499999999}
+    messages to the model: 11 -> 11 requests; first change in request 3
+      message 5 (tool): '[EconoContext] This output has 401 lines (about 7104 tokens); you are seeing the first and last lines. The ful'
+                       -> '[EconoContext] This output has 401 lines (about 6405 tokens); you are seeing the first and last lines. The ful'
+  B -> C, the three fixes:
+    the same 4 decisions; numbers change in 1:
+      1:4 arrival preview item 2 forced: prices {"full": 48063.119999999995, "preview": 17430.149499999996} -> {"full": 48063.119999999995, "preview": 17782.837499999998}
+    messages to the model: identical
+
+## kept_and_legacy
+  A -> B, exact counts alone:
+    the same 7 decisions; numbers change in 4:
+      1:4 arrival preview item 2: prices {"full": 10550.624, "preview": 6327.683399999999} -> {"full": 11593.679999999998, "preview": 6749.3634999999995}
+      1:3 serve_stored serve item 2: prices {"run": 10550.624, "serve": 10550.624} -> {"run": 11593.679999999998, "serve": 11593.679999999998}
+      10:7 compact compacted forced: prices {"compact": 566.585, "h_star": Infinity, "keep": 0.0} -> {"compact": 571.65, "h_star": Infinity, "keep": 0.0}; note "{\"end_turn\": 22, \"summary_tokens\": 9, \"summary_call_output\": 50, \"kept\": [3], \"removed_messages\": 21}" -> "{\"end_turn\": 22, \"summary_tokens\": 10, \"summary_call_output\": 50, \"kept\": [3], \"removed_messages\": 21}"
+      10:1 dont_repeat note item 3: prices {"note": 202.59999999999997, "run": 7121.389999999999, "serve": 7121.389999999999} -> {"note": 167.14499999999998, "run": 7825.424999999999, "serve": 7825.424999999999}
+    messages to the model: 13 -> 13 requests; first change in request 3
+      message 5 (tool): '[EconoContext] This output has 111 lines (about 1406 tokens); you are seeing the first and last lines. The ful'
+                       -> '[EconoContext] This output has 111 lines (about 1545 tokens); you are seeing the first and last lines. The ful'
+  B -> C, the three fixes:
+    the same 7 decisions; numbers change in 1:
+      1:4 arrival preview item 2: prices {"full": 11593.679999999998, "preview": 6749.3634999999995} -> {"full": 11593.679999999998, "preview": 7102.0515}
+    messages to the model: identical
+
+## predictor_rules
+  A -> B, exact counts alone:
+    the same 5 decisions; numbers change in 4:
+      1:4 arrival slice item 2: prices {"full": 53308.416, "preview": 36775.7232, "slice": 12482.83496} -> {"full": 48063.119999999995, "preview": 33659.65899999999, "slice": 11370.646949999998}
+      2:6 evict evict: prices {"evict": 1364.5245499999996, "keep": 8894.490999999998} -> {"evict": 1311.8333499999997, "keep": 8096.666999999999}
+      2:4 arrival slice item 3: prices {"full": 16144.055999999999, "preview": 15172.3224, "slice": 11476.475519999998} -> {"full": 15854.735999999999, "preview": 15070.331399999997, "slice": 11330.694119999998}
+      6:7 compact compacted: prices {"compact": 10307.065699999997, "h_star": 1.2412573067281445, "keep": 157034.202} -> {"compact": 10300.274149999997, "h_star": 1.2404353088892996, "keep": 157034.202}
+    messages to the model: 9 -> 9 requests; first change in request 4
+      message 7 (tool): '[EconoContext] This output has 122 lines (about 2232 tokens); you are seeing the parts most relevant to your t'
+                       -> '[EconoContext] This output has 122 lines (about 2192 tokens); you are seeing the parts most relevant to your t'
+  B -> C, the three fixes:
+    the same 5 decisions; numbers change in 4:
+      1:4 arrival slice item 2: prices {"full": 48063.119999999995, "preview": 33659.65899999999, "slice": 11370.646949999998} -> {"full": 48063.119999999995, "preview": 34012.346999999994, "slice": 11738.342949999998}
+      2:6 evict evict: prices {"evict": 1311.8333499999997, "keep": 8096.666999999999} -> {"evict": 1332.0041999999996, "keep": 8402.083999999999}
+      2:4 arrival slice item 3: prices {"full": 15854.735999999999, "preview": 15070.331399999997, "slice": 11330.694119999998} -> {"full": 15854.735999999999, "preview": 15410.282399999998, "slice": 11685.11112}
+      6:7 compact compacted: prices {"compact": 10300.274149999997, "h_star": 1.2404353088892996, "keep": 157034.202} -> {"compact": 10317.789199999997, "h_star": 1.2425551980526364, "keep": 157034.202}
+    messages to the model: identical
+
+## repeats_and_reads
+  A -> B, exact counts alone:
+    decisions change:
+      before: 0:9 invalidate bump; 2:1 dont_repeat note item 2; 3:9 invalidate bump; 5:2 delta_read trim item 6; 6:1 dont_repeat note item 7; 7:9 invalidate bump; 7:4 arrival preview item 8
+      after:  0:9 invalidate bump; 1:4 arrival preview item 2; 2:3 serve_stored serve item 2; 3:6 evict none; 3:9 invalidate bump; 5:2 delta_read trim item 6; 6:1 dont_repeat note item 7; 7:6 evict none; 7:9 invalidate bump; 7:4 arrival preview item 8
+    messages to the model: 10 -> 10 requests; first change in request 3
+      message 5 (tool): 'line 0001 xxxxxxxxxx\nline 0002 xxxxxxxxxx\nline 0003 xxxxxxxxxx\nline 0004 xxxxxxxxxx\nline 0005 xxxxxxxxxx\nline '
+                       -> '[EconoContext] This output has 101 lines (about 1005 tokens); you are seeing the first and last lines. The ful'
+  B -> C, the three fixes:
+    the same 10 decisions; numbers change in 2:
+      1:4 arrival preview item 2: prices {"full": 7541.519999999999, "preview": 5299.969499999999} -> {"full": 7541.519999999999, "preview": 5652.657499999999}
+      7:4 arrival preview item 8: prices {"full": 81692.44399999999, "preview": 25985.391799999994} -> {"full": 81692.44399999999, "preview": 26273.413799999995}
+    messages to the model: identical
+exit 0

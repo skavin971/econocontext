@@ -126,6 +126,13 @@ def test_a_big_output_unlikely_to_be_needed_becomes_a_preview(owner):
     assert rules(o)[-1] == ("4 arrival", "preview")
 
 
+def test_a_preview_is_sized_as_shown_note_line_included(owner):
+    o = owner(FakePredictor(needed=0.05))
+    text = o.after_tool("bash", {"command": "pytest -q"}, BIG, False, "c1")
+    assert shown(o, 1)["form"] == Form.PREVIEW and shown(o, 1)["tokens"] == o.count(text)
+    assert o.decisions()[-1]["prices"]["preview"] > 0 and text.startswith(NOTE + "This output has 300 lines")
+
+
 def test_a_big_output_needed_soon_stays_full_unless_forced(owner):
     assert owner(FakePredictor(needed=0.95)).after_tool("bash", {"command": "pytest -q"}, BIG, False, "c1") == BIG
     forced = owner(FakePredictor(needed=0.95), force=["4 arrival"])
@@ -136,7 +143,7 @@ def test_a_big_output_needed_soon_stays_full_unless_forced(owner):
 def conversation(o, prompt, calls=10):
     """system, task, then a big read (finished) and a small command, bound to the owner."""
     o.after_tool("bash", {"command": "cat log.txt"}, BIG, False, "c1")
-    o._show("c1", BIG, Form.FULL, 5000)                 # shown in full, whatever the arrival chose
+    o._show("c1", BIG, Form.FULL)                       # shown in full, whatever the arrival chose
     messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "Fix the bug."},
                 {"role": "assistant", "tool_calls": [{"id": "c1", "function": {"name": "bash", "arguments": "{}"}}]},
                 {"role": "tool", "tool_call_id": "c1", "content": BIG},

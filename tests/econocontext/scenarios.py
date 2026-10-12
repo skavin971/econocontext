@@ -2,8 +2,9 @@
 and EconoContext in prior mode (fixed guesses), with forced rules so that every rule fires. play() returns
 what the check compares: every request sent to the model and the decision log. No network.
 
-The goldens in golden/ were recorded from the SQLite Owner before the move onto the agent DB
-(runs/tier-a/scripts/step12a_record_goldens.py)."""
+The goldens in golden/ were first recorded from the SQLite Owner (step 12a,
+runs/tier-a/scripts/step12a_record_goldens.py); since step 12b they are the Owner's own results with exact
+counts (runs/tier-a/scripts/step12b_play.py; see test_equivalence.py)."""
 
 import asyncio
 import json
