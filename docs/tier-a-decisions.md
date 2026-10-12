@@ -409,3 +409,19 @@ What was built:
   3. the eviction price uses the window's exact tokens after the item.
 
   `window_tokens` is removed from the agent DB copy. The goldens are now the fixed Owner with exact counts. On the six scenarios the fixes change prices only, with no decision or message to the model changing (`runs/tier-a/step12b-2-owner-changes.out`).
+
+## Step 12c: own turns, the free edit zone, and the slicing upper bound (2026-10-12)
+
+- **12b approved and pushed** (`0a1ffd4`, after the secrets gate).
+- **The analysis** made no API calls and changed no behaviour. It covers the same 130 runs. Script: `runs/tier-a/scripts/step12c_analysis.py`; tables: `runs/tier-a/step12c/summary.md`; report: `runs/tier-a/step12c-report.md`.
+- **Own turns, prefilled again:** 18–22% of FLOPs in step 9.
+  - File content the model writes: our agent 14% (write_file 6%, heredocs 8%); CLM 9–12% (heredocs).
+  - Visible text: 0.5% for ours, 5–6% for CLM.
+- **The free edit zone holds.**
+  - All 2,080 latest tool outputs are in U.
+  - Previous replies: 1,517 wholly in U; 541 have only their template header in R; 1 has a single markup token in R, by coincidence after a CLM context reset.
+- **Slicing upper bound** (40-line chunks, 238 big outputs):
+  - an oracle slice saves 42–50% of big-output tokens in step 9;
+  - 122 of the 238 outputs have no later-used chunk.
+
+  BM25 slices drop 51–98% of the later-used chunks. With a median of 2 chunks per big output, the 25% budget keeps no chunk in 85% of outputs, so the BM25 comparison is limited by chunk size.
