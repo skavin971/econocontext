@@ -1,107 +1,18 @@
-# agent-db
+# agent-db (this copy)
 
-Two Agent DBs built to EconoContext's `AGENT_DB_CONTRACT.md`, one on Postgres and one
-on Neo4j. Part A of the contract is `agent_db/schema.sql` (and the constraints in
-`agent_db/neo4j_store.py`); Part B is `PostgresAgentDB` and `Neo4jAgentDB`. The SQLite
-store in the EconoContext repository (`econocontext/store/db.py`) is the reference they
-are checked against. The contract followed is the one on the labmate's `econo-jev`
-branch, which adds evidence identity to the version on `main` (DECISIONS.md, D7).
+One agent's context on Postgres, for EconoContext's Owner (`econocontext/owner.py`). This copy is trimmed from the upstream version; `CHANGES.md` lists every change, and `DECISIONS.md` is the upstream design log, unchanged.
+
+## What it holds
+- `runs`: a run id, used once, and its task.
+- `segments`: every message of the conversation (and each tool call, and each tool result in full), write-once, each with its exact token count as the caller gives it; large texts also go to `blobs`.
+- `window_entries`: the window, one row per segment shown, with its position, its part within the message, its form (FULL, SLICE, PREVIEW, NOTE, EVICTED or SUMMARY) and the token count of that form.
+- `tool_results`: each tool result's call (tool, arguments and their key), whether it may have written, the workspace version it read, and whether it is still valid.
+- `source_versions`: the workspace version; `bump` advances it and invalidates every earlier read.
+
+It holds no cost, price or FLOP.
+
+## Operations
+`PostgresAgentDB(dsn)`: `start_run`, `get_run`, `add_segment`, `segment`, `set_window`, `window`, `window_results`, `add_tool_result`, `find_tool_result`, `current_versions`, `bump`, `invalidate`. The schema is applied on construction (`CREATE ... IF NOT EXISTS`).
 
 ## Running it
-
-```sh
-uv venv --python 3.12 venv && source venv/bin/activate
-uv pip install -e ".[dev]" -e <path to an EconoContext checkout, branch econo-jev>
-pytest -q      # starts its own Postgres; the Neo4j tests skip when no server is reachable
-```
-
-The second install is optional: the records the operations take (`Segment`, `AgentNode`,
-`Decision`, `ProviderUsage`, `EvidenceEvent`) are the package's own, in
-`agent_db/records.py`, mirroring `econocontext.types` so either package's objects work.
-With EconoContext (branch econo-jev) installed, the conformance tests also compare every
-behaviour against its SQLite store; without it, those comparisons skip.
-
-Postgres comes from the `pgserver` package (Postgres 16, from pip). To use one that is
-already running, pass its DSN: `PostgresAgentDB("postgresql://user:pw@host/db")`. The
-schema is applied on construction with `CREATE ... IF NOT EXISTS`. Neo4j takes
-`NEO4J_URI` (default `bolt://localhost:7687`) and `NEO4J_AUTH` as `user:password` from
-the environment, or the same as arguments: `Neo4jAgentDB(uri, ("neo4j", "pw"))`.
-
-## The memory layer (Tier A)
-
-`agent_db/memory.py` is cross-session memory for EconoContext's Tier A harness (branch
-`tier-a-purdue`), where each trial is an isolated session with its own SQLite file:
-
-- `ingest_session(db, session.sqlite3, run_id, passed)` puts a finished session into the
-  shared store with content identity;
-- `recall(db, pool, task, tool, args, epoch)` answers an identical read-only call from an
-  earlier session of the same task, only while this session has written nothing (write
-  epoch 0), when the output is provably what the tool would return;
-- `Pool(labels, same_task, only_passed)` is the experimental condition, named per run;
-- `MemoryPolicy(store, labels, inner=...)` is a policy of that harness wrapping any other
-  (`Base`, `Econo`), adding recall, recording and a report with provenance.
-
-Measured on the archived Purdue run (10 tasks x 3 repeats, `experiments/replay_sessions.py`
-and `experiments/recall_check.py`): 11 of 49 read-only calls in later sessions are
-servable, 15% of tool-output tokens, every served output byte-identical. A served call
-saves the tool's execution, not model FLOPs: the prompt is unchanged. DECISIONS.md, D8.
-
-`integration/test_tier_a_policy.py` runs the policy inside the harness itself with a
-scripted model; from a checkout of the branch, in its environment, with this package
-installed: `PYTHONPATH=. python -m pytest <agent_db>/integration --rootdir=.`
-
-## Using it from EconoContext
-
-The engine builds its store by name (`AgentDB(path)`), so a backend is swapped by
-replacing that name before an engine is made, which is what
-`upstream_runs/econocontext_backend.py` does for the test suite:
-
-```python
-import econocontext.engine as engine
-from agent_db import PostgresAgentDB
-
-engine.AgentDB = lambda path, blob_min_bytes=4096: PostgresAgentDB(DSN, blob_min_bytes)
-```
-
-Every Part B operation then runs on Postgres. What does not yet: the places in
-EconoContext that run SQL on the store directly (`db.rows(...)`, `db.execute(...)`,
-`db.conn`), which are SQLite-shaped. `upstream_runs/results-jev-*.txt` lists exactly
-which tests they break, and so which call sites to move onto the named operations.
-
-## What the tests check
-
-`tests/test_contract.py` has two parts. The first runs every behaviour the SQLite
-reference implements against **both** backends, so Postgres must agree with it:
-write-once segments, windows, blobs, versions and invalidation, dependents, snapshot,
-outcomes, spans. The second covers the operations the contract names that the reference
-only has as SQL in its callers (`learn/`, `monitor/`, `pricing/`, the gateway, `bench/`);
-the expected values come from that SQL.
-
-## Where this knowingly differs from the reference
-
-- **Timestamps** are `timestamptz`. Operations return them as ISO-8601 strings, so they
-  compare and sort like the reference's text timestamps.
-- **JSON** columns are `jsonb` and come back decoded (dict / list), not as JSON text.
-- **Booleans** are `boolean`, not 0/1.
-- **Invalidation** is one SQL statement over `jsonb_each_text(read_set)`, not a Python loop.
-- **Search** (`search_segments(run_id, terms, limit)`) ranks by the number of terms a
-  segment contains, newest first among equals, one hit per distinct content. There is a
-  GIN full-text index, but term matching uses `ILIKE` so paths and identifiers match
-  as substrings; a trigram index (`pg_trgm`) would serve that better and is not in the
-  pip Postgres build.
-- `execute` and `rows` are kept as plain-SQL escape hatches for parity with the
-  reference; they are not part of the contract and take `%s` placeholders.
-
-## Operations beyond the reference, and where their meaning came from
-
-| operation | the SQL it replaces |
-|---|---|
-| `get_run`, `list_runs`, `labelled_runs` | `omnigent_layer/__init__.py`, `bench/learn.py`, `learn/predictors.py` |
-| `first_segment`, `segments_of`, `assistant_segments` | `monitor/context_map.py`, `learn/labels.py` |
-| `search_segments` | `store/retrieval.py` |
-| `tool_results_with_text`, `read_sizes`, `count_tool_results` | `learn/labels.py`, `monitor/context_map.py`, `bench/report.py` |
-| `decisions_of`, `decision_summary`, `replay_rows` | `learn/labels.py`, `pricing/ledger.py`, `learn/replay.py` |
-| `outcomes_of`, `outcome_totals`, `calls_by_agent`, `worker_calls`, `predicted_vs_actual`, `last_prompt_tokens`, `input_tokens_since` | `bench/report.py`, `pricing/ledger.py`, `monitor/context_map.py`, `omnigent_layer/gateway.py` |
-| `spans_of`, `has_open_model_span`, `count_model_spans` | `pricing/ledger.py`, `monitor/context_map.py`, `omnigent_layer/gateway.py` |
-| `replace_labels`, `result_labels` | `learn/labels.py`, `learn/predictors.py` |
-| `add_gateway_pointer`, `gateway_pointers` | `omnigent_layer/gateway.py` |
+From the repository root: `pip install -e ".[agentdb]" -e AgentDB` (psycopg and pgserver). For real runs, `docker compose up -d` starts Postgres 16 and `AGENTDB_DSN` in `.env` points to it. Tests start their own Postgres from pip (pgserver): `.venv/bin/python -m pytest -q AgentDB/tests`.

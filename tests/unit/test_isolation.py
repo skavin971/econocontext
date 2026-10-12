@@ -1,12 +1,17 @@
 """The boundaries: the method stands alone, measurement never imports it, and agents reach models
-only through the gateway."""
+only through the gateway. Step 12a: the method keeps its context in the agent DB (agent_db), which the
+harness and the baselines never touch, and which holds no cost."""
 
 import ast
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ALLOWED_THIRD_PARTY = {"yaml"}
+# The method may import the agent DB (its store) and measure/ (the one exact token counter, step 12a).
+ALLOWED_THIRD_PARTY = {"yaml", "agent_db", "measure"}
+AGENT_DB = ROOT / "AgentDB" / "agent_db"
+COST_WORDS = re.compile(r"cost|price|usd|flop|bill", re.I)
 # Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/,
 # now harness/; baselines/ joined in step 10).
 PROVIDER_HOSTS = ("genai.rcac.purdue.edu", "googleapis.com", "anthropic.com", "openai.com")
@@ -36,7 +41,7 @@ def imports(path: Path) -> set[str]:
     return names
 
 
-def test_core_imports_only_stdlib_yaml_and_itself():
+def test_core_imports_only_stdlib_yaml_the_agent_db_measure_and_itself():
     for path in (ROOT / "econocontext").rglob("*.py"):
         for name in imports(path):
             ok = name in sys.stdlib_module_names or name in ALLOWED_THIRD_PARTY or name == "econocontext"
@@ -86,3 +91,25 @@ def test_the_harness_imports_no_policy_package_and_names_none():
 def test_econocontext_never_imports_the_baselines():
     for path in (ROOT / "econocontext").rglob("*.py"):
         assert "baselines" not in imports(path), f"{path.relative_to(ROOT)} imports baselines"
+
+
+def test_the_harness_and_the_baselines_never_import_the_agent_db():
+    for path in list((ROOT / "harness").rglob("*.py")) + list(ours("*.py")):
+        assert "agent_db" not in imports(path), f"{path.relative_to(ROOT)} imports agent_db"
+
+
+def test_the_agent_db_imports_none_of_our_packages():
+    for path in AGENT_DB.rglob("*.py"):
+        named = imports(path) & {"econocontext", "harness", "baselines", "measure", "gateway"}
+        assert not named, f"{path.relative_to(ROOT)} imports {named}"
+
+
+def test_the_agent_db_holds_no_cost():
+    # Token counts are allowed; no column, record field or operation is a cost, price, dollar, FLOP or bill.
+    columns = re.findall(r"^\s+([a-z_0-9]+)\s+[a-z]", (AGENT_DB / "schema.sql").read_text(), re.M)
+    assert columns and not [c for c in columns if COST_WORDS.search(c)]
+    for path in AGENT_DB.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            name = getattr(node, "name", None) or (node.target.id if isinstance(node, ast.AnnAssign)
+                                                   and isinstance(node.target, ast.Name) else None)
+            assert not (name and COST_WORDS.search(name)), f"{path.relative_to(ROOT)} defines {name}"

@@ -9,11 +9,11 @@ from harness.interface import LEGACY, OURS, TOOLS
 from tests.harness.helpers import reply, tool_messages
 
 
-def test_every_policy_sends_the_identical_system_prompt_and_tools(make):
+def test_every_policy_sends_the_identical_system_prompt_and_tools(make, agentdb):
     sent = []
     for policy, extra in ((Base(), {}), (Base(), {"budget": 32_000, "counter": lambda m, t: 1_000}),
                           (Summary(), {"budget": 32_000, "counter": lambda m, t: 1_000}),
-                          (Econo(mode="prior"), {"run_id": "t1"})):
+                          (Econo(mode="prior", dsn=agentdb), {"run_id": "t1"})):
         agent, _, _ = make([reply(("submit", {}))], policy=policy, **extra)
         sent.append((agent.client.sent[0][0], agent.client.tools[0]))
     assert all(s == ({"role": "system", "content": OURS.system}, TOOLS) for s in sent)

@@ -27,12 +27,14 @@ class Replies:
     def __init__(self):
         self.n = 0
 
-    def __call__(self, name=None, args=None, text=None, prompt=1000):
+    def __call__(self, name=None, args=None, text=None, prompt=1000, more=()):
+        """One reply: a tool call (name, args), plus `more` calls [(name, args)] in the same reply."""
         self.n += 1
         message = {"role": "assistant", "content": text}
         if name:
-            message["tool_calls"] = [{"id": f"call_{self.n}", "type": "function",
-                                      "function": {"name": name, "arguments": json.dumps(args or {})}}]
+            message["tool_calls"] = [{"id": f"call_{self.n}" + (f"_{j}" if j else ""), "type": "function",
+                                      "function": {"name": n, "arguments": json.dumps(a or {})}}
+                                     for j, (n, a) in enumerate([(name, args), *more])]
         return ChatCompletion.model_validate({
             "id": f"r{self.n}", "object": "chat.completion", "created": 0, "model": "qwen3.8:27b",
             "choices": [{"index": 0, "finish_reason": "tool_calls" if name else "stop", "message": message}],
@@ -49,6 +51,14 @@ class FixedPredictor:
     def segment(self, task, turns, items, boundaries):
         return {"done": {i["id"]: 0.9 for i in items}, "segment_done": 0.9,
                 "segment_end": boundaries[-1] if boundaries else None}, None
+
+
+class Keeper(FixedPredictor):
+    """Fixed answers that keep a big output in full on arrival, and later judge it finished."""
+    name = "keeper"
+
+    def arrival(self, task, convo, item):
+        return {"needed_again": 1.0, "lifetime": "whole_task", "relevant": None}, None
 
 
 def repeats_and_reads(r):
@@ -103,11 +113,33 @@ def predictor_rules(r):
     return script
 
 
-SCENARIOS = {
-    "repeats_and_reads": (repeats_and_reads, (), None),
-    "evict_and_serve": (evict_and_serve, ("6 evict",), None),
-    "forced_compaction": (forced_compaction, ("7 compact", "4 arrival"), None),
-    "predictor_rules": (predictor_rules, (), FixedPredictor),
+def kept_and_legacy(r):
+    """The legacy interface (every call of a reply runs): rule 1 within one reply; then a forced compaction
+    that keeps a big item word for word (fixed guesses: nothing is done), and rule 1 on that kept copy."""
+    script = [r("write_file", {"path": "mid.txt", "content": numbered_file(110, 40)}),
+              r("bash", {"command": "cat mid.txt"}, more=[("bash", {"command": "cat mid.txt"})])]
+    script += [r("bash", {"command": f"echo step {i}"}) for i in range(8)]    # checks every 4 calls: 2, 6, 10
+    script += [r(text="mid.txt holds 110 numbered lines.")]    # the summary call
+    script += [r("bash", {"command": "cat mid.txt"}), r("submit")]
+    return script
+
+
+def capped_full(r):
+    """An output kept in full that the harness caps at 30,000 characters; the next check prices its eviction."""
+    return [r("write_file", {"path": "huge.txt", "content": numbered_file(600, 60)}),
+            r("bash", {"command": "cat huge.txt"}),
+            r("bash", {"command": "echo one"}),
+            r("bash", {"command": "cat huge.txt"}),
+            r("submit")]
+
+
+SCENARIOS = {    # name: (script, forced rules, predictor (None: the fixed guesses), interface)
+    "repeats_and_reads": (repeats_and_reads, (), None, "ours"),
+    "evict_and_serve": (evict_and_serve, ("6 evict",), None, "ours"),
+    "forced_compaction": (forced_compaction, ("7 compact", "4 arrival"), None, "ours"),
+    "predictor_rules": (predictor_rules, (), FixedPredictor, "ours"),
+    "kept_and_legacy": (kept_and_legacy, ("7 compact",), None, "legacy"),
+    "capped_full": (capped_full, (), Keeper, "ours"),
 }
 
 
@@ -125,11 +157,11 @@ class Scripted(Econo):
 
 def play(name: str, tmp_path, monkeypatch=None, **policy_kwargs) -> dict:
     """Run one scenario; return the requests sent to the model, the decision log and the report."""
-    script, force, predictor = SCENARIOS[name]
+    script, force, predictor, interface = SCENARIOS[name]
     model = FakeModel(script(Replies()))
     policy = Scripted(predictor, force=force, **policy_kwargs)
     agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=model,
-                  state_dir=str(tmp_path / "state"), policy=policy, run_id=f"golden-{name}")
+                  state_dir=str(tmp_path / "state"), policy=policy, run_id=f"golden-{name}", interface=interface)
     env = LocalEnv(tmp_path / "work")
     (tmp_path / "work").mkdir(exist_ok=True)
     context = SimpleNamespace(n_input_tokens=0, n_cache_tokens=0, n_output_tokens=0)

@@ -40,7 +40,6 @@ import importlib
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -112,17 +111,17 @@ def battery() -> tuple[int, bool] | None:
     return (int(found.group(1)), "Battery Power" in out) if found else None
 
 
-def jev_fallbacks(session: Path) -> dict:
-    """Questions put to the predictor, how many fell back to the fixed guesses, and why (error types)."""
+def jev_fallbacks(agent: Path) -> dict:
+    """Questions put to the predictor, how many fell back to the fixed guesses, and why (error types), from the
+    trial's decisions (decisions.jsonl; an older run's session.sqlite3)."""
+    from measure.report import decisions_log
     asked, errors = 0, Counter()
-    if session.exists():
-        with sqlite3.connect(session) as db:
-            for (answers,) in db.execute("SELECT answers FROM decisions WHERE answers IS NOT NULL"):
-                source = (json.loads(answers) or {}).get("source")
-                if source:
-                    asked += 1
-                    if source.startswith("prior ("):
-                        errors[source[len("prior ("):-1]] += 1
+    for d in decisions_log(agent):
+        source = (d["answers"] or {}).get("source")
+        if source:
+            asked += 1
+            if source.startswith("prior ("):
+                errors[source[len("prior ("):-1]] += 1
     return {"asked": asked, "fell_back": sum(errors.values()), "errors": dict(errors)}
 
 
@@ -237,7 +236,7 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
         report = traj.get("report") if isinstance(traj.get("report"), dict) else {}
         summary.update(agent_calls=len(traj.get("calls") or []), policy=traj.get("policy"),
                        interface=traj.get("interface"), owner=report if traj.get("policy") == "econo" else None,
-                       jev_fallbacks=jev_fallbacks(agent / "session.sqlite3"), budget=traj.get("budget"),
+                       jev_fallbacks=jev_fallbacks(agent), budget=traj.get("budget"),
                        end=traj.get("end"), end_P=traj.get("end_P"), final_turns=traj.get("final_turns"),
                        compactions=report.get("compactions"),
                        cut_summaries=sum(bool(c.get("capped")) for c in report.get("compactions") or []))

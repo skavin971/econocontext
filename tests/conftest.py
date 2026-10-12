@@ -1,5 +1,7 @@
 """The `make` fixture: one run of our harness (harness/agent.py) with a scripted model and a local shell.
-Base is the default policy and ours the default interface; a test passes others."""
+Base is the default policy and ours the default interface; a test passes others.
+The `agentdb` fixture: EconoContext's agent DB, on a Postgres started from pip (pgserver, no Docker),
+one per test session, emptied for each test; its value is the DSN."""
 
 import asyncio
 from types import SimpleNamespace
@@ -29,3 +31,19 @@ def make(tmp_path, monkeypatch):
         asyncio.run(go())
         return agent, env, context
     return build
+
+
+@pytest.fixture(scope="session")
+def pg_uri(tmp_path_factory):
+    pgserver = pytest.importorskip("pgserver")
+    server = pgserver.get_server(tmp_path_factory.mktemp("pgdata"))
+    yield server.get_uri()
+    server.cleanup()
+
+
+@pytest.fixture
+def agentdb(pg_uri):
+    import psycopg
+    with psycopg.connect(pg_uri, autocommit=True) as conn:
+        conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    return pg_uri

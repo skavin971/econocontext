@@ -18,7 +18,7 @@ one row:
 It then prints a per-task x arm summary: the mean and per-repeat values of pass, calls, ΣP, ΣU, ΣG
 and PFLOPs (linear, attention, total), with overflows, retries and repeats. It also shows what the
 context manager did:
-- EconoContext's actions, from each run's session database: arrival full/slice/preview, evictions,
+- EconoContext's actions, from each run's decisions (decisions.jsonl; older runs' session.sqlite3): arrival full/slice/preview, evictions,
   compactions, and Jev's questions and fallbacks with their error types;
 - CLM's context edits from its usage.json: model edits and forced rollbacks.
 A run whose request was refused for exceeding the model's window is an overflow. Since step 10c a run
@@ -73,9 +73,25 @@ def runs(paths: list[str]) -> list[dict]:
     return found
 
 
+def decisions_log(agent_dir: Path | None) -> list[dict]:
+    """EconoContext's decisions in one trial: decisions.jsonl (step 12a on), else an older run's
+    session.sqlite3. Each has at least rule, action and answers (a dict, or None)."""
+    if agent_dir is None:
+        return []
+    log = agent_dir / "decisions.jsonl"
+    if log.exists():
+        return [json.loads(line) for line in log.read_text().splitlines() if line]
+    db = agent_dir / "session.sqlite3"
+    if not db.exists():
+        return []
+    with sqlite3.connect(db) as con:
+        return [{"rule": rule, "action": action, "answers": json.loads(answers) if answers else None}
+                for rule, action, answers in con.execute("SELECT rule, action, answers FROM decisions ORDER BY id")]
+
+
 def run_actions(run: dict) -> dict:
     """One run's overflow flag, its calls that hit the output cap, and what its context manager did:
-    EconoContext (from the session database) or CLM (from its usage.json). Read directly; measure/
+    EconoContext (from its decisions) or CLM (from its usage.json). Read directly; measure/
     never imports the method."""
     acts = {"overflow": False, "capped": 0, "arrival": Counter(), "evictions": 0, "compactions": 0, "jev_asked": 0,
             "jev_fallbacks": 0, "jev_errors": Counter(), "clm_edits": None, "clm_rollbacks": None}
@@ -87,20 +103,18 @@ def run_actions(run: dict) -> dict:
         if row.get("call_no") and row.get("status") == 200 and cap:
             acts["capped"] += ((row.get("usage") or {}).get("completion_tokens") or 0) >= cap
     folder = run.get("dir")
-    db = next(folder.glob("harbor/*/agent/session.sqlite3"), None) if folder else None
-    if db:
-        with sqlite3.connect(db) as con:
-            for rule, action, answers in con.execute("SELECT rule, action, answers FROM decisions"):
-                if rule.startswith("4 "):
-                    acts["arrival"][action] += 1
-                acts["evictions"] += rule.startswith("6 ") and action == "evict"
-                acts["compactions"] += rule.startswith("7 ") and action == "compacted"
-                source = (json.loads(answers) or {}).get("source") if answers else None
-                if source:
-                    acts["jev_asked"] += 1
-                    if source.startswith("prior ("):
-                        acts["jev_fallbacks"] += 1
-                        acts["jev_errors"][source[len("prior ("):-1]] += 1
+    for d in decisions_log(next(folder.glob("harbor/*/agent"), None) if folder else None):
+        rule, action = d["rule"], d["action"]
+        if rule.startswith("4 "):
+            acts["arrival"][action] += 1
+        acts["evictions"] += rule.startswith("6 ") and action == "evict"
+        acts["compactions"] += rule.startswith("7 ") and action == "compacted"
+        source = (d["answers"] or {}).get("source")
+        if source:
+            acts["jev_asked"] += 1
+            if source.startswith("prior ("):
+                acts["jev_fallbacks"] += 1
+                acts["jev_errors"][source[len("prior ("):-1]] += 1
     acts["compactions"] += len((run.get("summary") or {}).get("compactions") or [])     # the Summary baseline
     usage = next(folder.glob("harbor/*/agent/usage.json"), None) if folder else None
     if usage:

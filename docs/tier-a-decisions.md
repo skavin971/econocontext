@@ -339,3 +339,45 @@ The full list is in `docs/cleanup-map.md`.
   - The runner flags any CLM trial whose peak is over budget − 2,048 (29,952 at 32k). If one does, we add a calibrated CLM arm with `context_budget_tokens` 27,400 (`--policy clm --budget 27400`).
   - The peaks so far are under the limit: tc9 clm-32k 28,735; tc11v clm-32k 23,371.
   - The other tc11v peaks: base-32k bandit 21,561, base-32k scan-linux 17,548, summary-32k bandit 24,682.
+
+## Step 12a: the agent DB, part 1 (2026-10-12)
+
+The map is `docs/agentdb-map.md`. Kavin's answers, in substance:
+- **A.** `econocontext/` may import `agent_db`. The store is built in `econocontext/policy.py` and handed to the Owner. `harness/` and `baselines/` never import it (a test checks).
+- **B.** Every message is stored as a segment, with its window position and form. Jev's input is built only from agent-DB reads plus the task.
+- **C.** From our copy of `AgentDB/`, remove `neo4j_store.py`, `memory.py` (the cross-session memory policy), its integration test, `experiments/`, `upstream_runs/` and the v1 contract tests. Each removal is one line in `AgentDB/CHANGES.md`, stating what and why, with no people's names.
+- **D.** The contract tests are replaced by tests of the kept operations.
+- **E.** `decisions.jsonl` goes next to `trajectory.json`.
+- **F.** The zip moves out, to `~/econo/AgentDB-latest.zip`; `*.zip` is git-ignored.
+- **Exact token counts.** Every segment stores its exact Qwen token count, from one shared function (`measure/tokens.py` `count_text`; `measure/` still never imports `econocontext/`). Characters ÷ 4 (`econocontext/tokens.py`) is removed everywhere in EconoContext.
+- **The equivalence check** compares decision logs and messages. Cases where only the token counts change a decision are reported separately, not as failures.
+
+What was built:
+- **`AgentDB/`** is the upstream drop as committed (`44e64a0`), then trimmed. Every change is in `AgentDB/CHANGES.md`.
+  - Kept tables: `runs` (`run_id`, `task`), `segments`, `blobs`, `window_entries` (`position`, `part`, `form`, `tokens`), `tool_results` (plus `args` and `seq`), `source_versions`.
+  - No cost, price or FLOP field anywhere (a test checks).
+- **The Owner** uses only named operations: `add_segment`, `set_window` (with forms), `window` and `window_results` (reads), `add_tool_result`, `find_tool_result`, `bump` and `current_versions`.
+  - Run state (task, calls, last check, last compaction, compactions, item numbers) is plain variables.
+  - Before every model call, the window is made the conversation: one segment per message, its tool calls as parts.
+  - A compaction's kept items stay in the window, quoted inside message 1, so a repeat of one still gets the note "still above", as before.
+  - `session.py` is deleted; its command rules moved unchanged to `econocontext/commands.py`.
+- **Readers.** `run.py` (`jev_fallbacks`) and `measure/report.py` (`run_actions`) read `decisions.jsonl`, falling back to an older run's `session.sqlite3`. On 122 old runs, `run_actions` gives identical output under the old and new readers.
+- **Postgres.**
+  - Real runs: `docker-compose.yml` (postgres:16 on localhost:5433), with `AGENTDB_DSN` in `.env`.
+  - Tests: pgserver.
+  - Each trial is its own run, `<run_id>:<random>`; a run id can be started only once.
+- **Characters ÷ 4 removed.** These are the places it was used:
+  - 14 sites in `econocontext/owner.py` (now `self.count`, the served model's tokenizer);
+  - `AgentDB/agent_db/records.py` `count_tokens`, which imported it;
+  - one test assertion (`test_owner.py`, Jev's fit, now checked in Jev's own unit).
+
+  Not changed:
+  - Jev's `CHARS_PER_JEV_TOKEN = 2.3`, which is Jev's input limit in Jev's own model's units, not Qwen's;
+  - the fake upstream in `tests/gateway/test_compaction_log.py`, which invents `prompt_tokens` and is not EconoContext.
+- **Equivalence** (`runs/tier-a/step12a-report.md`). Six scripted conversations had goldens recorded from the SQLite Owner. With characters ÷ 4 injected, the Postgres Owner reproduces all six exactly: messages, decision log and report. This holds on pgserver and on the Docker database.
+
+  With exact counts, decisions change in one scenario (a 525 → 1,005-token output crosses the 1,000-token arrival threshold). In the others only the numbers differ.
+- **Findings carried over unchanged (not fixed; for a decision):**
+  - **The header undercount.** A preview's or slice's size, as the rules use it, excludes its one-line `[EconoContext]` header.
+  - **The cap.** A full output over the harness's 30,000-character cap is sized before the cap. The window stores the capped text, but its token count for a FULL tool result is still that of the text the Owner returned.
+  - **The evict price.** The price of what comes after an evicted item counts `json.dumps` of each message, not the prompt.

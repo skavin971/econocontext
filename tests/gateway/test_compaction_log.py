@@ -40,11 +40,11 @@ def provider():
     return reply
 
 
-def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary_call(tmp_path):
+def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary_call(tmp_path, agentdb):
     s = start(provider(), tmp_path / "gateway")
     try:
         agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", api_base=f"{s.url}/run/t1/v1",
-                      run_id="t1", policy=Econo(mode="prior", force=["7 compact"]), state_dir=str(tmp_path / "state"))
+                      run_id="t1", policy=Econo(mode="prior", force=["7 compact"], dsn=agentdb), state_dir=str(tmp_path / "state"))
         env, context = LocalEnv(tmp_path / "work"), SimpleNamespace(n_input_tokens=0, n_cache_tokens=0,
                                                                      n_output_tokens=0)
         (tmp_path / "work").mkdir()
@@ -73,7 +73,7 @@ def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary
         assert {k: r["request"][k] for k in PINS} == PINS and r["request"]["chat_template_kwargs"] == TEMPLATE
         # Our agent sends the pinned sampling itself: the gateway only adds return_token_ids.
         assert [e for e in r["edits"] if not e.startswith("removed earlier reasoning")] == ["set return_token_ids=True"]
-    assert agent.policy.owner.s.get("compactions") == 1
+    assert agent.policy.owner.compactions == 1
 
 
 def test_the_summary_baseline_logs_its_compaction_call_with_kind_summary(tmp_path):

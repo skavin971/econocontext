@@ -9,13 +9,15 @@ Earlier code (v0, the v1 engine, Omnigent/SWE-bench, Claude Code hooks, the Gemi
 ## Layout
 
 **`econocontext/`** is the method.
-- `owner.py` edits the conversation of an agent that owns its context (rules 1–4, 6, 7, 9).
-- `session.py` is the run's session database: one empty SQLite file per run, deleted after it.
+- `owner.py` edits the conversation of an agent that owns its context (rules 1–4, 6, 7, 9). Its state is in the agent DB (`AgentDB/`, step 12a): every message is a segment, the window holds each one's position and form with its exact token count, and tool results are stored with the workspace version they read. Jev's input is built only from these reads plus the task. Each decision is a line of `decisions.jsonl`, beside the trial's `trajectory.json`.
+- `commands.py` says which tool calls only read, and gives a call's identity.
 - `predictor/` holds Jev and the fixed guesses.
 - `pricing/lifecycle.py` holds the decision prices.
-- `policy.py` runs EconoContext as a policy of our harness (`Econo`); `Directed` is a stub that refuses to run.
+- `policy.py` runs EconoContext as a policy of our harness (`Econo`), with the agent DB at `AGENTDB_DSN`; `Directed` is a stub that refuses to run.
 
-It uses only the standard library and PyYAML, and imports nothing from the other folders.
+It uses the standard library, PyYAML, the agent DB (`agent_db`) and one function of `measure/` (`count_text`, the served model's tokenizer, so the method and the measure count tokens the same way). It imports nothing from `harness/`, `baselines/` or `gateway/`.
+
+**`AgentDB/`** is the agent DB, a trimmed copy of the upstream Postgres store (`agent_db`; `AgentDB/CHANGES.md` lists every change). Real runs use Postgres 16 in Docker (`docker compose up -d`, `docker-compose.yml`); tests start their own Postgres from pip (pgserver). Only `econocontext/` uses it; it holds no cost.
 
 **`harness/`** is our own harness, the Harbor agent `harness.agent:Agent` (step 11): one tool-calling loop (bash, read_file, write_file, submit) for every policy. `interface.py` is what the model sees, the same for every policy (`ours`, or `legacy` to reproduce the runs of steps 9 and 10); `budget.py` is CLM's budget gate; `tools.py` runs the tools in the task's container. A policy, picked with the runner's `--policy` and imported by name, is the only part that differs between arms: `baselines/base`, `baselines/summary` or `econocontext/policy.py`. The harness reaches models only through `gateway/`.
 
@@ -32,7 +34,7 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 - model constants from a model's config (CLM Eq. 7);
 - a 16-token prefix-cache simulation;
 - prefix-reuse FLOPs per call and per run (Eq. 9);
-- a prompt's size as the server will count it (`tokens.py`), which the harness uses to enforce a budget;
+- a prompt's size as the server will count it (`tokens.py`), which the harness uses to enforce a budget, and a text's size by the same tokenizer (`count_text`), which EconoContext uses for every token count;
 - a context profile per task (`profile.py`);
 - the per-arm comparison tables (`compare.py`).
 
@@ -46,7 +48,7 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 - `v2.yaml` holds EconoContext's settings.
 - `billing_rates.yaml` holds the price card that EconoContext's decision prices read.
 
-**`tests/`** mirrors the folders above. Run them with `.venv/bin/python -m pytest -q`. No test calls a model.
+**`tests/`** mirrors the folders above (and `AgentDB/tests` is run with them). Run them with `.venv/bin/python -m pytest -q`. No test calls a model.
 
 **`docs/`** holds:
 - the results;
@@ -57,6 +59,7 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 
 ## Environments
 
-- **`.venv`** (Python 3.12): the method, the harness, Harbor and the tests (`pip install -e ".[dev,measure]"`).
+- **`.venv`** (Python 3.12): the method, the harness, Harbor and the tests (`pip install -e ".[dev,measure,agentdb]" -e AgentDB`).
 - **`.venv-clm`** (Python 3.12): CLM (`pip install -e baselines/clm/upstream`) and transformers, for CLM's agent and the CLM cross-checks.
 - **Keys:** they live only in `.env`, which is git-ignored, and only the gateway reads model keys.
+- **The agent DB:** `docker compose up -d`, and `AGENTDB_DSN` in `.env` (git-ignored) points to it.
