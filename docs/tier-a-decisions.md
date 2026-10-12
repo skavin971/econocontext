@@ -425,3 +425,13 @@ What was built:
   - 122 of the 238 outputs have no later-used chunk.
 
   BM25 slices drop 51–98% of the later-used chunks. With a median of 2 chunks per big output, the 25% budget keeps no chunk in 85% of outputs, so the BM25 comparison is limited by chunk size.
+
+## Step 12d: a fair slicer comparison (2026-10-12)
+
+- **12c approved and pushed** (`a2613d7`, after the secrets gate).
+- **Setup.** The same 238 big outputs, in chunks of about 300 tokens cut at line boundaries (2,275 chunks; a median of 7 per output). Five slicers (head + tail; BM25 against the last reply text plus the call; BM25 against the task plus the last 3 commands; Jev's existing relevance question replayed; the oracle), each at 25%, 50% and 75% of the output's tokens.
+- **Jev.** TypeSafe only: 238 requests, 0 failures, 3.84M input tokens. The answers are cached in `runs/tier-a/step12d/jev.jsonl`.
+- **Recall.** All four real slicers are within 7 points of each other at every budget, about proportional to the share kept (21–28% / 46–51% / 70–74%). Jev is best at 25% and 50%, by 4–7 points; BM25 (task) is best at 75%. The oracle with no budget saves 69% of big-output tokens.
+- **FLOPs.** Big outputs are 14.9% of all FLOPs (13–19% in step 9). The oracle saves 10.4%; the real slicers save 8.2–8.4% at 50%, 11.8–11.9% at 25%. These figures assume no extra calls from misses. The FLOPs method agrees with a full rebuild to within 0.13%.
+- **"Best budget"** was defined in the report as the budget maximizing FLOPs saved × recall (50% for every real slicer), pending Kavin's rule.
+- **Report:** `runs/tier-a/step12d-report.md`.
