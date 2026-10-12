@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_THIRD_PARTY = {"yaml"}
-# Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/;
-# baselines/ joined in step 10).
+# Only gateway/ may name a model provider's host or key (decision of 2026-10-10, scoped to agents/,
+# now harness/; baselines/ joined in step 10).
 PROVIDER_HOSTS = ("genai.rcac.purdue.edu", "googleapis.com", "anthropic.com", "openai.com")
 PROVIDER_KEYS = ("GENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                  "ECONOCONTEXT_ANTHROPIC_KEY", "AGENT_PLATFORM_API_KEY")
@@ -17,9 +17,9 @@ DEFAULT_UPSTREAM = ("OPENAI_BASE_URL", "OPENAI_API_BASE")
 
 
 def ours(pattern: str):
-    """Our files under agents/ and baselines/: a baseline's own code (baselines/<name>/upstream/) is
+    """Our files under harness/ and baselines/: a baseline's own code (baselines/<name>/upstream/) is
     its authors', run through the api_base our wrapper gives it."""
-    for folder in ("agents", "baselines"):
+    for folder in ("harness", "baselines"):
         for path in (ROOT / folder).rglob(pattern):
             if path.is_file() and not {"upstream", "__pycache__"} & set(path.relative_to(ROOT).parts):
                 yield path
@@ -50,7 +50,7 @@ def test_measure_never_imports_the_method():
 
 def test_agents_reach_models_only_through_the_gateway():
     # An agent is given an api_base on gateway/ and a placeholder key; it never names a provider's
-    # host or reads a provider's key. Every file of ours under agents/ and baselines/ (code, scripts,
+    # host or reads a provider's key. Every file of ours under harness/ and baselines/ (code, scripts,
     # docs) is checked.
     for path in ours("*"):
         text = path.read_text(errors="ignore")
@@ -70,3 +70,19 @@ def test_agents_use_only_the_api_base_they_are_given():
                     "OpenAI", "AsyncOpenAI"):
                 base = next((k.value for k in node.keywords if k.arg == "base_url"), None)
                 assert isinstance(base, ast.Name), f"{path.relative_to(ROOT)}: a client without base_url=<api_base>"
+
+
+def test_the_harness_imports_no_policy_package_and_names_none():
+    # Step 11: a policy is given to the harness by name (the runner's --policy); the harness never
+    # depends on the policies, so every arm shares one loop.
+    for path in (ROOT / "harness").rglob("*.py"):
+        named = imports(path) & {"econocontext", "baselines"}
+        assert not named, f"{path.relative_to(ROOT)} imports {named}"
+        code = path.read_text()
+        assert "econocontext" not in code and "baselines" not in code, f"{path.relative_to(ROOT)} names a policy package"
+    assert list((ROOT / "harness").rglob("*.py")), "harness/ is empty"
+
+
+def test_econocontext_never_imports_the_baselines():
+    for path in (ROOT / "econocontext").rglob("*.py"):
+        assert "baselines" not in imports(path), f"{path.relative_to(ROOT)} imports baselines"

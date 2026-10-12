@@ -13,12 +13,13 @@ Earlier code (v0, the v1 engine, Omnigent/SWE-bench, Claude Code hooks, the Gemi
 - `session.py` is the run's session database: one empty SQLite file per run, deleted after it.
 - `predictor/` holds Jev and the fixed guesses.
 - `pricing/lifecycle.py` holds the decision prices.
+- `policy.py` runs EconoContext as a policy of our harness (`Econo`); `Directed` is a stub that refuses to run.
 
 It uses only the standard library and PyYAML, and imports nothing from the other folders.
 
-**`agents/`** holds our agent that Harbor runs: `react/agent.py`, a small tool-calling agent (bash, read_file, write_file, submit) with the arms raw, jev and prior. With a token budget, raw is CLM's Base and summary is CLM's Summary baseline (Codex-style compaction at 75% of the budget). `react/prompts/` holds prompts taken verbatim from other projects, each with its source and license. The agent reaches models only through `gateway/`.
+**`harness/`** is our own harness, the Harbor agent `harness.agent:Agent` (step 11): one tool-calling loop (bash, read_file, write_file, submit) for every policy. `interface.py` is what the model sees, the same for every policy (`ours`, or `legacy` to reproduce the runs of steps 9 and 10); `budget.py` is CLM's budget gate; `tools.py` runs the tools in the task's container. A policy, picked with the runner's `--policy` and imported by name, is the only part that differs between arms: `baselines/base`, `baselines/summary` or `econocontext/policy.py`. The harness reaches models only through `gateway/`.
 
-**`baselines/`** holds the methods we compare against. Each is the authors' code as a pinned git submodule, unmodified, in `baselines/<name>/upstream`, plus our wrapper next to it. `clm/` runs CLM's own agent through our gateway (`clm/run.sh`). CLM's license is CC BY-NC 4.0; we use its code and never copy it into ours. The one exception is its final-turn notice, a single text used verbatim with attribution (`agents/react/prompts/clm_final_turn.txt`), because its wording affects behaviour.
+**`baselines/`** holds the methods we compare against. `base/` (CLM's Base: no context management) and `summary/` (CLM's Summary: Codex-style compaction at 75% of the budget, with Codex's prompts, Apache-2.0) are policies of our harness. Other people's agents are the authors' code as a pinned git submodule, unmodified, in `baselines/<name>/upstream`, plus our wrapper next to it: `clm/` runs CLM's own agent through our gateway (`clm/run.sh`). CLM's license is CC BY-NC 4.0; we use its code and never copy it into ours. The one exception is its final-turn notice, a single text used verbatim with attribution (`harness/prompts/clm_final_turn.txt`), because its wording affects behaviour.
 
 **`gateway/`** is one small OpenAI-compatible proxy (`.venv/bin/python -m gateway.server --provider purdue`). It does five things:
 - holds the provider keys;
@@ -31,7 +32,7 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 - model constants from a model's config (CLM Eq. 7);
 - a 16-token prefix-cache simulation;
 - prefix-reuse FLOPs per call and per run (Eq. 9);
-- a prompt's size as the server will count it (`tokens.py`), which agents use to enforce a budget;
+- a prompt's size as the server will count it (`tokens.py`), which the harness uses to enforce a budget;
 - a context profile per task (`profile.py`);
 - the per-arm comparison tables (`compare.py`).
 
@@ -56,6 +57,6 @@ It uses only the standard library and PyYAML, and imports nothing from the other
 
 ## Environments
 
-- **`.venv`** (Python 3.12): the method, the agents, Harbor and the tests (`pip install -e ".[dev,measure]"`).
+- **`.venv`** (Python 3.12): the method, the harness, Harbor and the tests (`pip install -e ".[dev,measure]"`).
 - **`.venv-clm`** (Python 3.12): CLM (`pip install -e baselines/clm/upstream`) and transformers, for CLM's agent and the CLM cross-checks.
 - **Keys:** they live only in `.env`, which is git-ignored, and only the gateway reads model keys.

@@ -298,3 +298,26 @@ The full list is in `docs/cleanup-map.md`.
   - the summary's output tokens and whether it hit the 2,048 cap (a capped summary stops the run, through a runner gate);
   - its finish reason;
   - the rebuilt prompt, with its share of the budget.
+
+## Step 11: our own harness, with the baselines separated (2026-10-12)
+
+- **Layout** (map: `docs/harness-map.md`).
+  - `harness/` replaces `agents/react/`. It is one loop for every policy: `agent.py`, the Harbor agent `harness.agent:Agent`; `interface.py`; `tools.py`; `budget.py`, CLM's budget gate, unchanged; and the logging.
+  - Policies, chosen with `--policy`:
+    - `baselines/base` (10c, unchanged);
+    - `baselines/summary` (10d, unchanged; the Codex files moved with it);
+    - `econocontext/policy.py`: `Econo` wraps `Owner` with no rule change and refuses a budget; `Directed` is a stub that refuses to run;
+    - `clm`, which still runs through `baselines/clm/run.sh`.
+- **How policies plug in.** The runner maps `--policy` to a class path, which the harness imports by name.
+  - Every policy has the same hooks: `start`, `before_call` (which may edit the conversation in place and returns what to send), `before_tool`, `after_tool` and `report`.
+  - Each declares whether a budget is allowed, required or refused.
+- **Isolation (tests).**
+  - `harness/` neither imports nor names `econocontext/` or `baselines/`.
+  - `econocontext/` never imports `baselines/`.
+- **Our interface (`--interface ours`, the default), written by us.** It is the same for every policy (a test checks the prompt and tools are identical) and contains no context-management text.
+  - **System prompt:** "You are an agent completing a task in a Linux container. Work in small steps: each reply makes exactly one tool call, then you see its result and choose the next step. Act rather than plan at length; keep your reasoning short. Check your work, and call `submit` when the task is done."
+  - **One call per reply.** Only the first tool call of a reply runs. Each extra call gets "Not run: one tool call per reply, and only the first call in your reply was run."
+  - **Nudges.** A reply with no tool call gets "Your last reply made no tool call. Reply with your next single action: exactly one tool call." If it was cut off at the output limit, it gets "Your last reply was cut off at the output limit before it made a tool call. Keep your reasoning short and reply with your next single action: exactly one tool call."
+  - **Cut replies.** A reply that hit the output limit has its tool calls not run, because vLLM returns a cut call with its cut parameter dropped (10b). Each call gets "Not run: your reply was cut off at the output limit, so this call may be incomplete. Keep your reasoning short and make your next single action again."
+  - **Tools:** bash, read_file, write_file and submit, unchanged.
+- **The legacy interface (`--interface legacy`)** reproduces steps 9 and 10: the old system prompt and nudge, every call runs, and cut calls run.

@@ -44,34 +44,34 @@ def test_trials_are_interleaved_by_repeat_then_task_then_arm(runner):
 def test_a_trial_starts_while_a_full_run_still_fits_in_the_daily_budget(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 150))
-    assert module.trial(args(), Path("."), "raw", "t", 1)["run_id"] == "L.raw.t.r1"
-    assert started == [("raw", "t")] and module.running == [0] and module.stop["reason"] is None
+    assert module.trial(args(), Path("."), "base", "t", 1)["run_id"] == "L.base.t.r1"
+    assert started == [("base", "t")] and module.running == [0] and module.stop["reason"] is None
 
 
 def test_the_run_stops_before_a_trial_that_could_be_cut_off(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 149))
-    assert "daily budget" in module.trial(args(), Path("."), "raw", "t", 1)["skipped"]
+    assert "daily budget" in module.trial(args(), Path("."), "base", "t", 1)["skipped"]
     monkeypatch.setattr(module, "health", budget(used=0))       # later trials are not started either
-    assert "stopped: daily budget" in module.trial(args(), Path("."), "raw", "u", 1)["skipped"] and started == []
+    assert "stopped: daily budget" in module.trial(args(), Path("."), "base", "u", 1)["skipped"] and started == []
 
 
 def test_running_trials_reserve_a_full_run_each(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "health", budget(used=8000 - 250))
     module.running[0] = 1                       # one trial still running: 150 reserved, 100 left
-    assert "daily budget" in module.trial(args(), Path("."), "raw", "t", 1)["skipped"] and started == []
+    assert "daily budget" in module.trial(args(), Path("."), "base", "t", 1)["skipped"] and started == []
 
 
 def test_a_low_battery_stops_the_run_and_a_charging_one_does_not(runner, monkeypatch):
     module, started = runner
     monkeypatch.setattr(module, "battery", lambda: (21, True))
-    module.trial(args(), Path("."), "raw", "t", 1)
+    module.trial(args(), Path("."), "base", "t", 1)
     monkeypatch.setattr(module, "battery", lambda: (15, False))    # charging (on power): no stop
-    module.trial(args(), Path("."), "raw", "u", 1)
+    module.trial(args(), Path("."), "base", "u", 1)
     monkeypatch.setattr(module, "battery", lambda: (20, True))
-    assert "battery at 20%" in module.trial(args(), Path("."), "raw", "v", 1)["skipped"]
-    assert started == [("raw", "t"), ("raw", "u")]
+    assert "battery at 20%" in module.trial(args(), Path("."), "base", "v", 1)["skipped"]
+    assert started == [("base", "t"), ("base", "u")]
 
 
 def gate(module, monkeypatch, summary, totals):
@@ -109,26 +109,26 @@ def test_jev_falling_back_on_more_than_half_its_questions_stops_the_run(runner, 
 
 def test_with_a_budget_every_arm_is_named_after_it(runner):
     module, _ = runner
-    assert [module.arm_name(arm, 32_000) for arm in ("raw", "clm")] == ["raw-32k", "clm-32k"]
-    assert (module.arm_name("raw", 30_500), module.arm_name("raw", None)) == ("raw-30500", "raw")
-    summary = module.trial(args(budget=32_000), Path("logs"), "raw", "acl", 1)
-    assert summary["run_id"] == "L.raw-32k.acl.r1"
+    assert [module.arm_name(arm, 32_000) for arm in ("base", "clm")] == ["base-32k", "clm-32k"]
+    assert (module.arm_name("base", 30_500), module.arm_name("base", None)) == ("base-30500", "base")
+    summary = module.trial(args(budget=32_000), Path("logs"), "base", "acl", 1)
+    assert summary["run_id"] == "L.base-32k.acl.r1"
 
 
 def test_econocontext_with_a_budget_and_clm_without_one_are_refused(runner, monkeypatch):
     module, _ = runner
     base = ["run.py", "--label", "L", "--tasks", "acl", "--model", "qwen3.8:27b"]
-    monkeypatch.setattr(sys, "argv", base + ["--arm", "raw,econo+jev", "--budget", "32000"])
+    monkeypatch.setattr(sys, "argv", base + ["--policy", "base,econo+jev", "--budget", "32000"])
     with pytest.raises(SystemExit, match="EconoContext has no budget mechanism yet"):
         module.main()
-    monkeypatch.setattr(sys, "argv", base + ["--arm", "clm"])
+    monkeypatch.setattr(sys, "argv", base + ["--policy", "clm"])
     with pytest.raises(SystemExit, match="the clm arm needs --budget"):
         module.main()
 
 
 def test_the_summary_arm_needs_a_budget_and_a_capped_summary_stops_the_run(runner, monkeypatch):
     module, _ = runner
-    monkeypatch.setattr(sys, "argv", ["run.py", "--label", "L", "--tasks", "acl", "--model", "m", "--arm", "summary"])
+    monkeypatch.setattr(sys, "argv", ["run.py", "--label", "L", "--tasks", "acl", "--model", "m", "--policy", "summary"])
     with pytest.raises(SystemExit, match="the summary arm needs --budget"):
         module.main()
     assert module.arm_name("summary", 32_000) == "summary-32k"
@@ -136,3 +136,10 @@ def test_the_summary_arm_needs_a_budget_and_a_capped_summary_stops_the_run(runne
     module.check(args(gates=True), {"run_id": "L.summary-32k.acl.r1", "arm": "summary-32k", "task": "acl", "repeat": 1,
                                     "calls": 9, "reward": 1.0, "compactions": [{"G": 2048, "capped": True, "P_after": 900}]})
     assert "summary call(s) hit the output cap" in module.stop["reason"]
+
+
+def test_the_directed_policy_refuses_to_run(runner, monkeypatch):
+    module, _ = runner
+    monkeypatch.setattr(sys, "argv", ["run.py", "--label", "L", "--tasks", "acl", "--model", "m", "--policy", "directed"])
+    with pytest.raises(SystemExit, match="the directed policy refuses to run"):
+        module.main()

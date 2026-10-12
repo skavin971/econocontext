@@ -48,7 +48,7 @@ from .flops import measure_log
 from .models import MEASURED, load
 
 ROOT = Path(__file__).resolve().parents[1]
-ARM_ORDER = ["raw", "raw-32k", "summary-32k", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
+ARM_ORDER = ["raw", "raw-32k", "base", "base-32k", "summary-32k", "econo+jev", "econo+prior", "clm-32k", "clm-full"]
 COLUMNS = ["run_id", "task", "arm", "repeat", "pass", "end", "overflow", "capped", "calls", "summary_calls", "retries", "repeats", "P", "R", "U", "G",
            "hit_share",
            "PFLOPs_lin", "PFLOPs_attn", "PFLOPs", "PFLOPs_summary", "PFLOPs_clm_aux", "PFLOPs_as_served_by_purdue",

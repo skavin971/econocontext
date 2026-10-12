@@ -1,95 +1,21 @@
-"""The full-control agent (agents/react/agent.py) with a fake model and a local shell.
+"""Our harness (harness/agent.py) with a scripted model and a local shell, under the Base policy.
 
-The fake environment runs the agent's real bash commands in a temporary directory (it only drops
+The fake environment runs the harness's real bash commands in a temporary directory (it only drops
 the `timeout` prefix, which macOS lacks), so tools, cwd persistence and the output cap are real.
 The fake model returns real openai response objects, scripted per test. No network.
 """
 
-import asyncio
-import copy
 import json
-import subprocess
 from types import SimpleNamespace
 
 import pytest
-from openai.types.chat import ChatCompletion
 
-from agents.react.agent import CODEX_COMPACT, CODEX_SUMMARY_PREFIX, FINAL_TURN, NUDGE, SYSTEM, TOOLS, EconoAgent, cap
-
-
-def reply(*calls, text=None, finish="tool_calls", extra=None):
-    message = {"role": "assistant", "content": text}
-    if calls:
-        message["tool_calls"] = [{"id": f"call_{i}_{name}", "type": "function",
-                                  "function": {"name": name, "arguments": json.dumps(args)}}
-                                 for i, (name, args) in enumerate(calls)]
-    if extra:
-        message["extra_content"] = extra
-    completion = ChatCompletion.model_validate({
-        "id": "r", "object": "chat.completion", "created": 0, "model": "gemini",
-        "choices": [{"index": 0, "finish_reason": "stop", "message": message}],
-        "usage": {"prompt_tokens": 1000, "completion_tokens": 50, "total_tokens": 1050,
-                  "prompt_tokens_details": {"cached_tokens": 600}}})
-    # Vertex returns finish reasons outside OpenAI's list (malformed_function_call); the SDK
-    # does not validate replies strictly, so set it after building, as a real reply carries it.
-    completion.choices[0].finish_reason = finish
-    return completion
-
-
-class StatusError(Exception):
-    def __init__(self, status, text=""):
-        super().__init__(text)
-        self.status_code = status
-
-
-class FakeModel:
-    def __init__(self, script):
-        self.script, self.sent, self.headers, self.tools = list(script), [], [], []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
-
-    async def create(self, **kwargs):
-        self.sent.append(copy.deepcopy(kwargs["messages"]))
-        self.headers.append(kwargs.get("extra_headers"))
-        self.tools.append(kwargs.get("tools"))
-        item = self.script.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-
-class LocalEnv:
-    """Runs commands with local bash in `root`."""
-    def __init__(self, root):
-        self.root, self.commands = root, []
-
-    async def exec(self, command, timeout_sec=None, **kwargs):
-        self.commands.append(command)
-        if command.startswith("timeout "):
-            command = command.split(" ", 4)[4]   # drop "timeout -k 5 N"
-        done = subprocess.run(["bash", "-c", command], cwd=self.root, capture_output=True, text=True)
-        return SimpleNamespace(stdout=done.stdout, stderr=done.stderr, return_code=done.returncode)
-
-
-@pytest.fixture
-def make(tmp_path, monkeypatch):
-    real_sleep = asyncio.sleep
-    monkeypatch.setattr(asyncio, "sleep", lambda seconds: real_sleep(0))
-    def build(script, **kwargs):
-        agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/google/gemini-3.6-flash",
-                           client=FakeModel(script), state_dir=str(tmp_path / "state"), **kwargs)
-        env = LocalEnv(tmp_path / "work")
-        (tmp_path / "work").mkdir(exist_ok=True)
-        context = SimpleNamespace(n_input_tokens=0, n_cache_tokens=0, n_output_tokens=0)
-        async def go():
-            await agent.setup(env)
-            await agent.run("Make a file.", env, context)
-        asyncio.run(go())
-        return agent, env, context
-    return build
-
-
-def tool_messages(agent):
-    return [m["content"] for m in agent.messages if m["role"] == "tool"]
+from baselines.base.policy import Base
+from harness.agent import Agent
+from harness.budget import FINAL_TURN
+from harness.interface import OURS
+from harness.tools import cap
+from tests.harness.helpers import Counts, FakeModel, StatusError, notices, reply, tool_messages
 
 
 def test_tools_run_in_order_and_submit_ends_the_run(make, tmp_path):
@@ -122,7 +48,7 @@ def test_the_assistant_message_is_echoed_whole_and_the_list_never_ends_on_it(mak
 
 def test_a_turn_without_a_tool_call_gets_a_nudge(make):
     agent, _, _ = make([reply(text="thinking..."), reply(("submit", {}))])
-    assert agent.messages[3] == {"role": "user", "content": NUDGE}
+    assert agent.messages[3] == {"role": "user", "content": OURS.nudge}
 
 
 def test_a_malformed_tool_call_is_resent_and_counted(make):
@@ -149,7 +75,7 @@ def test_a_reply_without_a_message_is_treated_as_a_turn_without_a_tool_call(make
     empty = reply(("submit", {}))
     empty.choices[0].message = None          # what Gemini sent in gx1 raw malicious-package-forensics
     agent, _, _ = make([empty, reply(("submit", {}))])
-    assert agent.messages[2] == {"role": "user", "content": NUDGE} and agent.messages[-1]["content"] == "Submitted."
+    assert agent.messages[2] == {"role": "user", "content": OURS.nudge} and agent.messages[-1]["content"] == "Submitted."
 
 
 def test_every_call_tells_the_gateway_its_kind(make):
@@ -160,36 +86,23 @@ def test_every_call_tells_the_gateway_its_kind(make):
 def test_without_an_api_base_the_agent_refuses_to_start(tmp_path):
     # Agents reach models only through the gateway: there is no default upstream to fall back to.
     with pytest.raises(ValueError, match="api_base is required"):
-        EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b")
+        Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", policy=Base())
 
 
 def test_the_defaults_match_every_other_arm(tmp_path):
     # 64 steps (CLM's default); CLM's TBLite sampling and 2,048 output tokens for every arm (step 10b).
-    agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
+    agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]), policy=Base())
     assert (agent.max_steps, agent.max_tokens, agent.temperature, agent.top_p) == (64, 2048, 0.7, 0.95)
 
 
 def test_harbor_output_count_is_completion_tokens_only(tmp_path):
     # vLLM's completion_tokens already includes the thinking; reasoning_tokens is a detail of it.
-    agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]))
+    agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]), policy=Base())
     agent.calls = [{"usage": {"prompt_tokens": 562, "completion_tokens": 44,
                               "completion_tokens_details": {"reasoning_tokens": 14}}}]
     context = SimpleNamespace(n_input_tokens=0, n_cache_tokens=0, n_output_tokens=0)
     agent._account(context)
     assert (context.n_input_tokens, context.n_output_tokens) == (562, 44)
-
-
-class Counts:
-    """A scripted prompt counter: one value per check (the budget rule counts before each call)."""
-    def __init__(self, values):
-        self.values = list(values)
-
-    def __call__(self, messages, tools=None):
-        return self.values.pop(0)
-
-
-def notices(messages):
-    return [m["content"] for m in messages if m["role"] == "user" and m["content"].startswith("[SYSTEM NOTICE]")]
 
 
 def test_the_budget_rule_under_at_and_over_the_limit(make, tmp_path):
@@ -202,7 +115,7 @@ def test_the_budget_rule_under_at_and_over_the_limit(make, tmp_path):
     assert len(agent.calls) == 3 and not notices(sent[0]) and not notices(sent[1])
     assert notices(sent[2]) == [FINAL_TURN.format(tokens=7_953, budget=10_000)] == notices(agent.messages)
     assert sent[2][-1]["content"].startswith("[SYSTEM NOTICE] You have reached your context budget (7953/10000 tokens).")
-    assert (agent.end, agent.end_P, agent.final_turns) == ("budget_exceeded", 7_990, [{"before_call": 3, "P": 7_953}])
+    assert (agent.end, agent.end_P, agent.gate.final_turns) == ("budget_exceeded", 7_990, [{"before_call": 3, "P": 7_953}])
     saved = json.loads((tmp_path / "logs" / "trajectory.json").read_text())
     assert (saved["budget"], saved["end"], saved["end_P"]) == (10_000, "budget_exceeded", 7_990)
 
@@ -212,18 +125,12 @@ def test_back_under_the_limit_re_arms_the_final_turn(make):
                         reply(("bash", {"command": "echo 3"}))],
                        budget=10_000, counter=Counts([8_000, 7_000, 8_100, 8_200]))
     assert len(agent.calls) == 3 and len(notices(agent.messages)) == 2
-    assert [f["P"] for f in agent.final_turns] == [8_000, 8_100] and agent.end == "budget_exceeded"
+    assert [f["P"] for f in agent.gate.final_turns] == [8_000, 8_100] and agent.end == "budget_exceeded"
 
 
 def test_a_submit_in_the_final_turn_ends_the_run_normally(make):
     agent, _, _ = make([reply(("submit", {}))], budget=10_000, counter=Counts([8_000]))
-    assert agent.end == "submitted" and len(agent.final_turns) == 1 and len(agent.calls) == 1
-
-
-def test_a_budget_with_econocontext_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="EconoContext has no budget mechanism yet"):
-        EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]),
-                   econo="prior", budget=32_000)
+    assert agent.end == "submitted" and len(agent.gate.final_turns) == 1 and len(agent.calls) == 1
 
 
 def test_an_overflow_at_the_window_ends_the_run_without_an_exception(make):
@@ -236,61 +143,3 @@ def test_an_overflow_at_the_window_ends_the_run_without_an_exception(make):
 def test_running_out_of_steps_is_recorded(make):
     agent, _, _ = make([reply(("bash", {"command": "echo 1"})), reply(("bash", {"command": "echo 2"}))], max_steps=2)
     assert agent.end == "max_steps"
-
-
-class BySize:
-    """Tokens by (number of messages, tools sent?): the summary tests know which prompt each count is for."""
-    def __init__(self, table):
-        self.table = table
-
-    def __call__(self, messages, tools=None):
-        return self.table[(len(messages), tools is not None)]
-
-
-SUMMARY_TEXT = "SUMMARY: listed the files; next, write the report."
-
-
-def test_the_summary_triggers_at_75_percent_of_the_budget_and_not_before(make):
-    # Budget 10,000: compaction at 7,500 (75% of the budget, not of the 7,952 limit). 7,499 sends as it is.
-    sizes = {(2, True): 7_000, (4, True): 7_499, (6, True): 7_500, (7, False): 7_620, (3, True): 1_200, (5, True): 1_900}
-    agent, _, _ = make([reply(("bash", {"command": "echo 1"})), reply(("bash", {"command": "echo 2"})),
-                        reply(text=SUMMARY_TEXT, finish="stop"), reply(("bash", {"command": "echo 3"})),
-                        reply(("submit", {}))],
-                       budget=10_000, compaction="codex", counter=BySize(sizes))
-    model = agent.client
-    assert [h["X-Econo-Call-Kind"] for h in model.headers] == ["agent", "agent", "summary", "agent", "agent"]
-    # The compaction call: the whole conversation plus Codex's prompt as a user message, and no tools.
-    assert model.sent[2][:6] == model.sent[1] + model.sent[2][4:6] and len(model.sent[2]) == 7
-    assert model.sent[2][-1] == {"role": "user", "content": CODEX_COMPACT}
-    assert model.tools[2] is None and model.tools[1] == TOOLS == model.tools[3]
-    # The rebuilt conversation: the system prompt, the task, then Codex's prefix and the summary.
-    assert model.sent[3] == [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "Make a file."},
-                             {"role": "user", "content": CODEX_SUMMARY_PREFIX + "\n" + SUMMARY_TEXT}]
-    assert agent.compactions == [{"summary_call": 3, "P_before": 7_500, "P_call": 7_620, "G": 50, "capped": False,
-                                  "finish_reason": "stop", "summary_chars": len(SUMMARY_TEXT), "P_after": 1_200,
-                                  "P_after_share_of_budget": 0.12}]
-    assert agent.end == "submitted"
-
-
-def test_a_summary_that_hits_the_output_cap_is_flagged(make):
-    sizes = {(2, True): 8_000, (3, False): 8_100, (3, True): 900, (5, True): 1_000}
-    agent, _, _ = make([reply(text="SUMMARY: cut", finish="length"), reply(("bash", {"command": "echo 1"})),
-                        reply(("submit", {}))],
-                       budget=10_000, compaction="codex", counter=BySize(sizes), max_tokens=50)
-    assert [c["capped"] for c in agent.compactions] == [True] and agent.compactions[0]["finish_reason"] == "length"
-
-
-def test_still_over_the_limit_after_compacting_the_base_rule_applies(make):
-    # A rebuilt prompt over 7,952 (an artificial size): one final turn with CLM's notice, then the run ends.
-    # [system, task] 8,000 -> compaction (call 8,100) -> rebuilt 9,000, over -> final turn (notice, bash) -> 6
-    # messages, 9,100 -> compaction again (call 9,200) -> rebuilt 9,000, still over after the final turn -> stop.
-    sizes = {(2, True): 8_000, (3, False): 8_100, (3, True): 9_000, (6, True): 9_100, (7, False): 9_200}
-    agent, _, _ = make([reply(text=SUMMARY_TEXT, finish="stop"), reply(("bash", {"command": "echo 1"})),
-                        reply(text=SUMMARY_TEXT, finish="stop")],
-                       budget=10_000, compaction="codex", counter=BySize(sizes))
-    assert len(agent.final_turns) == 1 and agent.end == "budget_exceeded" and len(agent.compactions) == 2
-
-
-def test_the_summary_baseline_needs_a_budget(tmp_path):
-    with pytest.raises(ValueError, match="needs a budget"):
-        EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", client=FakeModel([]), compaction="codex")

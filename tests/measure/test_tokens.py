@@ -56,10 +56,13 @@ def test_an_unknown_model_is_refused():
 
 
 def test_a_rebuilt_summary_prompt_renders_and_counts(tokenizer):
-    # The Summary baseline's rebuilt conversation (agents/react/agent.py): system, the real acl task from tc9,
+    # The Summary baseline's rebuilt conversation (baselines/summary/policy.py): system, the real acl task from tc9,
     # then Codex's prefix and a summary. It must render with the model's template, keep the prefix and the
     # summary intact, and count as the rebuild counts it (the live smoke checks it against the server).
-    from agents.react.agent import CODEX_SUMMARY_PREFIX, SYSTEM, TEMPLATE, TOOLS
+    from baselines.summary.policy import CODEX_SUMMARY_PREFIX
+    from harness.agent import TEMPLATE
+    from harness.interface import OURS, TOOLS
+    SYSTEM = OURS.system
     first = json.loads((ROOT / "runs/gateway/tc9.raw.acl-permissions-inheritance.r1/calls.jsonl").read_text().splitlines()[0])
     task = first["request"]["messages"][1]
     summary = "SUMMARY: inspected /srv/shared; next, set default ACLs and verify inheritance."

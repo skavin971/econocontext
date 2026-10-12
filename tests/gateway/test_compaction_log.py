@@ -1,4 +1,4 @@
-"""A compaction through the whole stack, as a run would do it. Our agent (agents/react/agent.py) owns
+"""A compaction through the whole stack, as a run would do it. Our harness (harness/agent.py), with the EconoContext policy, owns
 its conversation, with the fixed-guess predictor and compaction forced. It talks to the gateway
 with the real openai client, and the gateway talks to a fake provider. The gateway's log must show:
 - the prompts before the compaction;
@@ -13,9 +13,11 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from agents.react.agent import EconoAgent
+from baselines.summary.policy import CODEX_COMPACT, CODEX_SUMMARY_PREFIX, Summary
 from econocontext.owner import SUMMARIZE
-from tests.agents.test_react_agent import LocalEnv
+from econocontext.policy import Econo
+from harness.agent import Agent
+from tests.harness.helpers import LocalEnv
 from tests.gateway.fakes import PINS, TEMPLATE, completion, log_rows, start
 
 
@@ -41,9 +43,8 @@ def provider():
 def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary_call(tmp_path):
     s = start(provider(), tmp_path / "gateway")
     try:
-        agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b",
-                           api_base=f"{s.url}/run/t1/v1", econo="prior", econo_run="t1", force=["7 compact"],
-                           state_dir=str(tmp_path / "state"))
+        agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b", api_base=f"{s.url}/run/t1/v1",
+                      run_id="t1", policy=Econo(mode="prior", force=["7 compact"]), state_dir=str(tmp_path / "state"))
         env, context = LocalEnv(tmp_path / "work"), SimpleNamespace(n_input_tokens=0, n_cache_tokens=0,
                                                                      n_output_tokens=0)
         (tmp_path / "work").mkdir()
@@ -72,13 +73,12 @@ def test_the_log_shows_the_prompts_before_and_after_a_compaction_and_the_summary
         assert {k: r["request"][k] for k in PINS} == PINS and r["request"]["chat_template_kwargs"] == TEMPLATE
         # Our agent sends the pinned sampling itself: the gateway only adds return_token_ids.
         assert [e for e in r["edits"] if not e.startswith("removed earlier reasoning")] == ["set return_token_ids=True"]
-    assert agent.owner.s.get("compactions") == 1
+    assert agent.policy.owner.s.get("compactions") == 1
 
 
 def test_the_summary_baseline_logs_its_compaction_call_with_kind_summary(tmp_path):
     # Budget 10,000 (compaction at 7,500); a fake count of 1,000 tokens per message. The 4th check (8
     # messages) compacts: the summary call, then the rebuilt [system, task, summary] carries on.
-    from agents.react.agent import CODEX_COMPACT, CODEX_SUMMARY_PREFIX
     count = [0]
 
     def reply(body):
@@ -91,8 +91,8 @@ def test_the_summary_baseline_logs_its_compaction_call_with_kind_summary(tmp_pat
                                                 "function": {"name": name, "arguments": json.dumps(args)}}]})
     s = start(reply, tmp_path / "gateway")
     try:
-        agent = EconoAgent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b",
-                           api_base=f"{s.url}/run/s1/v1", budget=10_000, compaction="codex",
+        agent = Agent(logs_dir=tmp_path / "logs", model_name="openai/qwen3.8:27b",
+                           api_base=f"{s.url}/run/s1/v1", budget=10_000, policy=Summary(),
                            counter=lambda messages, tools: 1_000 * len(messages), state_dir=str(tmp_path / "state"))
         env, context = LocalEnv(tmp_path / "work"), SimpleNamespace(n_input_tokens=0, n_cache_tokens=0,
                                                                      n_output_tokens=0)
@@ -116,4 +116,4 @@ def test_the_summary_baseline_logs_its_compaction_call_with_kind_summary(tmp_pat
     assert after[2]["content"] == CODEX_SUMMARY_PREFIX + "\nSUMMARY: ran echo three times."
     for r in rows:      # the same pinned sampling on every call, the summary call included
         assert {k: r["request"][k] for k in PINS} == PINS and r["request"]["chat_template_kwargs"] == TEMPLATE
-    assert agent.compactions[0]["P_before"] == 8_000 and agent.compactions[0]["P_after"] == 3_000
+    assert agent.policy.compactions[0]["P_before"] == 8_000 and agent.policy.compactions[0]["P_after"] == 3_000
