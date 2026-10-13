@@ -15,10 +15,10 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State (2026-10-13): step 18 (The Complexity Trap's data replayed; offline) is done, waiting for Kavin's approval.**
-- The report is `runs/tier-a/step18-report.md` (tables in `runs/tier-a/step18/summary.md`); step 17's is `runs/tier-a/step17-report.md`.
-- Pushed: through `4cb3907` (step 17). Unpushed: the step-18 commit.
-- The Complexity Trap's archives live in `~/econo/ctrap/data/` (2.35 GB), never in the repo.
+**State (2026-10-13): step 19 (cache-read price sweep and cache-aware masking variants; offline) is done, waiting for Kavin's approval.**
+- The report is `runs/tier-a/step19-report.md` (tables in `runs/tier-a/step19/summary.md`); step 18's is `runs/tier-a/step18-report.md`.
+- Pushed: through `a3c8eac` (step 18). Unpushed: the step-19 commit.
+- The Complexity Trap's archives live in `~/econo/ctrap/data/` (5.4 GB), never in the repo.
 - BrowseComp-Plus data, trials and gateway logs live in `~/econo/bcp/`, never in the repo.
 - To run BrowseComp-Plus: start the gateway with `--max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300`, and `benchmarks/bcp/search_server.py`; then `benchmarks/bcp/run.py` and `judge.py`.
 - Step 12g was pushed (`ace1995`).

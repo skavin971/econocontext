@@ -546,3 +546,11 @@ Purdue reorders the tools block's keys on requests, so observed is 3.63× canoni
 
 **Replay (499 paired instances, our Qwen tokenizer and engine).** Masking vs raw: tokens −57.8%; dollars no discount −73.4%, at their 40% card −54.5%, at a 10% card +21.5% (break-even near 13%); FLOPs +566% (6.7×; cheaper on 5 of 499). Their masking rule applied to the raw arm's own prompts gives the same picture (FLOPs +520%, dollars at 10% +12.0%), so the cause is the prefix cache (cached share 97% → 48%), not behaviour. LLM-Summary: their cost −50.5%, FLOPs +107%.
 
+## Step 19: cache-read prices and cache-aware masking variants (offline, 2026-10-13)
+
+**Data.** The Complexity Trap's SWE-agent trajectories on SWE-bench Verified for Qwen3-Coder-480B, Qwen3-32B and Gemini 2.5 Flash (raw, masking, summary; 499–500 paired instances), in `~/econo/ctrap/data/` (five more archives fetched under the 1 GB rule). Official cache-read prices retrieved 2026-10-13 (`runs/tier-a/step19/provider_cache_prices.md`): 10% of input standard at OpenAI, Anthropic and Google (5% or 2.5% on some newest models), about 2% at DeepSeek (page not loaded directly), 10–12.5% at Together.
+
+**Sweep.** Masking breaks even with raw at about 13% (Qwen3-Coder), 27% (Qwen3-32B) and 10% (Gemini) cache-read price, and costs 1.6–3× raw at 5%; LLM-Summary is cheaper than raw above about 3–5%.
+
+**Variants on the raw arm's (append-only) prompts.** V1 their rule every k = 5/10/20 turns: beats masking but costs 1.07–2.0× raw in FLOPs. V2 age-1 stubs (keep only what the next reply referenced) and V2r (plus restore on detected need): beat raw and masking in FLOPs and in dollars at 10% and 40% on all three models, with median prompts 0.54–0.71× masking's; V2r leaves no detected need unmet (343–1,620 restores), V2 leaves 492–2,107. V3 two-zone with the masking median as cap also passes, with 436–2,820 unmet needs. Fixed-trajectory estimates.
+
