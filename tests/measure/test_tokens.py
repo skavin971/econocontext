@@ -71,3 +71,13 @@ def test_a_rebuilt_summary_prompt_renders_and_counts(tokenizer):
     text = tokenizer.decode(ids)
     assert CODEX_SUMMARY_PREFIX + "\n" + summary in text and text.index(task["content"][:80]) < text.index(summary)
     assert count_prompt(rebuilt, TOOLS, "qwen3.8:27b", **TEMPLATE) == len(ids) < 0.75 * 32_000
+
+
+def test_the_served_tokenizer_splits_combining_marks_as_purdue_does():
+    # Step 13: Purdue's server splits a letter from its combining mark (Devanagari), which the published tokenizer keeps
+    # together; measure/tokens.py's tokenizer does as the server does, and Latin text is unchanged.
+    from measure.tokens import tokenizer
+    tok = tokenizer(MEASURED)
+    pieces = [tok.decode([i]) for i in tok.encode(" \u092e.\u0935\u0940.", add_special_tokens=False)]
+    assert pieces == [" \u092e", ".", "\u0935", "\u0940", "."]
+    assert len(tok.encode("def parse_items(x): return x", add_special_tokens=False)) == 7

@@ -248,10 +248,10 @@ def measure(summary: dict) -> dict:
     """Rebuild, validate and price one trial's calls (measure/), for the gates and the progress log."""
     with measured:
         if "tokenizer" not in _measure:
-            from transformers import AutoTokenizer
+            from measure.tokens import tokenizer
             from measure.models import MEASURED, load
             _measure["model"] = load(MEASURED)
-            _measure["tokenizer"] = AutoTokenizer.from_pretrained(MEASURED, revision=_measure["model"]["revision"])
+            _measure["tokenizer"] = tokenizer(MEASURED)
         from measure.flops import measure_log
         m = _measure["model"]
         log = ROOT / summary["calls_log"]

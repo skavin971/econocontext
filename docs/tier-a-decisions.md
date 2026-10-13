@@ -493,3 +493,19 @@ What was built:
 - the gap between them is 6.7%.
 
 Under prefix caching, evicting a cached item saves only attention, while it forces a re-prefill of everything after it. Items of 1,000+ tokens: 49.6% are needed again, at a median of 1 turn after arrival.
+
+## Step 13 follow-up and step 14a (2026-10-13)
+
+**Validation (Kavin).** Split-only differences are accepted when the decoded text is byte-identical. BrowseComp-Plus's budget check gets a margin of max(0.5%, 64 tokens).
+
+**The tokenizer.** The 30-minute check found the cause: Purdue's server tokenizes as if the pre-tokenizer had no `\p{M}`. Every published revision of Qwen3.8-27B(-FP8) has it, and Unicode normalization does not explain the split. With `\p{M}` removed, our ids equal Purdue's on 2,259 of 2,259 logged calls. Because that is clean, `measure/tokens.py` applies it. No TBLite number changes.
+
+**Pricing (step 14a, Kavin, superseding step 13's "price on the server's ids").** There are two tracks:
+- **canonical:** Eq. 9 and the cache simulation on our stable rebuild of the tools block. This is **the headline for comparing arms**, and it prices a counterfactual serialization of a fixed trajectory, not executed FLOPs;
+- **observed:** on Purdue's `return_token_ids` (`F_server`).
+
+Purdue reorders the tools block's keys on requests, so observed is 3.63× canonical on TBLite (our harness 3.8–5.1×, CLM 1.4–2.1×). Server ids are used for validation and the observed track only. No online decision in any logged run used FLOPs or the cache simulation (the code paths are listed in `runs/tier-a/step14a-report.md`).
+
+**The pilot.** Base stopped after 4 questions, and CLM ran 8 development questions. Accuracy: base 1/4, CLM 2/8 (a sanity check). Canonical PFLOPs per question: base 1.59, CLM 13.43. CLM's question 1081 took 43 minutes.
+
+**13b's BrowseComp-Plus part** is dropped; 14b replaces it. 13b TBLite is redone as forced eviction (only runs whose stream passes the limit; evict the minimum to fit). Against no eviction: oldest first +10.7%, cheapest −5.0%, knowing −8.3%. The oldest→cheapest gap is 15.7%; the cheapest→knowing gap is 3.3%.

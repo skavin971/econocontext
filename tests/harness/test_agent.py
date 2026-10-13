@@ -143,3 +143,13 @@ def test_an_overflow_at_the_window_ends_the_run_without_an_exception(make):
 def test_running_out_of_steps_is_recorded(make):
     agent, _, _ = make([reply(("bash", {"command": "echo 1"})), reply(("bash", {"command": "echo 2"}))], max_steps=2)
     assert agent.end == "max_steps"
+
+
+def test_the_budget_margin_keeps_a_safety_band_below_the_limit():
+    # Step 13 (BrowseComp-Plus): count + max(0.5%, 64) must fit; without the margin (TBLite) the limit is exact.
+    from harness.budget import BudgetGate
+    plain, safe = BudgetGate(23_560), BudgetGate(23_560, margin=True)       # limit 21,512
+    assert plain.allows([], 21_512, 1) and safe.allows([], 21_512 - 108, 1)  # 0.5% of 21,404 is 108 > 64
+    notice = []
+    assert safe.allows(notice, 21_512 - 100, 2) and notice and safe.final_turns[-1]["P"] == 21_412
+    assert BudgetGate(5_000, margin=True).allows([], 2_888, 1) and not BudgetGate(5_000, margin=True).finalized

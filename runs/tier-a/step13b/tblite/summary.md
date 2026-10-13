@@ -1,30 +1,46 @@
-# Step 13b: tblite, a replay of fixed trajectories (not live behaviour)
+# Step 13b: tblite, forced eviction, a replay of fixed trajectories (not live behaviour)
 
-Limit 29,952 tokens; evict at 80% down to 60%. 130 runs, 236 items.
+Limit 29,952 tokens. 130 runs; **31 included** (their stream puts some call over the limit); 27 of them reached an answer as logged.
 
-## The answer
+## The answer (included runs; FLOPs against the stream with no eviction, which passes the limit)
 
-- FLOPs saved against (a) no eviction: (b) oldest first **-14.8%**; (c) knowing **-8.1%**.
-- Re-fetches caused by (b): **56** extra calls (by (c): 0).
-- **The gap between (b) and (c): 6.7% of (a)'s FLOPs** - the room a forecaster has.
-- Calls over the limit: (a) 313, (b) 166, (c) 187 (of 2190 calls in (a)).
+| policy | FLOPs vs no eviction | runs reaching their answer | re-fetches | evictions |
+|---|---|---|---|---|
+| none | (reference) | 27/31 | 0 | 0 |
+| stop | -38.6% | 0/31 | 0 | 0 |
+| oldest | 10.7% | 15/31 | 14 | 105 |
+| cheapest | -5.0% | 15/31 | 13 | 106 |
+| knowing | -8.3% | 14/31 | 0 | 79 |
 
-## Items needed again
+- **Gap (a) oldest -> (b) cheapest: 15.7% of no-eviction FLOPs; +0 runs reaching their answer.**
+- **Gap (b) cheapest -> (c) knowing: 3.3%; -1 runs reaching their answer.** (the room a forecaster has)
+- Base's rule on the same trajectories (stop): -38.6% FLOPs, 0/31 reach their answer.
 
-- 117 of 236 items are needed again (49.6%); never again: 50.4%.
-- First need, in turns after the item arrived: median 1, quartiles 1.0-2.0, range 1-10.
+## Items needed again (all runs)
 
-## Per arm
+- 117 of 236 items are needed again (49.6%).
+- First need, in turns after arrival: median 1, quartiles 1.0-2.0, range 1-10.
 
-| step | arm | runs | items (needed again) | (b) saves | (c) saves | gap (b)-(c) | (b) re-fetches | over limit a/b/c | rebuild matches the logged prompts |
-|---|---|---|---|---|---|---|---|---|---|
-| step 9 | clm-32k | 30 | 41 (23) | -3.1% | -6.5% | -3.4% | 3 | 46/33/33 | – (managed arm) |
-| step 9 | clm-full | 30 | 52 (25) | -7.7% | -8.7% | -1.0% | 7 | 38/14/14 | – (managed arm) |
-| step 9 | econo+jev | 30 | 61 (35) | -15.9% | -7.6% | 8.3% | 12 | 82/47/47 | – (managed arm) |
-| step 9 | raw | 30 | 58 (29) | -34.4% | -11.2% | 23.2% | 33 | 93/36/57 | 100.0% of calls (mean over 30 runs) |
-| 10d | clm-32k | 2 | 3 (0) | -11.1% | -11.1% | 0.0% | 0 | 1/0/0 | – (managed arm) |
-| 10d | raw-32k | 2 | 4 (0) | -12.2% | -12.2% | 0.0% | 0 | 1/0/0 | 100.0% of calls (mean over 2 runs) |
-| 10d | summary-32k | 2 | 4 (2) | -10.1% | -18.6% | -8.5% | 1 | 27/15/15 | – (managed arm) |
-| step 11 | base-32k | 2 | 6 (3) | 0.0% | 0.0% | 0.0% | 0 | 0/0/0 | 100.0% of calls (mean over 2 runs) |
-| step 11 | clm-32k | 1 | 0 (0) | 0.0% | 0.0% | 0.0% | 0 | 0/0/0 | – (managed arm) |
-| step 11 | summary-32k | 1 | 7 (0) | 16.8% | 16.8% | 0.0% | 0 | 25/21/21 | – (managed arm) |
+## Per arm (included runs)
+
+| step | arm | included | answered as logged | none | stop | oldest | cheapest | knowing | gap oldest->cheapest | gap cheapest->knowing |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10d | clm-32k | 1 | 1 | 2.45 PF | -37.3% (0) | 15.3% (1) | 12.2% (1) | 12.2% (1) | 3.1% | 0.0% |
+| 10d | raw-32k | 1 | 1 | 5.42 PF | -1.5% (0) | 25.4% (1) | 10.2% (1) | 10.2% (1) | 15.2% | 0.0% |
+| 10d | summary-32k | 1 | 0 | 7.91 PF | -46.2% (0) | 9.2% (0) | 20.0% (0) | 20.0% (0) | -10.7% | 0.0% |
+| step 11 | summary-32k | 1 | 1 | 6.39 PF | -54.4% (0) | -46.4% (0) | -47.8% (0) | -47.8% (0) | 1.4% | 0.0% |
+| step 9 | clm-32k | 6 | 6 | 24.01 PF | -44.6% (0) | 0.7% (1) | -6.7% (1) | -6.7% (1) | 7.4% | 0.0% |
+| step 9 | clm-full | 6 | 6 | 27.44 PF | -40.9% (0) | 14.3% (4) | -24.2% (4) | -14.2% (4) | 38.5% | -10.0% |
+| step 9 | econo+jev | 8 | 7 | 38.07 PF | -27.3% (0) | 23.1% (4) | 5.4% (4) | 5.3% (4) | 17.7% | 0.2% |
+| step 9 | raw | 7 | 5 | 40.38 PF | -45.2% (0) | 9.7% (4) | -1.9% (4) | -21.0% (3) | 11.6% | 19.1% |
+
+Cells: FLOPs against no eviction (runs reaching their answer).
+
+## What base and summary actually did on the same tasks
+
+| task | arm (actual) | runs | PFLOPs (canonical) | PFLOPs on Purdue's ids (variant) | reached an answer | replayed policies on the same task: PFLOPs (rebuild) and answers, oldest / cheapest / knowing |
+|---|---|---|---|---|---|---|
+| bandit-delayed-feedback | raw-32k | 1 | 5.42 | 27.80 | 1/1 | 5.69 (4/13) / 5.73 (4/13) / 5.73 (4/13) (over 13 replayed runs) |
+| bandit-delayed-feedback | base-32k | 1 | 2.16 | 8.79 | 1/1 | 5.69 (4/13) / 5.73 (4/13) / 5.73 (4/13) (over 13 replayed runs) |
+| bandit-delayed-feedback | summary-32k | 2 | 8.59 | 32.85 | 1/2 | 5.69 (4/13) / 5.73 (4/13) / 5.73 (4/13) (over 13 replayed runs) |
+| scan-linux-persistence-artifacts | base-32k | 1 | 2.95 | 13.78 | 1/1 | 5.35 (3/6) / 4.60 (3/6) / 4.19 (3/6) (over 6 replayed runs) |

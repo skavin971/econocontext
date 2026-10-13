@@ -68,15 +68,23 @@ def run_trial(a, arm: str, qid: str, repeat: int) -> dict:
                    "--agent-kwarg", "policy=baselines.base.policy:Base", "--agent-kwarg", "interface=ours",
                    "--agent-kwarg", "tool_set=bcp", "--agent-kwarg", f"budget={BUDGET}",
                    "--agent-kwarg", f"max_steps={TURNS}", "--agent-kwarg", f"max_tokens={MAX_TOKENS}",
-                   "--agent-kwarg", f"output_chars={OUTPUT_CHARS}",
+                   "--agent-kwarg", f"output_chars={OUTPUT_CHARS}", "--agent-kwarg", "budget_margin=true",
                    "--trials-dir", str(out / "harbor"), "--trial-name", name]
     (out / "command.txt").write_text(" ".join(command) + "\n")
     started = time.time()
     with (out / "harbor.out").open("w") as log:
         code = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT).returncode
-    log_dir = Path(h["log_dir_for"]["bcp"]) if (h.get("log_dir_for") or {}).get("bcp") else ROOT / "runs" / "gateway"
+    return finish(a, arm, qid, repeat, code, time.time() - started, h)
+
+
+def finish(a, arm: str, qid: str, repeat: int, code: int, seconds: float, h: dict | None = None) -> dict:
+    """The trial's summary and validation (also for a trial whose runner was stopped: --summarize-only)."""
+    run_id, name = f"{a.label}.{arm}.{qid}.r{repeat}", f"{arm}-{qid}-r{repeat}"
+    out = BCP / "runs" / a.label / arm / f"{qid}-r{repeat}"
+    h = h or tblite.health(a.gateway, wait_s=60) or {}
+    log_dir = Path(h["log_dir_for"]["bcp"]) if (h.get("log_dir_for") or {}).get("bcp") else BCP / "gateway"
     summary = tblite.summarize(run_id, arm, arm == "clm", qid, repeat, out, out / "harbor" / name,
-                               log_dir / run_id / "calls.jsonl", code, time.time() - started)
+                               log_dir / run_id / "calls.jsonl", code, seconds)
     m = tblite.measure(summary) if (log_dir / run_id / "calls.jsonl").exists() else {}
     summary.update(valid=m.get("valid"), invalid=m.get("invalid"), PF=(m.get("F") or 0) / 1e15)
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -94,7 +102,19 @@ def main() -> None:
     ap.add_argument("--gateway", default="http://127.0.0.1:8787")
     ap.add_argument("--model", default="qwen3.8:27b")
     ap.add_argument("--progress", default=str(ROOT / "runs" / "tier-a" / "step13a-progress.md"))
+    ap.add_argument("--summarize-only", metavar="ARM:QID", help="summarize a trial whose runner was stopped")
     a = ap.parse_args()
+    if a.summarize_only:
+        arm, qid = a.summarize_only.split(":")
+        trial = BCP / "runs" / a.label / arm / f"{qid}-r{a.repeat}" / "harbor" / f"{arm}-{qid}-r{a.repeat}"
+        result = json.loads((trial / "result.json").read_text()) if (trial / "result.json").exists() else {}
+        seconds = 0.0
+        if result.get("started_at") and result.get("finished_at"):
+            from datetime import datetime
+            seconds = (datetime.fromisoformat(result["finished_at"]) - datetime.fromisoformat(result["started_at"])).total_seconds()
+        s = finish(a, arm, qid, a.repeat, 0, seconds)
+        print(json.dumps({k: s.get(k) for k in ("run_id", "calls", "peak_P", "seconds", "valid", "invalid", "end")}))
+        return
     if not a.label.startswith("bcp"):
         raise SystemExit("labels start with 'bcp' (the gateway keeps their logs and output cap apart)")
     ids = json.loads((HERE / "split.json").read_text())[a.split]

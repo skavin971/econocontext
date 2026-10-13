@@ -189,9 +189,9 @@ def main() -> None:
     p.add_argument("paths", nargs="+")
     p.add_argument("--out", help="folder for report.csv and calls.csv (default: the first path's folder)")
     a = p.parse_args()
-    from transformers import AutoTokenizer
+    from .tokens import tokenizer as served_tokenizer
     model = load(MEASURED)
-    tokenizer = AutoTokenizer.from_pretrained(MEASURED, revision=model["revision"])
+    tokenizer = served_tokenizer(MEASURED)
     out = Path(a.out or (a.paths[0] if Path(a.paths[0]).is_dir() else Path(a.paths[0]).parent))
     table, per_call, invalid, extras = [], [], [], {}
     for run in runs(a.paths):

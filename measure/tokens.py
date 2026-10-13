@@ -1,4 +1,4 @@
-"""A prompt's size as the server will count it, for an agent to check before it sends.
+r"""A prompt's size as the server will count it, for an agent to check before it sends.
 
 Why it exists: a token budget (step 10c) is enforced on the prompt the server will see. This is the
 same rebuild as measure/flops.py (vLLM's message parsing, the model's own chat template and the
@@ -7,6 +7,12 @@ reordering of tool-schema keys (a few tokens, inside the tools block; see docs/t
 count_text is the same tokenizer on a piece of text (no template): EconoContext's token counts (step 12a),
 so the method and the measure count with one function. Agents and the method may import this module;
 measure/ never imports the method.
+
+The tokenizer is the model's own, at the measured revision, with one change for the model Purdue serves
+(step 13): Purdue's server splits letters from their combining marks (e.g. Devanagari), as if the pre-tokenizer
+had no \p{M}. Every published revision of Qwen3.8-27B(-FP8) has [\p{L}\p{M}]+; with \p{M} removed, local ids equal
+Purdue's on all 2,259 logged calls (TBLite 2,194, BrowseComp-Plus 65), against 2,249 without the change
+(runs/tier-a/step13-tokenizer-check.out). So the counts and rebuilds match what the server computes.
 
 Use: count_prompt(messages, tools, "qwen3.8:27b", reasoning_effort="medium",
                   chat_template_kwargs={"enable_thinking": True})
@@ -19,11 +25,24 @@ from .flops import prompt_ids
 from .models import SERVED, load
 
 
+SERVER_SPLITS_MARKS = set(SERVED.values())      # models Purdue serves: its pre-tokenizer has no \p{M} (step 13)
+
+
 @functools.cache
-def tokenizer(hf_id: str):
-    """The model's own tokenizer and chat template, at the revision measured in model_constants.json."""
+def tokenizer(hf_id: str, **kwargs):
+    """The model's own tokenizer and chat template, at the revision measured in model_constants.json; for a model
+    Purdue serves, with the server's pre-tokenizer (combining marks split off; see above)."""
     from transformers import AutoTokenizer
-    return AutoTokenizer.from_pretrained(hf_id, revision=load(hf_id)["revision"])
+    tok = AutoTokenizer.from_pretrained(hf_id, revision=load(hf_id)["revision"], **kwargs)
+    if hf_id in SERVER_SPLITS_MARKS:
+        import json
+        from tokenizers import Tokenizer
+        spec = json.loads(tok.backend_tokenizer.to_str())
+        split = spec["pre_tokenizer"]["pretokenizers"][0]["pattern"]
+        split["Regex"] = split["Regex"].replace("[\\p{L}\\p{M}]+", "\\p{L}+").replace("\\p{L}\\p{M}\\p{N}", "\\p{L}\\p{N}")
+        assert "\\p{M}" not in split["Regex"], "the pre-tokenizer pattern changed: review the step-13 fix"
+        tok.backend_tokenizer.pre_tokenizer = Tokenizer.from_str(json.dumps(spec)).pre_tokenizer
+    return tok
 
 
 def resolve(model: str) -> str:

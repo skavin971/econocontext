@@ -59,3 +59,18 @@ def test_every_saved_prompt_is_rebuilt_exactly_or_differs_only_in_the_tools_bloc
     others = {n: r for n, r in results.items() if n not in reasoning_probe}
     assert all(ok for ok, _, _ in others.values()), {n: note for n, (ok, note, _) in others.items() if not ok}
     assert any(note == "identical" for _, note, _ in others.values())    # exact whenever Purdue did not reorder keys
+
+
+def test_a_split_only_difference_validates_and_a_different_text_does_not(tokenizer):
+    # Step 13 (Kavin): Purdue's server splits Devanagari letters from their combining marks, which the model's own
+    # tokenizer keeps together. The same text split differently validates, labelled split-only; other text fails.
+    text = "full name: \u092e.\u0935\u0940.\u0935\u093f.\u0936\u093e\u0939 (English)"
+    local = tokenizer.encode(text, add_special_tokens=False)
+    server = [t for piece in ("full name: \u092e.", "\u0935", "\u0940", ".", "\u0935", "\u093f", ".",
+                              "\u0936", "\u093e", "\u0939 (English)")
+              for t in tokenizer.encode(piece, add_special_tokens=False)]
+    assert server != local and tokenizer.decode(server) == tokenizer.decode(local)
+    ok, note, delta = validate(tokenizer, local, server)
+    assert ok and note.startswith("split-only") and delta == len(server) - len(local) > 0
+    other = tokenizer.encode(text.replace("English", "Nepali"), add_special_tokens=False)
+    assert not validate(tokenizer, local, other)[0]

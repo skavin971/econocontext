@@ -38,14 +38,18 @@ def test_a_run_sums_its_calls_and_keeps_summary_calls_in_the_cache_sequence():
     assert t["F_clm_aux"] > t["F"] and t["F_server"] is None
 
 
-def test_the_server_variant_uses_the_servers_own_ids():
+def test_the_headline_uses_the_canonical_rebuild_and_the_server_ids_only_a_variant():
+    # Step 14a (Kavin): Purdue reorders the tools block's keys per request, which would break the simulated prefix
+    # on every call; the cache simulation and FLOPs use our canonical rebuild, the server's ids give F_server.
     a, b = ids(48), ids(48)
     b_server = list(b)
     b_server[20] = 99_999                                        # the server's prompt differs inside block 2
     calls = [{"call_no": 1, "kind": "agent", "ids": a, "server_ids": a, "G": 1},
              {"call_no": 2, "kind": "agent", "ids": b, "server_ids": b_server, "G": 1}]
-    rows = run_flops(calls, C_TOKEN, C_ATTN)["rows"]
+    result = run_flops(calls, C_TOKEN, C_ATTN)
+    rows, t = result["rows"], result["totals"]
     assert (rows[1]["R"], rows[1]["R_server"]) == (32, 16)      # 48 tokens repeated: the last block recomputed
+    assert t["F_server"] > t["F"]
 
 
 def test_messages_are_parsed_as_vllm_030_parses_them():

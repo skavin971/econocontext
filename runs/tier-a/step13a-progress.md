@@ -1,2 +1,11 @@
 23:36:35 bcp13p.base.591.r1: exit 0, 5 calls, peak 24689, 214 s, valid 5/5, 1.839 PF, end budget_exceeded, exception None
 00:01:21 bcp13p.clm.591.r1: exit 0, 65 calls, peak 23173, 1485 s, valid 55/65, 15.090 PF, end budget_exceeded, exception None
+08:30:57 bcp13p.clm.570.r1: exit 0, 96 calls, peak 21341, 1269 s, valid 96/96, 32.075 PF, end budget_exceeded, exception None
+08:32:50 bcp13p.base.570.r1: exit 0, 5 calls, peak 24718, 113 s, valid 5/5, 3.687 PF, end budget_exceeded, exception None
+08:33:41 bcp13p.base.741.r1: exit 0, 5 calls, peak 21816, 50 s, valid 5/5, 2.977 PF, end budget_exceeded, exception None
+08:34:57 bcp13p.clm.741.r1: exit 0, 7 calls, peak 18491, 75 s, valid 7/7, 3.734 PF, end None, exception None
+09:10:24 bcp13p.base.986.r1: exit 0, 5 calls, peak 24839, 71 s, valid 5/5, 1.552 PF, end budget_exceeded, exception None
+09:47:33 bcp13p.clm.333.r1: exit 0, 103 calls, peak 19741, 2224 s, valid 103/103, 20.401 PF, end None, exception None
+09:52:54 bcp13p.clm.1226.r1: exit 0, 30 calls, peak 22452, 321 s, valid 30/30, 9.520 PF, end budget_exceeded, exception None
+09:54:51 bcp13p.clm.600.r1: exit 0, 12 calls, peak 21447, 117 s, valid 12/12, 3.656 PF, end None, exception None
+10:38:02 bcp13p.clm.1081.r1: exit 0, 100 calls, peak 18985, 2588 s, valid 100/100, 18.599 PF, end None, exception None

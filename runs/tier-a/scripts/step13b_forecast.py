@@ -13,17 +13,18 @@ substring, of 5+ distinct characters, that no other message in the context at th
 something only the item contains at that moment: a path, a symbol (12c's rule), a document ID, or a name (2+
 capitalized words). Turns later: the use's agent call minus the call that first showed the item, plus 1.
 
-Replay under the limit (TBLite: 29,952 = 32,000 - 2,048; BrowseComp-Plus: 23,560 - 2,048 = 21,512). Before each
-call, if its prompt would pass 80% of the limit, items are evicted in one batch until it is at most 60% (or no
-candidate is left); an evicted item becomes a one-line marker:
-  (a) no eviction (the stream as is);
-  (b) oldest first: any item, in arrival order;
-  (c) knowing: only items never needed again from this call on, oldest first.
-A later need for an evicted item costs one extra call before the call that needs it, whose prompt is the context
-at that moment and whose output re-shows the item (appended at the end, where it then stays). ASSUMPTIONS: the
-extra call generates the run's median G; every logged call keeps its logged G; the re-shown item is the same
-text. Every prompt is rebuilt with the model's chat template and priced with Eq. 9 and the cache simulator, so
-the re-prefill after each eviction is counted.
+Replay under the limit (TBLite: 29,952 = 32,000 - 2,048; BrowseComp-Plus: 23,560 - 2,048 = 21,512), FORCED
+eviction only (step 13b, as redone): only runs whose stream would put some call over the limit are included, and
+eviction happens only when the next call would not fit, removing the minimum needed (see replay()):
+  none (the stream as is, over the limit), stop (base's rule on the same trajectory: the run ends there),
+  oldest, cheapest (least text after the item), knowing (only items never needed again, cheapest first).
+A later need for an evicted item costs one extra call (median G) that re-shows it. If a call cannot be made to fit,
+the run stops and does not reach its answer. ASSUMPTIONS: every logged call keeps its logged G; the re-shown item is
+the same text. Every replayed prompt is rebuilt with measure/tokens.py's tokenizer (Purdue's split, step 13) and
+priced with Eq. 9 and the cache simulator, on the canonical rebuild (step 14a), as are the logged runs (Purdue's
+own ids give a variant only).
+Compared with what base and summary actually did on the same tasks (TBLite: raw-32k, base-32k, summary-32k; the
+BrowseComp-Plus pilot: base).
 
 Use: PYTHONPATH=. .venv/bin/python runs/tier-a/scripts/step13b_forecast.py tblite [--workers 6]
 Output: runs/tier-a/step13b/<benchmark>/{runs,items}.csv and summary.md
@@ -44,13 +45,13 @@ import step12b_analysis as b  # noqa: E402
 import step12c_analysis as c  # noqa: E402
 
 from measure.cache_sim import cached_prefix  # noqa: E402
-from measure.flops import eq9, prompt_ids  # noqa: E402
+from measure.flops import eq9, measure_log, prompt_ids  # noqa: E402
 from measure.models import MEASURED, load  # noqa: E402
 from measure.tokens import count_text, tokenizer  # noqa: E402
 
 OUT = b.ROOT / "runs" / "tier-a" / "step13b"
 LIMITS = {"tblite": 29_952, "bcp": 21_512}
-HIGH, LOW = 0.8, 0.6
+POLICIES = ("none", "stop", "oldest", "cheapest", "knowing")
 NAME = re.compile(r"\b[A-Z][\w'’.-]+(?:\s+[A-Z][\w'’.-]+)+")
 DOCID = re.compile(r'"docid"\s*:\s*"?(\w+)"?')
 NO_MANAGEMENT = {"raw", "raw-32k", "base-32k", "base"}
@@ -121,10 +122,18 @@ def uses_of(stream, upto, replies, items, bench) -> dict[int, list[int]]:
 
 
 def replay(policy, stream, upto, items, item_tokens, uses, arrival, G, limit, opts, tok, median_G):
-    """The prompts (token ids) and Gs of the replayed run under one policy, and its counts."""
-    present = {i: True for i in items}            # item -> shown in full at its place
+    """The prompts (token ids) and Gs of the run replayed under one policy (FORCED eviction, step 13b):
+      none     the stream as is (calls may pass the limit);
+      stop     base's rule on the same trajectory: the run ends at the first call over the limit;
+      oldest   when the next call would pass the limit, evict the oldest items, the minimum needed to fit;
+      cheapest the same, items with the least text after them first (nearest the end of the prompt);
+      knowing  the same, only items never needed again from this call on, cheapest first.
+    A later need for an evicted item costs one extra call (median G) that re-shows it there. If nothing more can
+    be evicted and the call still does not fit, the run stops (it does not reach its answer).
+    Returns (prompts, gens, refetches, stopped_at_call or None, evictions)."""
+    present = {i: True for i in items}            # item -> shown in full
     restored: list[tuple[int, int]] = []          # (stream position it was re-shown at, item), in order
-    prompts, gens, refetches, over = [], [], 0, 0
+    prompts, gens, refetches, evictions = [], [], 0, 0
     marker_tokens = {i: count(marker(stream[i])) for i in items}
 
     def build(t):
@@ -139,32 +148,50 @@ def replay(policy, stream, upto, items, item_tokens, uses, arrival, G, limit, op
             msgs.append(m)
         return prompt_ids(tok, {"messages": msgs, "tools": opts["tools"], **opts["template"]})
 
+    def position(i):                               # where the item sits now: re-shown copies sit later
+        return next((at for at, x in restored if x == i), i)
+
+    def fit(t, ids):
+        """Evict the minimum needed for call t to fit; the ids, or None when it cannot."""
+        nonlocal evictions
+        candidates = [i for i in items if i < upto[t] and present[i] and
+                      (policy != "knowing" or not any(u >= t for u in uses.get(i, [])))]
+        if policy == "oldest":
+            candidates.sort(key=lambda i: arrival[i])
+        else:
+            candidates.sort(key=position, reverse=True)
+        P = len(ids)
+        for i in candidates:
+            if P <= limit:
+                break
+            present[i] = False
+            restored[:] = [(at, x) for at, x in restored if x != i]
+            P -= item_tokens[i] - marker_tokens[i]
+            evictions += 1
+            if P <= limit:                         # check the estimate against the rebuilt prompt
+                ids = build(t)
+                P = len(ids)
+        ids = build(t)
+        return ids if len(ids) <= limit else None
+
     for t in range(len(upto)):
-        if policy != "a":
-            gone = [i for i in items if i < upto[t] and not present[i] and t in uses.get(i, [])]
-            for i in gone:                          # an extra call re-shows it
-                prompts.append(build(t))
+        if policy not in ("none", "stop"):
+            for i in [i for i in items if i < upto[t] and not present[i] and t in uses.get(i, [])]:
+                ids = build(t)                     # the extra call that re-shows it (it must fit too)
+                if len(ids) > limit and (ids := fit(t, ids)) is None:
+                    return prompts, gens, refetches, t, evictions
+                prompts.append(ids)
                 gens.append(median_G)
                 refetches += 1
-                present[i] = True                   # now shown again, after the messages of call t
+                present[i] = True
                 restored.append((upto[t], i))
         ids = build(t)
-        if policy != "a" and len(ids) > HIGH * limit:
-            P = len(ids)
-            candidates = [i for i in items if i < upto[t] and present[i] and
-                          (policy == "b" or not any(u >= t for u in uses.get(i, [])))]
-            candidates.sort(key=lambda i: arrival[i])
-            for i in candidates:
-                if P <= LOW * limit:
-                    break
-                present[i] = False
-                restored[:] = [(at, x) for at, x in restored if x != i]
-                P -= item_tokens[i] - marker_tokens[i]
-            ids = build(t)
-        over += len(ids) > limit
+        if len(ids) > limit and policy != "none":
+            if policy == "stop" or (ids := fit(t, ids)) is None:
+                return prompts, gens, refetches, t, evictions
         prompts.append(ids)
         gens.append(G[t])
-    return prompts, gens, refetches, over
+    return prompts, gens, refetches, None, evictions
 
 
 def flops(prompts, gens, ct, ca) -> float:
@@ -214,18 +241,28 @@ def analyse(job) -> dict:
     rebuild_ok = None
     if meta["arm"] in NO_MANAGEMENT:
         logged = [prompt_ids(tok, r["request"]) for r in rows]
-        rebuilt = replay("a", stream, upto, items, item_tokens, uses, arrival, G, LIMITS[bench], opts, tok, 0)[0]
+        rebuilt = replay("none", stream, upto, items, item_tokens, uses, arrival, G, LIMITS[bench], opts, tok, 0)[0]
         rebuild_ok = sum(x == y for x, y in zip(logged, rebuilt)) / len(logged)
+    # did the logged trajectory reach its answer? (our submit, CLM's submit command; on BrowseComp-Plus, an answer file)
+    answered = any((c.get("function") or {}).get("name") == "submit" or "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" in
+                   ((c.get("function") or {}).get("arguments") or "") for r in replies for c in r.get("tool_calls") or [])
+    if bench == "bcp":
+        answered = bool(meta.get("answer_file"))
     median_G = int(statistics.median(G))
     out = {}
-    for policy in ("a", "b", "c"):
-        prompts, gens, refetches, over = replay(policy, stream, upto, items, item_tokens, uses, arrival, G,
-                                                LIMITS[bench], opts, tok, median_G)
-        out[policy] = {"F": flops(prompts, gens, ct, ca), "refetches": refetches, "over_limit": over,
-                       "peak": max(map(len, prompts)), "calls": len(prompts)}
+    for policy in POLICIES:
+        prompts, gens, refetches, stopped, evictions = replay(policy, stream, upto, items, item_tokens, uses, arrival, G,
+                                                              LIMITS[bench], opts, tok, median_G)
+        out[policy] = {"F": flops(prompts, gens, ct, ca), "refetches": refetches, "stopped_at": stopped,
+                       "evictions": evictions, "survived": stopped is None and answered,
+                       "peak": max(map(len, prompts)) if prompts else 0, "calls": len(prompts)}
+    actual = measure_log(b.ROOT / meta["calls_log"], tok, ct, ca)["totals"]
     run = {"label": meta["label"], "arm": meta["arm"], "task": meta.get("task"), "run_id": meta["run_id"],
            "agent_calls": len(rows), "items": len(items), "items_needed_again": sum(1 for i in items if uses.get(i)),
-           "rebuild_matches": rebuild_ok, "median_G": median_G}
+           "rebuild_matches": rebuild_ok, "median_G": median_G, "answered": answered,
+           "included": out["none"]["peak"] > LIMITS[bench],
+           "actual_F": actual["F"], "actual_F_server": actual["F_server"], "actual_valid": actual["valid"],
+           "actual_calls": actual["calls"]}
     if bench == "bcp":                    # repeats: results the question already had; was the first copy in the prompt?
         returned, repeats, still_shown, results = set(), 0, 0, 0
         for t, row in enumerate(rows):
@@ -256,47 +293,68 @@ def analyse(job) -> dict:
 def summarise(bench: str, results: list[dict]) -> None:
     runs = [r["run"] for r in results if "skipped" not in r["run"]]
     items = [i for r in results for i in r["items"]]
+    inc = [r for r in runs if r["included"]]
     pct = lambda x, z: f"{100 * x / z:.1f}%" if z else "–"   # noqa: E731
-    groups = defaultdict(list)
-    for r in runs:
-        groups[(b.LABELS.get(r["label"], r["label"]), r["arm"])].append(r)
-    order = sorted(groups, key=lambda g: (["step 9", "10d", "step 11", "13a pilot"].index(g[0])
-                                          if g[0] in ("step 9", "10d", "step 11", "13a pilot") else 9, g[1]))
-    F = {p: sum(r[f"{p}_F"] for r in runs) for p in "abc"}
+    F = {p: sum(r[f"{p}_F"] for r in inc) for p in POLICIES}
+    alive = {p: sum(bool(r[f"{p}_survived"]) for r in inc) for p in POLICIES}
     later = [i["first_use_turns_later"] for i in items if i["first_use_turns_later"] is not None]
     q = statistics.quantiles(later, n=4) if len(later) >= 4 else [None, None, None]
-    out = [f"# Step 13b: {bench}, a replay of fixed trajectories (not live behaviour)", "",
-           f"Limit {LIMITS[bench]:,} tokens; evict at 80% down to 60%. {len(runs)} runs, {len(items)} items.", "",
-           "## The answer", "",
-           f"- FLOPs saved against (a) no eviction: (b) oldest first **{pct(F['a'] - F['b'], F['a'])}**; "
-           f"(c) knowing **{pct(F['a'] - F['c'], F['a'])}**.",
-           f"- Re-fetches caused by (b): **{sum(r['b_refetches'] for r in runs)}** extra calls "
-           f"(by (c): {sum(r['c_refetches'] for r in runs)}).",
-           f"- **The gap between (b) and (c): {pct(F['b'] - F['c'], F['a'])} of (a)'s FLOPs** - the room a forecaster has.",
-           f"- Calls over the limit: (a) {sum(r['a_over_limit'] for r in runs)}, (b) {sum(r['b_over_limit'] for r in runs)}, "
-           f"(c) {sum(r['c_over_limit'] for r in runs)} (of {sum(r['a_calls'] for r in runs)} calls in (a)).", "",
-           "## Items needed again", "",
-           f"- {sum(i['needed_again'] for i in items)} of {len(items)} items are needed again "
-           f"({pct(sum(i['needed_again'] for i in items), len(items))}); never again: "
-           f"{pct(sum(not i['needed_again'] for i in items), len(items))}.",
-           f"- First need, in turns after the item arrived: median {statistics.median(later) if later else '–'}, "
-           f"quartiles {q[0]}-{q[2]}, range {min(later) if later else '–'}-{max(later) if later else '–'}.", "",
-           *([f"- Repeats: {pct(sum(r.get('repeat_results', 0) for r in runs), sum(r.get('search_results', 0) for r in runs))} "
-              f"of search results were documents the question already had; the first copy was still in the prompt for "
-              f"{pct(sum(r.get('repeat_first_copy_in_prompt', 0) for r in runs), sum(r.get('repeat_results', 0) for r in runs))} "
-              f"of them.", ""] if bench == "bcp" else []),
-           "## Per arm", "",
-           "| step | arm | runs | items (needed again) | (b) saves | (c) saves | gap (b)-(c) | (b) re-fetches | "
-           "over limit a/b/c | rebuild matches the logged prompts |", "|---|---|---|---|---|---|---|---|---|---|"]
-    for g in order:
+    rel = lambda p: pct(F[p] - F["none"], F["none"])   # noqa: E731
+    out = [f"# Step 13b: {bench}, forced eviction, a replay of fixed trajectories (not live behaviour)", "",
+           f"Limit {LIMITS[bench]:,} tokens. {len(runs)} runs; **{len(inc)} included** (their stream puts some call over "
+           f"the limit); {sum(r['answered'] for r in inc)} of them reached an answer as logged.", "",
+           "## The answer (included runs; FLOPs against the stream with no eviction, which passes the limit)", "",
+           "| policy | FLOPs vs no eviction | runs reaching their answer | re-fetches | evictions |", "|---|---|---|---|---|"]
+    for p in POLICIES:
+        out.append(f"| {p} | {rel(p) if p != 'none' else '(reference)'} | {alive[p]}/{len(inc)} | "
+                   f"{sum(r[f'{p}_refetches'] for r in inc)} | {sum(r[f'{p}_evictions'] for r in inc)} |")
+    out += ["",
+            f"- **Gap (a) oldest -> (b) cheapest: {pct(F['oldest'] - F['cheapest'], F['none'])} of no-eviction FLOPs; "
+            f"{alive['cheapest'] - alive['oldest']:+d} runs reaching their answer.**",
+            f"- **Gap (b) cheapest -> (c) knowing: {pct(F['cheapest'] - F['knowing'], F['none'])}; "
+            f"{alive['knowing'] - alive['cheapest']:+d} runs reaching their answer.** (the room a forecaster has)",
+            f"- Base's rule on the same trajectories (stop): {rel('stop')} FLOPs, {alive['stop']}/{len(inc)} reach their answer.", "",
+            "## Items needed again (all runs)", "",
+            f"- {sum(i['needed_again'] for i in items)} of {len(items)} items are needed again "
+            f"({pct(sum(i['needed_again'] for i in items), len(items))}).",
+            f"- First need, in turns after arrival: median {statistics.median(later) if later else '–'}, quartiles "
+            f"{q[0]}-{q[2]}, range {min(later) if later else '–'}-{max(later) if later else '–'}.", ""]
+    if bench == "bcp":
+        out += [f"- Repeats: {pct(sum(r.get('repeat_results', 0) for r in runs), sum(r.get('search_results', 0) for r in runs))} "
+                f"of search results were documents the question already had; the first copy was still in the prompt for "
+                f"{pct(sum(r.get('repeat_first_copy_in_prompt', 0) for r in runs), sum(r.get('repeat_results', 0) for r in runs))} "
+                "of them.", ""]
+    out += ["## Per arm (included runs)", "",
+            "| step | arm | included | answered as logged | none | stop | oldest | cheapest | knowing | gap oldest->cheapest | gap cheapest->knowing |",
+            "|---|---|---|---|---|---|---|---|---|---|---|"]
+    groups = defaultdict(list)
+    for r in inc:
+        groups[(b.LABELS.get(r["label"], r["label"]), r["arm"])].append(r)
+    for g in sorted(groups):
         rs = groups[g]
-        Fa = sum(r["a_F"] for r in rs)
-        m = [r["rebuild_matches"] for r in rs if r["rebuild_matches"] is not None]
-        out.append(f"| {g[0]} | {g[1]} | {len(rs)} | {sum(r['items'] for r in rs)} ({sum(r['items_needed_again'] for r in rs)}) | "
-                   f"{pct(Fa - sum(r['b_F'] for r in rs), Fa)} | {pct(Fa - sum(r['c_F'] for r in rs), Fa)} | "
-                   f"{pct(sum(r['b_F'] - r['c_F'] for r in rs), Fa)} | {sum(r['b_refetches'] for r in rs)} | "
-                   f"{sum(r['a_over_limit'] for r in rs)}/{sum(r['b_over_limit'] for r in rs)}/{sum(r['c_over_limit'] for r in rs)} | "
-                   + (f"{statistics.mean(m):.1%} of calls (mean over {len(m)} runs)" if m else "– (managed arm)") + " |")
+        Fn = sum(r["none_F"] for r in rs)
+        cell = lambda p: f"{pct(sum(r[f'{p}_F'] for r in rs) - Fn, Fn)} ({sum(bool(r[f'{p}_survived']) for r in rs)})"   # noqa: E731
+        out.append(f"| {g[0]} | {g[1]} | {len(rs)} | {sum(r['answered'] for r in rs)} | {Fn / 1e15:.2f} PF | {cell('stop')} | "
+                   f"{cell('oldest')} | {cell('cheapest')} | {cell('knowing')} | "
+                   f"{pct(sum(r['oldest_F'] - r['cheapest_F'] for r in rs), Fn)} | {pct(sum(r['cheapest_F'] - r['knowing_F'] for r in rs), Fn)} |")
+    out += ["", "Cells: FLOPs against no eviction (runs reaching their answer).", "",
+            "## What base and summary actually did on the same tasks", "",
+            "| task | arm (actual) | runs | PFLOPs (canonical) | PFLOPs on Purdue's ids (variant) | reached an answer | replayed policies on the same task: "
+            "PFLOPs (rebuild) and answers, oldest / cheapest / knowing |", "|---|---|---|---|---|---|---|"]
+    actual_arms = ("raw-32k", "base-32k", "base", "summary-32k")
+    by_task = defaultdict(list)
+    for r in inc:
+        by_task[r["task"]].append(r)
+    for r_task in sorted({r["task"] for r in runs if r["arm"] in actual_arms and r["task"] in by_task}):
+        rep = by_task[r_task]
+        replayed = " / ".join(f"{sum(x[f'{p}_F'] for x in rep) / 1e15 / len(rep):.2f} ({sum(bool(x[f'{p}_survived']) for x in rep)}/{len(rep)})"
+                              for p in ("oldest", "cheapest", "knowing"))
+        for arm in actual_arms:
+            act = [r for r in runs if r["task"] == r_task and r["arm"] == arm]
+            if act:
+                out.append(f"| {r_task} | {arm} | {len(act)} | {sum(x['actual_F'] for x in act) / 1e15 / len(act):.2f} | "
+                           f"{sum((x['actual_F_server'] or 0) for x in act) / 1e15 / len(act):.2f} | {sum(x['answered'] for x in act)}/{len(act)} | "
+                           f"{replayed} (over {len(rep)} replayed runs) |")
     (OUT / bench / "summary.md").write_text("\n".join(out) + "\n")
     print("\n".join(out))
 
@@ -310,14 +368,21 @@ def main() -> None:
     a = ap.parse_args()
     if a.benchmark == "tblite":
         metas = [m for m in b.metas() if m["label"] in a.labels.split(",")]
-    else:                                 # the 13a pilot's trajectories (outside the repo)
+    else:                                 # dropped in step 14a (Kavin): 14b's re-read analysis replaces it
+        raise SystemExit("the BrowseComp-Plus part of 13b was dropped in step 14a; see step 14b")
+        # the 13a pilot's trajectories (outside the repo)
         metas = []
         for path in sorted((Path.home() / "econo" / "bcp" / "runs").glob("*/*/*/summary.json")):
             s = json.loads(path.read_text())
             if s.get("skipped") or not s.get("calls_log") or not Path(s["calls_log"]).exists():
                 continue
+            judged = {}
+            verdicts = path.parents[2] / "judge.jsonl"
+            if verdicts.exists():
+                judged = {v["run_id"]: v for v in map(json.loads, (x for x in verdicts.read_text().split("\n") if x))}
             metas.append({"label": "13a pilot", "run_id": s["run_id"], "arm": s["arm"], "task": s["task"],
-                          "calls_log": s["calls_log"]})
+                          "calls_log": s["calls_log"],
+                          "answer_file": (judged.get(s["run_id"]) or {}).get("has_answer_file")})
     metas = [m for m in metas if not a.only or a.only in m["run_id"]]
     (OUT / a.benchmark).mkdir(parents=True, exist_ok=True)
     with ProcessPoolExecutor(a.workers) as pool:

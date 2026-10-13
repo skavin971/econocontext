@@ -2,7 +2,10 @@
 Only numbers are written to the repo (runs/tier-a/step13a/), never BrowseComp-Plus text.
 
 Per arm: accuracy (judged, and exact match), calls, searches and document reads per question, PFLOPs per question
-(Eq. 9 on the validated calls; judge calls excluded: they have their own run id), peak prompt in Qwen tokens, CLM
+(Eq. 9 on the validated calls, two tracks since step 14a: canonical, our stable rebuild of the tools block,
+the headline for comparing arms and a counterfactual serialization of a fixed trajectory, not executed FLOPs; and
+observed, on Purdue's own prompt ids, including its tools-block key reordering; judge calls excluded: they have
+their own run id), peak prompt in Qwen tokens, CLM
 edits (n_ctx_syncs_real) or compactions, wall time, validation; and a projection for 150 questions x 3 arms x 3
 repeats under the gateway's 8,000 requests a day and Purdue's 20 a minute.
 
@@ -73,10 +76,18 @@ def main() -> None:
         t = m["totals"]
         searches, reads = tool_counts(log) if log.exists() else (0, 0)
         v = verdicts.get(s["run_id"], {})
+        # how the run ended: the recorded end, else CLM's submit command, else the 100-turn limit
+        rows_log = [json.loads(x) for x in log.read_text().split("\n") if x] if log.exists() else []
+        submitted = any("COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" in ((c.get("function") or {}).get("arguments") or "")
+                        or (c.get("function") or {}).get("name") == "submit"
+                        for r in rows_log if isinstance(r.get("response"), dict)
+                        for c in ((r["response"].get("choices") or [{}])[0].get("message") or {}).get("tool_calls") or [])
+        end = s.get("end") or ("submitted" if submitted else "step limit (100 turns)" if t.get("calls", 0) >= 100 else "none recorded")
         per[s["arm"]].append({
             "run_id": s["run_id"], "query_id": s["task"], "calls": t.get("calls", 0), "valid": t.get("valid", 0),
-            "invalid": t.get("invalid", 0), "PF": t.get("F", 0) / 1e15, "peak_P": s.get("peak_P"),
-            "searches": searches, "reads": reads, "seconds": s.get("seconds"), "end": s.get("end"),
+            "invalid": t.get("invalid", 0), "PF": t.get("F", 0) / 1e15, "PF_observed": (t.get("F_server") or 0) / 1e15,
+            "split_only": t.get("split_only_calls", 0), "max_dP": t.get("max_abs_dP", 0), "peak_P": s.get("peak_P"),
+            "searches": searches, "reads": reads, "seconds": s.get("seconds"), "end": end,
             "exception": s.get("exception"), "clm_edits": (s.get("clm") or {}).get("n_ctx_syncs_real"),
             "clm_rollbacks": (s.get("clm") or {}).get("n_retry_on_limit"),
             "compactions": len(s.get("compactions") or []),
@@ -91,17 +102,22 @@ def main() -> None:
                 f.write(json.dumps({"arm": arm, **r}) + "\n")
     mean = lambda v: statistics.mean(v) if v else 0   # noqa: E731
     lines = ["| arm | questions | judged correct | exact match | answer files | calls / q | searches / q | reads / q | "
-             "PFLOPs / q | peak prompt (max) | CLM edits / rollbacks per q | wall time / q | calls valid |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "PFLOPs / q canonical | observed | peak prompt (max) | CLM edits / rollbacks per q | wall time / q | calls valid "
+             "(split-only) | max abs dP | how runs ended |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for arm, rs in sorted(per.items()):
         lines.append(
             f"| {arm} | {len(rs)} | {sum(bool(r['judged']) for r in rs)}/{len(rs)} | {sum(bool(r['exact']) for r in rs)}/{len(rs)} | "
             f"{sum(bool(r['answer_file']) for r in rs)}/{len(rs)} | {mean([r['calls'] for r in rs]):.1f} | "
             f"{mean([r['searches'] for r in rs]):.1f} | {mean([r['reads'] for r in rs]):.1f} | {mean([r['PF'] for r in rs]):.3f} | "
+            f"{mean([r['PF_observed'] for r in rs]):.3f} | "
             f"{max((r['peak_P'] or 0) for r in rs):,} | "
             + (f"{mean([r['clm_edits'] or 0 for r in rs]):.1f} / {mean([r['clm_rollbacks'] or 0 for r in rs]):.1f}" if arm == "clm"
                else f"– (compactions {sum(r['compactions'] for r in rs)})")
-            + f" | {mean([r['seconds'] or 0 for r in rs]) / 60:.1f} min | {sum(r['valid'] for r in rs)}/{sum(r['valid'] + r['invalid'] for r in rs)} |")
+            + f" | {mean([r['seconds'] or 0 for r in rs]) / 60:.1f} min | {sum(r['valid'] for r in rs)}/{sum(r['valid'] + r['invalid'] for r in rs)} "
+            f"({sum(r['split_only'] for r in rs)}) | {max(r['max_dP'] for r in rs)} | "
+            + ", ".join(f"{k} {v}" for k, v in sorted(__import__("collections").Counter(
+                f"{r['end'] or 'no end reason'}{'' if r['answer_file'] else ' (no answer)'}" for r in rs).items())) + " |")
     calls_per_q = mean([r["calls"] for r in rows])
     minutes_per_q = mean([(r["seconds"] or 0) / 60 for r in rows])
     runs = 150 * 3 * 3
@@ -116,7 +132,8 @@ def main() -> None:
     for arm, rs in sorted(per.items()):
         for r in rs:
             print(f"  {r['run_id']}: calls {r['calls']} (valid {r['valid']}), searches {r['searches']}, reads {r['reads']}, "
-                  f"peak {r['peak_P']}, {r['PF']:.3f} PF, {(r['seconds'] or 0) / 60:.1f} min, end {r['end']}, "
+                  f"peak {r['peak_P']}, {r['PF']:.3f} PF canonical ({r['PF_observed']:.3f} observed), "
+                  f"{(r['seconds'] or 0) / 60:.1f} min, end {r['end']}, "
                   f"exception {r['exception']}, judged {r['judged']}, exact {r['exact']}")
 
 

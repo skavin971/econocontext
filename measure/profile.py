@@ -43,9 +43,9 @@ def main() -> None:
     p.add_argument("paths", nargs="+")
     p.add_argument("--out", help="folder for profile.csv (default: the first path)")
     a = p.parse_args()
-    from transformers import AutoTokenizer
+    from .tokens import tokenizer as served_tokenizer
     model = load(MEASURED)
-    tokenizer = AutoTokenizer.from_pretrained(MEASURED, revision=model["revision"])
+    tokenizer = served_tokenizer(MEASURED)
     table = []
     for run in runs(a.paths):
         result = measure_log(run["calls_log"], tokenizer, model["C_token"], model["C_attn"])

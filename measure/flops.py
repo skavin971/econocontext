@@ -8,20 +8,24 @@ calls.jsonl alone. For each call of a run:
      - reasoning is read only from a `reasoning` field;
      - the template options are the request's reasoning_effort and chat_template_kwargs.
   2. Validate the rebuild against the server's own prompt ids (the gateway asks for them). It
-     passes only if identical, or if the only difference is inside the tools block and the tools are
-     the same JSON objects in another key order (Purdue's front end reorders them), at any ΔP,
-     with everything after the tools block equal token for token. ΔP is recorded per call.
-     Anything else is reported as a mismatch, and the run must be reviewed before its numbers
-     are used.
-  3. R_t: the prefix cache over the run's rebuilt prompts (cache_sim.py). G_t: the call's
-     completion_tokens, thinking included.
+     passes if identical; or if the only difference is inside the tools block and the tools are
+     the same JSON objects in another key order (Purdue's front end reorders them), at any ΔP; and,
+     since step 13, if a difference elsewhere is only in how the same text is split into tokens: the
+     two decode to byte-identical text (Purdue's server splits letters from their combining marks,
+     e.g. Devanagari, which the model's own tokenizer keeps together; Kavin, 2026-10-13). Such calls
+     are labelled split-only and their ΔP is recorded. Anything else is reported as a mismatch, and
+     the run must be reviewed before its numbers are used.
+  3. R_t: the prefix cache over the run's canonical rebuilt prompts (cache_sim.py): our rebuild, with the
+     tools in the order the client sent them. Purdue reorders the tools block's JSON keys on requests,
+     which would break the simulated prefix on every call (step 14a, Kavin): the server's ids are used for
+     validation only, and for the F_server variant. G_t: the call's completion_tokens, thinking included.
   4. F_t = C_token·(U_t + G_t) + C_attn·[½(P_t² − R_t²) + G_t·P_t + ½·G_t²], with U_t = P_t − R_t.
 
 Per run (docs/tier-a-decisions.md):
-- headline: summary calls in the run's cache sequence;
+- headline: on the canonical rebuild, summary calls in the run's cache sequence;
 - the summary calls' own FLOPs;
 - a CLM-convention variant: summary calls fully prefilled and kept out of the cache;
-- the headline computed on Purdue's actual prompt ids.
+- the same headline computed on Purdue's actual prompt ids (F_server), when every call has them.
 """
 
 import json
@@ -93,10 +97,15 @@ def validate(tokenizer, local: list[int], server: list[int] | None) -> tuple[boo
     if local == server:
         return True, "identical", 0
     es, el = tools_end(tokenizer, server), tools_end(tokenizer, local)
-    if es is None or el is None or server[es:] != local[el:]:
+    def same_text(a, b) -> bool:                            # split-only: byte-identical text, split differently
+        return tokenizer.decode(a).encode() == tokenizer.decode(b).encode()
+    if es is None or el is None or (server[es:] != local[el:] and not same_text(server[es:], local[el:])):
+        if (es is None or el is None) and same_text(server, local):
+            return True, f"split-only (dP {delta:+d})", delta
         at = next((k for k, (x, y) in enumerate(zip(server, local)) if x != y), min(len(server), len(local)))
         return False, (f"mismatch at token {at} (dP {delta:+d}): server {tokenizer.decode(server[at:at + 16])!r} "
                        f"vs local {tokenizer.decode(local[at:at + 16])!r}"), delta
+    split_after = server[es:] != local[el:]
 
     def split(ids):
         text = tokenizer.decode(ids)
@@ -107,7 +116,10 @@ def validate(tokenizer, local: list[int], server: list[int] | None) -> tuple[boo
             return None
     a, b = split(server[:es]), split(local[:el])
     if a and b and a == b:                                  # same text before, same tools as objects
-        return True, f"tools block only, keys reordered (dP {delta:+d})", delta
+        return True, (f"tools block only, keys reordered" + ("; split-only after it" if split_after else "")
+                      + f" (dP {delta:+d})"), delta
+    if server[:es] == local[:el] and split_after:
+        return True, f"split-only (dP {delta:+d})", delta
     return False, f"mismatch at or before the tools block (dP {delta:+d})", delta
 
 
@@ -117,11 +129,12 @@ def eq9(P: int, R: int, G: int, c_token: float, c_attn: float) -> tuple[float, f
 
 
 def run_flops(calls: list[dict], c_token: float, c_attn: float) -> dict:
-    """calls: in order, each {"call_no", "kind", "ids", "server_ids", "G"}. Per-call rows and run totals."""
+    """calls: in order, each {"call_no", "kind", "ids", "server_ids", "G"}. Per-call rows and run totals, on the
+    canonical rebuild ("ids"); the server's ids give the F_server variant only."""
     R = cached_prefix([c["ids"] for c in calls])
     agent_only = cached_prefix([c["ids"] for c in calls if c["kind"] != "summary"])
     R_clm = [0 if c["kind"] == "summary" else agent_only.pop(0) for c in calls]   # CLM's aux convention
-    server = [c["server_ids"] for c in calls]
+    server = [c.get("server_ids") for c in calls]
     R_srv = cached_prefix(server) if all(ids is not None for ids in server) else None
     seen_prompts: set[tuple] = set()
     rows, totals = [], {"calls": len(calls), "summary_calls": 0, "repeats": 0, "P": 0, "R": 0, "U": 0, "G": 0, "F_lin": 0.0,
@@ -170,6 +183,9 @@ def measure_log(calls_log: Path, tokenizer, c_token: float, c_attn: float) -> di
                       "G": usage["completion_tokens"]})
     result = run_flops(calls, c_token, c_attn)
     result["validation"] = checks
+    split = [c for c in checks if c["ok"] and "split-only" in c["note"]]
     result["totals"].update(retries=retries, unanswered=skipped,
-                            valid=sum(c["ok"] for c in checks), invalid=sum(not c["ok"] for c in checks))
+                            valid=sum(c["ok"] for c in checks), invalid=sum(not c["ok"] for c in checks),
+                            split_only_calls=len(split), split_only_dP=sum(abs(c["dP"] or 0) for c in split),
+                            max_abs_dP=max((abs(c["dP"] or 0) for c in checks), default=0))
     return result
