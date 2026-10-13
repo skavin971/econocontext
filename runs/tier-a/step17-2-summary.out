@@ -1,0 +1,108 @@
+# Step 17 tables (fixed-trajectory estimates, canonical track)
+
+Shares are of P0 (keep everything) on the same traces. Dollars: uncached input 1, cache read 0.1, output 6 per token.
+
+## TBLite, all arms: 130 traces, 2,190 calls; observations 2,076, needed again 407; outputs never shown in full (not in the trace) 26
+
+| policy | FLOPs (share of P0) | dollars (share of P0) | new-prefill tokens | tokens sent | restores | budget compactions | calls over the limit |
+|---|---|---|---|---|---|---|---|
+| P0 | 100.0% | 100.0% | 2.09M | 30.63M | 0 | 0 | 0 |
+| P1 | 107.5% | 100.8% | 2.44M | 28.64M | 0 | 0 | 206 |
+| P2 | 263.3% | 132.8% | 9.36M | 24.35M | 94 | 63 | 21 |
+| P3 | 152.3% | 108.7% | 4.45M | 25.09M | 74 | 77 | 21 |
+| P4 a=1 simple | 112.3% | 98.5% | 2.75M | 22.01M | 123 | 39 | 21 |
+| P4 a=1 oracle | 103.0% | 96.3% | 2.36M | 21.56M | 13 | 28 | 21 |
+| P4 a=2 simple | 140.7% | 105.1% | 3.99M | 22.76M | 80 | 45 | 21 |
+| P4 a=2 oracle | 132.4% | 102.9% | 3.66M | 21.80M | 14 | 30 | 21 |
+| P5 | 108.3% | 99.8% | 2.52M | 26.36M | 29 | 68 | 21 |
+
+P0: 235.1 PFLOPs, 18.00M input-token dollars.
+Ranking of the budgeted policies (P2-P5) by FLOPs: P4 a=1 oracle < P5 < P4 a=1 simple < P4 a=2 oracle < P4 a=2 simple < P3 < P2.
+By dollars: P4 a=1 oracle < P4 a=1 simple < P5 < P4 a=2 oracle < P4 a=2 simple < P3 < P2.
+- P4 a=1 simple: +9.3 points of P0 FLOPs from the best (P4 a=1 oracle); +2.2 points of P0 dollars from the best (P4 a=1 oracle).
+- P4 a=2 simple: +37.7 points of P0 FLOPs from the best (P4 a=1 oracle); +8.8 points of P0 dollars from the best (P4 a=1 oracle).
+- P5: +5.3 points of P0 FLOPs from the best (P4 a=1 oracle); +3.5 points of P0 dollars from the best (P4 a=1 oracle).
+
+## BrowseComp-Plus, CLM pilot: 8 traces, 513 calls; observations 405, needed again 70; outputs never shown in full (not in the trace) 39
+
+| policy | FLOPs (share of P0) | dollars (share of P0) | new-prefill tokens | tokens sent | restores | budget compactions | calls over the limit |
+|---|---|---|---|---|---|---|---|
+| P0 | 100.0% | 100.0% | 0.65M | 29.30M | 0 | 0 | 0 |
+| P1 | 115.4% | 78.2% | 1.35M | 6.48M | 0 | 0 | 4 |
+| P2 | 210.8% | 100.4% | 2.94M | 8.99M | 79 | 143 | 17 |
+| P3 | 171.6% | 92.3% | 2.25M | 9.10M | 72 | 152 | 17 |
+| P4 a=1 simple | 128.8% | 82.4% | 1.52M | 8.13M | 80 | 72 | 17 |
+| P4 a=1 oracle | 119.1% | 80.8% | 1.35M | 8.47M | 55 | 68 | 17 |
+| P4 a=2 simple | 157.4% | 88.5% | 2.01M | 8.33M | 82 | 87 | 18 |
+| P4 a=2 oracle | 138.7% | 84.7% | 1.69M | 8.35M | 54 | 74 | 17 |
+| P5 | 107.3% | 78.3% | 1.14M | 8.41M | 78 | 98 | 17 |
+
+P0: 93.1 PFLOPs, 7.57M input-token dollars.
+Ranking of the budgeted policies (P2-P5) by FLOPs: P5 < P4 a=1 oracle < P4 a=1 simple < P4 a=2 oracle < P4 a=2 simple < P3 < P2.
+By dollars: P5 < P4 a=1 oracle < P4 a=1 simple < P4 a=2 oracle < P4 a=2 simple < P3 < P2.
+- P4 a=1 simple: +21.5 points of P0 FLOPs from the best (P5); +4.2 points of P0 dollars from the best (P5).
+- P4 a=2 simple: +50.1 points of P0 FLOPs from the best (P5); +10.3 points of P0 dollars from the best (P5).
+- P5: +0.0 points of P0 FLOPs from the best (P5); +0.0 points of P0 dollars from the best (P5).
+
+## BrowseComp-Plus, released GPT-5 BM25 runs: 830 traces, 20,326 calls; observations 19,280, needed again 1,404; outputs never shown in full (not in the trace) 0
+
+| policy | FLOPs (share of P0) | dollars (share of P0) | new-prefill tokens | tokens sent | restores | budget compactions | calls over the limit |
+|---|---|---|---|---|---|---|---|
+| P0 | 100.0% | 100.0% | 59.48M | 848.70M | 0 | 0 | 0 |
+| P1 | 100.0% | 100.0% | 59.48M | 848.70M | 0 | 0 | 0 |
+| P2 | 364.2% | 194.2% | 273.56M | 343.88M | 372 | 14,033 | 0 |
+| P3 | 364.2% | 194.2% | 273.50M | 344.44M | 372 | 14,103 | 0 |
+| P4 a=1 simple | 82.4% | 54.6% | 62.82M | 134.17M | 623 | 11 | 0 |
+| P4 a=1 oracle | 78.3% | 52.4% | 59.77M | 128.39M | 1 | 6 | 0 |
+| P4 a=2 simple | 148.7% | 88.6% | 113.74M | 188.24M | 489 | 30 | 0 |
+| P4 a=2 oracle | 143.7% | 85.7% | 110.44M | 174.81M | 3 | 7 | 0 |
+| P5 | 85.9% | 63.7% | 62.15M | 276.65M | 487 | 4,012 | 0 |
+
+P0: 4002.7 PFLOPs, 150.91M input-token dollars.
+Ranking of the budgeted policies (P2-P5) by FLOPs: P4 a=1 oracle < P4 a=1 simple < P5 < P4 a=2 oracle < P4 a=2 simple < P3 < P2.
+By dollars: P4 a=1 oracle < P4 a=1 simple < P5 < P4 a=2 oracle < P4 a=2 simple < P2 < P3.
+- P4 a=1 simple: +4.1 points of P0 FLOPs from the best (P4 a=1 oracle); +2.2 points of P0 dollars from the best (P4 a=1 oracle).
+- P4 a=2 simple: +70.4 points of P0 FLOPs from the best (P4 a=1 oracle); +36.2 points of P0 dollars from the best (P4 a=1 oracle).
+- P5: +7.6 points of P0 FLOPs from the best (P4 a=1 oracle); +11.2 points of P0 dollars from the best (P4 a=1 oracle).
+
+## BrowseComp-Plus, our base pilot (contrast): 4 traces, 20 calls; observations 22, needed again 7; outputs never shown in full (not in the trace) 0
+
+| policy | FLOPs (share of P0) | dollars (share of P0) | new-prefill tokens | tokens sent | restores | budget compactions | calls over the limit |
+|---|---|---|---|---|---|---|---|
+| P0 | 100.0% | 100.0% | 0.10M | 0.25M | 0 | 0 | 0 |
+| P1 | 100.6% | 100.3% | 0.10M | 0.25M | 0 | 0 | 4 |
+| P2 | 134.5% | 115.4% | 0.14M | 0.22M | 0 | 4 | 0 |
+| P3 | 134.5% | 115.4% | 0.14M | 0.22M | 0 | 4 | 0 |
+| P4 a=1 simple | 102.2% | 99.1% | 0.10M | 0.15M | 0 | 1 | 0 |
+| P4 a=1 oracle | 94.9% | 95.5% | 0.10M | 0.14M | 0 | 0 | 0 |
+| P4 a=2 simple | 134.8% | 115.1% | 0.14M | 0.20M | 0 | 1 | 0 |
+| P4 a=2 oracle | 127.6% | 111.7% | 0.13M | 0.19M | 0 | 0 | 0 |
+| P5 | 109.3% | 103.5% | 0.11M | 0.20M | 0 | 4 | 0 |
+
+P0: 6.3 PFLOPs, 0.24M input-token dollars.
+Ranking of the budgeted policies (P2-P5) by FLOPs: P4 a=1 oracle < P4 a=1 simple < P5 < P4 a=2 oracle < P2 < P3 < P4 a=2 simple.
+By dollars: P4 a=1 oracle < P4 a=1 simple < P5 < P4 a=2 oracle < P4 a=2 simple < P2 < P3.
+- P4 a=1 simple: +7.2 points of P0 FLOPs from the best (P4 a=1 oracle); +3.7 points of P0 dollars from the best (P4 a=1 oracle).
+- P4 a=2 simple: +39.9 points of P0 FLOPs from the best (P4 a=1 oracle); +19.7 points of P0 dollars from the best (P4 a=1 oracle).
+- P5: +14.4 points of P0 FLOPs from the best (P4 a=1 oracle); +8.1 points of P0 dollars from the best (P4 a=1 oracle).
+
+## Lead
+
+| traces | P2 vs P0: FLOPs | P2 vs P0: dollars | best by FLOPs | best by dollars | ranking flips? |
+|---|---|---|---|---|---|
+| TBLite, all arms | 263.3% | 132.8% | P4 a=1 oracle (103.0%) | P4 a=1 oracle (96.3%) | yes (orders differ at: P5, P4 a=1 simple) |
+| BrowseComp-Plus, CLM pilot | 210.8% | 100.4% | P5 (107.3%) | P5 (78.3%) | no |
+| BrowseComp-Plus, released GPT-5 BM25 runs | 364.2% | 194.2% | P4 a=1 oracle (78.3%) | P4 a=1 oracle (52.4%) | yes (orders differ at: P3, P2) |
+| BrowseComp-Plus, our base pilot (contrast) | 134.5% | 115.4% | P4 a=1 oracle (94.9%) | P4 a=1 oracle (95.5%) | yes (orders differ at: P2, P3, P4 a=2 simple) |
+
+## The 68 cut replies (CLM, BrowseComp-Plus)
+
+- discarded thinking: 278,528 generated tokens (278,506 thinking tokens by our tokenizer); generation FLOPs 14.0% of CLM's executed FLOPs;
+- the next reply also cut: 13 of 68;
+- similarity of the first 200 thinking tokens with the next reply's (difflib ratio): median 0.47; >= 0.9: 0, >= 0.8: 1, >= 0.5: 30, < 0.3: 25; identical first 200 tokens: 0; median common prefix 0 tokens;
+- baseline, a random reply of the same run more than 2 calls away: median 0.36; >= 0.8: 1, >= 0.5: 18; replies whose next reply beats the baseline by 0.2+: 15;
+- upper bound for "resume, don't retry" (the cut thinking of replies whose next reply restarts similarly, ratio >= 0.8): 1 replies, 4,096 tokens, 0.2% of CLM's executed FLOPs.
+- upper bound for "resume, don't retry" (the cut thinking of replies whose next reply restarts similarly, ratio >= 0.5): 30 replies, 122,880 tokens, 6.1% of CLM's executed FLOPs.
+
+Check: on our arms without context management (38 traces), P0 is 99.2% of the tokens sent as executed and 99.6% of the FLOPs (P0 leaves out harness nudges and approximates message wrappers).
+exit 0
