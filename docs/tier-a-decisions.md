@@ -538,3 +538,11 @@ Purdue reorders the tools block's keys on requests, so observed is 3.63× canoni
 
 **Results.** P2 costs more than P0 everywhere, far more in FLOPs than in dollars (TBLite 263% vs 133%; CLM pilot 211% vs 100%; GPT-5 364% vs 194%). The best budgeted policy is the same under both metrics (P4 a=1 oracle on TBLite and GPT-5; P5 on the CLM pilot); the flip is P0 against them: cheapest in FLOPs on TBLite and the CLM pilot, beaten in dollars. P4 a=1 simple is 4–10 points of P0 from its oracle; a=2 is 38–70 points worse; P5 is within 5–8 points of the best in FLOPs. The 68 cut replies discard 278,528 thinking tokens (14.0% of CLM's FLOPs), but the next reply does not repeat their start (1 of 68 at ratio >= 0.8; median 0.47 vs a 0.36 random baseline), so "resume, don't retry" is bounded at 0.2–6.1%.
 
+## Step 18: The Complexity Trap's data, replayed (offline, 2026-10-13)
+
+**Source.** HuggingFace `JetBrains-Research/the-complexity-trap` (Apache-2.0, 22.5 GB, SWE-agent and OpenHands `.tar.gz` archives) and its MIT code repository (`bf15b5f`). SWE-agent `.traj` files hold every turn's full prompt as sent, its response and their token statistics; the summary arm also holds the summarizer calls. Downloaded only archives under 1 GB (three Qwen3-Coder-480B arms and the Gemini masking arm, 2.35 GB) to `~/econo/ctrap/data/`, streamed, never extracted; no OpenHands archive.
+
+**Their cost.** Gemini: litellm 1.77 `completion_cost` per call (cache read 25% of input on the card), but the logged costs match the no-discount price (21,839 turns; ratio 1.000 at 90–100% cached), so no discount reached them. Qwen (local): post hoc, from their own message-level cached-prefix estimate, at a card with cached input at 40% of input for Qwen3-Coder and no discount for Qwen3-32B. The "~52%" is Qwen3-Coder masking ($0.610 vs $1.288 per instance); reproduced at −52.6% from the trajectories.
+
+**Replay (499 paired instances, our Qwen tokenizer and engine).** Masking vs raw: tokens −57.8%; dollars no discount −73.4%, at their 40% card −54.5%, at a 10% card +21.5% (break-even near 13%); FLOPs +566% (6.7×; cheaper on 5 of 499). Their masking rule applied to the raw arm's own prompts gives the same picture (FLOPs +520%, dollars at 10% +12.0%), so the cause is the prefix cache (cached share 97% → 48%), not behaviour. LLM-Summary: their cost −50.5%, FLOPs +107%.
+

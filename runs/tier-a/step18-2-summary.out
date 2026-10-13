@@ -1,0 +1,39 @@
+# Step 18 tables (fixed-trajectory estimates, canonical track)
+
+Qwen3-Coder-480B on SWE-bench Verified, SWE-agent. Trajectories: raw 500, masking 500, summary 500; unreadable .traj files: raw 1, masking 0, summary 0. Paired on the 499 instances readable in all three arms.
+
+| metric | raw | masking | summary | masking vs raw | summary vs raw |
+|---|---|---|---|---|---|
+| their reported instance cost ($) | $642.94 | $304.90 | $318.27 | **-52.6%** | **-50.5%** |
+| tokens sent (Qwen) | 979.3M | 413.2M | 633.0M | **-57.8%** | **-35.4%** |
+| dollars, no cache-read discount | $1,693.17 | $450.39 | $697.84 | **-73.4%** | **-58.8%** |
+| dollars, their cache-read price (40% of input) | $704.69 | $320.57 | $325.53 | **-54.5%** | **-53.8%** |
+| dollars, cache read at 10% of input | $210.45 | $255.66 | $139.37 | **+21.5%** | **-33.8%** |
+| FLOPs (Eq. 9) | 1,725 PF | 11,489 PF | 3,572 PF | **+566.0%** | **+107.1%** |
+| new-prefill tokens | 26.0M | 214.1M | 64.3M | **+723.4%** | **+147.2%** |
+| generated tokens | 1.3M | 1.4M | 1.8M | **+7.3%** | **+37.6%** |
+| calls | 29,252 | 30,515 | 36,069 | **+4.3%** | **+23.3%** |
+| agent turns | 29,252 | 30,515 | 35,039 | **+4.3%** | **+19.8%** |
+
+## Same trajectories: their masking rule applied by us to the raw arm's own prompts
+
+| metric | raw as run | raw, masked | change |
+|---|---|---|---|
+| tokens sent | 9.793e+08 | 3.843e+08 | **-60.8%** |
+| dollars, no discount | 1,693 | 412.1 | **-75.7%** |
+| dollars, cache-read price | 704.7 | 294.5 | **-58.2%** |
+| dollars, cache read at 10% | 210.4 | 235.7 | **+12.0%** |
+| FLOPs | 1.725e+18 | 1.07e+19 | **+520.1%** |
+| new-prefill tokens | 2.601e+07 | 2e+08 | **+669.0%** |
+
+## Per instance (paired): share of instances where the masking arm is cheaper than raw
+
+- their cost: 301 of 499 (60%); median masking/raw ratio 0.87
+- tokens sent: 406 of 499 (81%); median masking/raw ratio 0.56
+- dollars, cache-read price: 315 of 499 (63%); median masking/raw ratio 0.82
+- dollars, cache read at 10%: 100 of 499 (20%); median masking/raw ratio 1.99
+- FLOPs: 5 of 499 (1%); median masking/raw ratio 6.83
+- same trajectory, FLOPs: masked raw cheaper than raw in 0 of 499
+
+Check: our input tokens are 108.8% of theirs (their token_counter, Qwen3-Coder's tokenizer; ours adds message wrappers). Cached share of input, theirs (message-level prefix with the previous prompt) vs ours (prefix cache over all earlier prompts): raw 97.8% vs 97.3%, masking 48.0% vs 48.2%, summary 90.4% vs 89.8%.
+exit 0
