@@ -447,3 +447,26 @@ What was built:
   - Under EconoContext's broader read-only rule: 6.3–6.7% of FLOPs in sequences, and 0.8–3.0% in (b).
   - Admitted outputs are 88% of a sequence's FLOPs.
 - **Scope (Kavin).** The audit measures TBLite's opportunity only, not the idea's value in general. The report's last section estimates BrowseComp-Plus from the CLM paper (App. E: search is 10 × 512 tokens, documents up to 8,192, a 23,560-token budget) and from CLM's repository figure (10.98 PFLOPs per question, 72.9% cache hits). It derives about 28–59 calls per question, and (b)-type turns at roughly 25–70% of FLOPs. These are marked as estimates with their assumptions.
+
+## Step 12g: BrowseComp-Plus trajectories (offline, 2026-10-12)
+
+- **What was fetched.**
+  - The repository, `texttron/BrowseComp-Plus` at `0469490`, cloned to `~/econo/bcp/` (outside our repo).
+  - The four released run files, through `download_run_files.sh`'s commands.
+  - The question text only, from `Tevatron/browsecomp-plus`, by column range reads.
+  - No indexes.
+
+  No benchmark text is committed: the data carries a canary asking that it never appear online in plain text. Only numbers and question IDs are in our repo.
+- **Licences.** Code: MIT. Questions and corpus datasets: MIT. The run-files dataset declares **no licence**.
+- **Released trajectories.** Only GPT-5 and o3, each with BM25 and with Qwen3-Embed-8B; 830 questions each. Paper accuracy: 70.12, 63.49, 55.90 and 49.28%. The runs are search-only (top 5, 512-token snippets), with no document reader.
+- **The three strongest runs, per question:** 23–25 turns, 22–24 searches, about 63–69k tokens of search results. 51–61% of returned results are documents the question had already received.
+- **Labels** (strict rule):
+  - (a) follow a name first seen in a result: 9–12% of turns; at most 17–21% under the loose rule, kept as an upper bound;
+  - (b): 0, since there is no reader;
+  - (c) new search: 84–87%;
+  - (d) answer: about 4%.
+- **Estimate** (token shares, not FLOPs):
+  - big outputs: about 99% of context tokens;
+  - repeats of documents already returned: 43–52%;
+  - turns an engine could take over: 9–13% of tokens.
+- **Script and report:** `runs/tier-a/scripts/step12g_bcp.py`; `runs/tier-a/step12g-report.md`.

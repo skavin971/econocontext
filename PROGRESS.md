@@ -15,9 +15,9 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State (2026-10-12): step 12f (an offline audit of information-gathering sequences) is done on branch `agentdb-12a`, waiting for Kavin's review.**
-- The report is `runs/tier-a/step12f-report.md`; the tables are in `runs/tier-a/step12f/summary.md`.
-- Step 12d (the slicer comparison, `401773a`) is committed but not pushed; its report is `runs/tier-a/step12d-report.md`.
+**State (2026-10-12): step 12g (BrowseComp-Plus trajectories, offline) is done on branch `agentdb-12a`, waiting for Kavin's review.**
+- The report is `runs/tier-a/step12g-report.md`. The data is in `~/econo/bcp/` (outside the repo, never committed).
+- Steps 12d and 12f were pushed (`401773a`, `6a7bc60`); their reports are `runs/tier-a/step12d-report.md` and `step12f-report.md`.
 - Step 12c was approved and pushed (`a2613d7`); its report is `runs/tier-a/step12c-report.md`.
 - Step 12b (analysis and three Owner fixes) was approved and pushed (`0a1ffd4`); its report is `runs/tier-a/step12b-report.md`.
 - Step 12a (the agent DB) was approved and pushed (`6c1eb7a`).
