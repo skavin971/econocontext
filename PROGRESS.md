@@ -15,9 +15,9 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State (2026-10-13): step 14a (pilot finished, pricing fixed, recomputed) is done, waiting for Kavin's approval; 14b is next.**
-- The report is `runs/tier-a/step14a-report.md`; step 13's is `runs/tier-a/step13-report.md`.
-- Unpushed: `edad515`, `61b6cf7` and the 14a commit.
+**State (2026-10-13): step 14b (re-reads, versions and CLM's management cost; offline) is done, waiting for Kavin's approval.**
+- The report is `runs/tier-a/step14b-report.md` (tables in `runs/tier-a/step14b/summary.md`); 14a's is `runs/tier-a/step14a-report.md`, step 13's `runs/tier-a/step13-report.md`.
+- Pushed: `edad515`, `61b6cf7`, `cb04112`, `9d3f757` (14a). Unpushed: the 14b commit.
 - BrowseComp-Plus data, trials and gateway logs live in `~/econo/bcp/`, never in the repo.
 - To run BrowseComp-Plus: start the gateway with `--max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300`, and `benchmarks/bcp/search_server.py`; then `benchmarks/bcp/run.py` and `judge.py`.
 - Step 12g was pushed (`ace1995`).
