@@ -61,7 +61,7 @@ class Agent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, policy=None, policy_args=None, interface="ours",
                  run_id=None, max_steps=64, max_tokens=2048, temperature=0.7, top_p=0.95, command_timeout=180,
                  output_chars=30000, client=None, state_dir=STATE, budget=None, counter=None, tool_set="tblite",
-                 **kwargs):
+                 budget_margin=False, **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         if policy is None:
             raise ValueError("a policy is required (--policy)")
@@ -80,7 +80,8 @@ class Agent(BaseAgent):
             raise ValueError(getattr(self.policy, "budget_refusal", f"the {self.policy.name} policy refuses a budget"))
         if not self.budget and rule == "required":
             raise ValueError(f"the {self.policy.name} policy needs a budget")
-        self.gate = BudgetGate(self.budget) if self.budget else None
+        margin = str(budget_margin).lower() in ("1", "true", "yes")    # BrowseComp-Plus (step 13): see budget.py
+        self.gate = BudgetGate(self.budget, margin) if self.budget else None
         self.counter = counter        # (messages, tools) -> tokens; measure.tokens.count_prompt unless a test gives one
         if client is None:
             if not api_base:
