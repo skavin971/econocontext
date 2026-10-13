@@ -435,3 +435,15 @@ What was built:
 - **FLOPs.** Big outputs are 14.9% of all FLOPs (13–19% in step 9). The oracle saves 10.4%; the real slicers save 8.2–8.4% at 50%, 11.8–11.9% at 25%. These figures assume no extra calls from misses. The FLOPs method agrees with a full rebuild to within 0.13%.
 - **"Best budget"** was defined in the report as the budget maximizing FLOPs saved × recall (50% for every real slicer), pending Kavin's rule.
 - **Report:** `runs/tier-a/step12d-report.md`.
+
+## Step 12f: information-gathering sequences (offline audit, 2026-10-12)
+
+- **What it measured.** Over the 130 runs, sequences of consecutive read-only turns, using Kavin's list (cat, grep, find, ls, sed -n, head/tail, read_file; cd also allowed). For each sequence: its length and its FLOPs (generated, admitted outputs, re-read replies). For each turn after the first, a label: (a) exact follow-up, (b) choice among listed candidates, (c) new. Script: `runs/tier-a/scripts/step12f_sequences.py`; report: `runs/tier-a/step12f-report.md`.
+- **Short and long tasks.** These were not defined before, so the report sets a provisional rule: the raw arm's mean agent calls in step 9, split at the median, 5 and 5.
+- **Findings.**
+  - Read-only turns: 148 of 2,190.
+  - Sequences of 2+ turns: 2.6–3.4% of step-9 FLOPs.
+  - (a)+(b) turns: at most 0.1% of FLOPs.
+  - Under EconoContext's broader read-only rule: 6.3–6.7% of FLOPs in sequences, and 0.8–3.0% in (b).
+  - Admitted outputs are 88% of a sequence's FLOPs.
+- **Scope (Kavin).** The audit measures TBLite's opportunity only, not the idea's value in general. The report's last section estimates BrowseComp-Plus from the CLM paper (App. E: search is 10 × 512 tokens, documents up to 8,192, a 23,560-token budget) and from CLM's repository figure (10.98 PFLOPs per question, 72.9% cache hits). It derives about 28–59 calls per question, and (b)-type turns at roughly 25–70% of FLOPs. These are marked as estimates with their assumptions.
