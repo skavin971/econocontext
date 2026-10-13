@@ -15,8 +15,11 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - `econo-jev-final` (`912d7d1`): everything from before Tier A, i.e. v0, the v1 engine, Omnigent, the Claude Code hooks and the Gemini runner.
 - `tier-a-step9` (`a4b4a2c`): the last commit before the step-10 clean-up.
 
-**State (2026-10-12): step 12g (BrowseComp-Plus trajectories, offline) is done on branch `agentdb-12a`, waiting for Kavin's review.**
-- The report is `runs/tier-a/step12g-report.md`. The data is in `~/econo/bcp/` (outside the repo, never committed).
+**State (2026-10-13): step 13 (BrowseComp-Plus setup, and the forecasting replay) is waiting for Kavin's decision.**
+- The pilot stopped after 1 question: Purdue's server tokenizes combining marks differently, so CLM failed validation on 10 of 65 calls. 13b's TBLite part is done.
+- The report is `runs/tier-a/step13-report.md`. BrowseComp-Plus data and logs are in `~/econo/bcp/` (never committed).
+- To run BrowseComp-Plus: start the gateway with `--max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300`, and `benchmarks/bcp/search_server.py` (see its docstring); then `benchmarks/bcp/run.py` and `judge.py`.
+- Step 12g was pushed (`ace1995`).
 - Steps 12d and 12f were pushed (`401773a`, `6a7bc60`); their reports are `runs/tier-a/step12d-report.md` and `step12f-report.md`.
 - Step 12c was approved and pushed (`a2613d7`); its report is `runs/tier-a/step12c-report.md`.
 - Step 12b (analysis and three Owner fixes) was approved and pushed (`0a1ffd4`); its report is `runs/tier-a/step12b-report.md`.

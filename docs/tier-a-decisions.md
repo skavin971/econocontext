@@ -470,3 +470,26 @@ What was built:
   - repeats of documents already returned: 43–52%;
   - turns an engine could take over: 9–13% of tokens.
 - **Script and report:** `runs/tier-a/scripts/step12g_bcp.py`; `runs/tier-a/step12g-report.md`.
+
+## Step 13: BrowseComp-Plus setup (13a) and the forecasting question (13b) (2026-10-13)
+
+**Decisions (Kavin) for 13a:**
+- **Judge.** One model-list request was made through the gateway: Purdue does not serve Qwen3.5-27B, CLM's judge. So the judge is **`qwen3:32b` with BrowseComp-Plus's grading template**, with its evaluator's sampling, **plus exact match**.
+  - Judge calls go through the gateway as kind `judge`, under their own run ID. They are excluded from agent FLOPs, and the gateway applies no pins to them.
+  - **Accuracy is comparable across our arms, not to the CLM paper's numbers.**
+- **Packaging.** **"CLM agent as released; task and search packaging built from Appendix E."** The task folders and CLM's search skill (`bcp_search`, `bcp_get_document`) are built by us, and CLM's agent and `bcp.yaml` are untouched. Every arm uses the identical search back end (`benchmarks/bcp/search_server.py`).
+- **Budget.** 23,560 with a 2,048 reserve (the paper states no other reserve), and 100 turns.
+- **Output cap.** 4,096 on BrowseComp-Plus for every arm, set per benchmark in the gateway (`--max-tokens-for bcp=4096`); TBLite stays at 2,048.
+- **Retrieval.** BM25 (prebuilt), 10 results, 512-token snippets, an 8,192-token document cap. **The 12g audit's runs used 5 results.**
+- **CLM pin.** Moved to `648a48b`; `clm_harness` is unchanged.
+- **Split.** Seed 20261013: 150 test, then 50 development; the pilot is the first 10 development questions. Only IDs are committed.
+- **Where the data lives.** Everything holding BrowseComp-Plus text (tasks, trials, the gateway logs of `bcp*` runs) is in `~/econo/bcp/`, never in the repo.
+
+**Found in 13a.** Purdue's server tokenizes text with combining marks (e.g. Devanagari) differently from the model's own `tokenizer.json`: the server splits off the marks, which the `\p{M}` in the pre-tokenizer keeps attached. As a result, 10 of CLM's 65 calls on pilot question 1 fail token-for-token validation (+18 tokens each). Per the rule, the pilot stopped after 1 question and 13b's BrowseComp-Plus part was skipped; the options are in `runs/tier-a/step13-report.md`.
+
+**13b, TBLite** (a replay of fixed trajectories, limit 29,952, evicting at 80% down to 60%):
+- oldest first costs 14.8% more FLOPs than no eviction (56 re-fetches);
+- knowing costs 8.1% more;
+- the gap between them is 6.7%.
+
+Under prefix caching, evicting a cached item saves only attention, while it forces a re-prefill of everything after it. Items of 1,000+ tokens: 49.6% are needed again, at a median of 1 turn after arrival.

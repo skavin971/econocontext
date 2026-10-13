@@ -21,12 +21,21 @@ Before a chat request goes upstream (docs/tier-a-decisions.md):
   reasoning_effort=medium and return_token_ids=true. Other chat_template_kwargs are kept; a client's
   max_completion_tokens is removed, since vLLM would use it instead of max_tokens. Every change is
   listed in the log line's `edits`.
+- the output cap can differ per benchmark (step 13a): --max-tokens-for PREFIX=N pins max_tokens N on runs whose
+  id starts with PREFIX (BrowseComp-Plus: 4,096); every other run keeps --max-tokens (TBLite: 2,048).
+- a benchmark's logs can live elsewhere (step 13a): --log-dir-for PREFIX=DIR logs runs whose id starts with
+  PREFIX under DIR (BrowseComp-Plus: outside the repo, since its text must not be published). The per-run and
+  daily counts read every log directory.
+- a judge call (X-Econo-Call-Kind: judge) is sent as the client wrote it: the pins are for the agents being
+  measured, and a judge keeps its own model and sampling (step 13a). It is logged like any call, under its
+  own run id.
 
 Upstream failures (a JSON null or empty body, 429, 5xx, a timeout) are retried with backoff, 6
 tries at most. A cap refusal is an HTTP 429 whose message contains "reached"; it is logged with
 call_no null. The per-run and daily counts are rebuilt from the log at startup; days are UTC.
 
 Run: .venv/bin/python -m gateway.server --provider purdue [--port 8787] [--log-dir runs/gateway] [--max-tokens 2048]
+     [--max-tokens-for bcp=4096] [--log-dir-for bcp=~/econo/bcp/gateway]
 """
 
 import argparse
@@ -101,8 +110,11 @@ class Limiter:
 class Gateway:
     def __init__(self, provider: Provider, key: str, log_dir: Path, max_calls_per_run: int = 150,
                  max_requests_per_day: int = 8000, rpm: int = 20, window_s: float = 60.0, tries: int = 6,
-                 backoff_s: float = 2.0, timeout_s: float = 600.0, sleep=time.sleep):
+                 backoff_s: float = 2.0, timeout_s: float = 600.0, sleep=time.sleep,
+                 max_tokens_for: dict[str, int] | None = None, log_dir_for: dict[str, Path] | None = None):
         self.provider, self.key, self.log_dir = provider, key, Path(log_dir)
+        self.log_dir_for = {prefix: Path(d).expanduser() for prefix, d in (log_dir_for or {}).items()}
+        self.max_tokens_for = dict(max_tokens_for or {})     # run-id prefix -> output cap
         self.max_run, self.max_day, self.tries, self.backoff, self.timeout = \
             max_calls_per_run, max_requests_per_day, tries, backoff_s, timeout_s
         self.limiter, self.sleep, self.lock = Limiter(rpm, window_s, sleep=sleep), sleep, threading.Lock()
@@ -114,11 +126,12 @@ class Gateway:
         return datetime.now(timezone.utc).date().isoformat()
 
     def logged(self, run_id: str) -> list[dict]:
-        path = self.log_dir / run_id / "calls.jsonl"
+        path = self.dir_for(run_id) / run_id / "calls.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def logged_today(self) -> int:
-        return sum(1 for path in self.log_dir.glob("*/calls.jsonl") for line in path.read_text().splitlines()
+        return sum(1 for d in {self.log_dir, *self.log_dir_for.values()} for path in d.glob("*/calls.jsonl")
+                   for line in path.read_text().splitlines()
                    if (row := json.loads(line)).get("call_no") and row["t_start"].startswith(self.today()))
 
     def health(self) -> dict:
@@ -127,10 +140,27 @@ class Gateway:
                 self.day, self.day_count = self.today(), 0
             return {"ok": True, "provider": self.provider.name, "log_dir": str(self.log_dir), "day": self.day,
                     "requests_today": self.day_count, "max_requests_per_day": self.max_day,
-                    "max_calls_per_run": self.max_run}
+                    "max_calls_per_run": self.max_run, "max_tokens": self.provider.pins.get("max_tokens"),
+                    "max_tokens_for": self.max_tokens_for,
+                    "log_dir_for": {k: str(v) for k, v in self.log_dir_for.items()}}
 
-    def prepare(self, body: dict) -> tuple[dict, list[str]]:
-        """The body sent upstream: earlier reasoning removed, the provider's pins set."""
+    def dir_for(self, run_id: str) -> Path:
+        """Where a run's calls are logged: its benchmark's directory, if one is set, else the log dir."""
+        return next((d for prefix, d in self.log_dir_for.items() if run_id.startswith(prefix)), self.log_dir)
+
+    def pins_for(self, run_id: str | None) -> dict:
+        """The provider's pins, with the output cap of the run's benchmark (its run-id prefix), if one is set."""
+        pins = dict(self.provider.pins)
+        for prefix, cap in self.max_tokens_for.items():
+            if run_id and run_id.startswith(prefix) and "max_tokens" in pins:
+                pins["max_tokens"] = cap
+        return pins
+
+    def prepare(self, body: dict, run_id: str | None = None, kind: str = "agent") -> tuple[dict, list[str]]:
+        """The body sent upstream: earlier reasoning removed, the provider's pins set (a judge call: as sent)."""
+        if kind == "judge":
+            return copy.deepcopy(body), []
+        pins = self.pins_for(run_id)
         sent, edits, stripped = copy.deepcopy(body), [], 0
         for message in sent.get("messages") or []:
             if message.get("role") != "assistant":
@@ -139,7 +169,7 @@ class Gateway:
                              for f in ("reasoning", "reasoning_content", "provider_specific_fields")])
         if stripped:
             edits.append(f"removed earlier reasoning from {stripped} assistant message(s)")
-        for name, value in self.provider.pins.items():
+        for name, value in pins.items():
             if sent.get(name) != value:
                 edits.append(f"set {name}={value!r}" + (f" (client sent {sent[name]!r})" if name in sent else ""))
             sent[name] = value
@@ -147,7 +177,7 @@ class Gateway:
             if isinstance(kwargs, dict) and name in kwargs and kwargs[name] != value:
                 edits.append(f"set chat_template_kwargs.{name}={value!r} (client sent {kwargs[name]!r})")
                 kwargs[name] = value
-        if "max_tokens" in self.provider.pins and "max_completion_tokens" in sent:
+        if "max_tokens" in pins and "max_completion_tokens" in sent:
             edits.append(f"removed max_completion_tokens (client sent {sent.pop('max_completion_tokens')!r})")
         if self.provider.template:
             kwargs = sent.get("chat_template_kwargs")
@@ -188,7 +218,7 @@ class Gateway:
                               "status": 429, "retries": 0, "edits": [], "refused": refused, "request": body,
                               "response": error, "usage": None})
             return 429, json.dumps(error).encode()
-        sent, edits = self.prepare(body)
+        sent, edits = self.prepare(body, run_id, kind)
         waited, retries, status, raw, parsed = 0.0, 0, None, b"", None
         for attempt in range(self.tries):
             waited += self.limiter.acquire()
@@ -217,7 +247,7 @@ class Gateway:
         line = json.dumps({"run_id": run_id, "provider": self.provider.name,
                            "model": (row.get("request") or {}).get("model"), **row})
         with self.lock:
-            path = self.log_dir / run_id / "calls.jsonl"
+            path = self.dir_for(run_id) / run_id / "calls.jsonl"
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a") as f:
                 f.write(line.replace(self.key, "[REDACTED]") + "\n")
@@ -274,16 +304,23 @@ def main() -> None:
     p.add_argument("--rpm", type=int, default=20, help="upstream requests per rolling 60 s (Purdue: 20)")
     p.add_argument("--max-tokens", type=int, default=SAMPLING["max_tokens"],
                    help="the output cap pinned on every request (CLM's TBLite setting: 2,048)")
+    p.add_argument("--log-dir-for", action="append", default=[], metavar="PREFIX=DIR",
+                   help="log runs whose id starts with PREFIX under DIR (BrowseComp-Plus: outside the repo)")
+    p.add_argument("--max-tokens-for", action="append", default=[], metavar="PREFIX=N",
+                   help="a benchmark's own output cap, for run ids starting with PREFIX (BrowseComp-Plus: bcp=4096)")
     a = p.parse_args()
     if a.provider == "vertex":
         raise SystemExit("--provider vertex is a TODO: only purdue is implemented")
     provider = PROVIDERS[a.provider]
     provider = Provider(provider.name, provider.base, provider.key_env, {**provider.pins, "max_tokens": a.max_tokens},
                         provider.template)
+    caps = {prefix: int(n) for prefix, _, n in (x.partition("=") for x in a.max_tokens_for)}
+    dirs = {prefix: Path(d) for prefix, _, d in (x.partition("=") for x in a.log_dir_for)}
     gateway = Gateway(provider, read_env(provider.key_env), Path(a.log_dir), a.max_calls_per_run,
-                      a.max_requests_per_day, a.rpm)
+                      a.max_requests_per_day, a.rpm, max_tokens_for=caps, log_dir_for=dirs)
     print(f"gateway: {provider.name} on 127.0.0.1:{a.port}, log {a.log_dir}, {a.rpm}/min, "
-          f"{a.max_calls_per_run} calls per run, {a.max_requests_per_day} requests per day; pins "
+          f"{a.max_calls_per_run} calls per run, {a.max_requests_per_day} requests per day; output cap by run-id prefix "
+          f"{caps or 'none'}; log dirs by run-id prefix {dirs or 'none'}; pins "
           f"{json.dumps({**provider.pins, 'chat_template_kwargs': provider.template})}", flush=True)
     make_server(gateway, a.port).serve_forever()
 

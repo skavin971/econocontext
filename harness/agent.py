@@ -39,7 +39,7 @@ from pathlib import Path
 from harbor.agents.base import BaseAgent
 
 from .budget import BudgetGate
-from .interface import INTERFACES, TOOLS
+from .interface import INTERFACES, TOOL_SETS
 from .tools import STATE, cap, run_tool, setup
 
 RETRYABLE = {408, 409, 429, 500, 502, 503, 504, 529}
@@ -60,13 +60,15 @@ def load(path: str):
 class Agent(BaseAgent):
     def __init__(self, logs_dir, model_name=None, api_base=None, policy=None, policy_args=None, interface="ours",
                  run_id=None, max_steps=64, max_tokens=2048, temperature=0.7, top_p=0.95, command_timeout=180,
-                 output_chars=30000, client=None, state_dir=STATE, budget=None, counter=None, **kwargs):
+                 output_chars=30000, client=None, state_dir=STATE, budget=None, counter=None, tool_set="tblite",
+                 **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         if policy is None:
             raise ValueError("a policy is required (--policy)")
         args = policy_args if isinstance(policy_args, dict) else json.loads(policy_args) if policy_args else {}
         self.policy = load(policy)(**args) if isinstance(policy, str) else policy
         self.interface = INTERFACES[interface] if isinstance(interface, str) else interface
+        self.tool_set, self.tools = tool_set, TOOL_SETS[tool_set]     # a benchmark's tools (step 13a)
         self.model = (model_name or "").removeprefix("openai/")
         self.run_id = run_id
         self.max_steps, self.max_tokens, self.temperature = int(max_steps), int(max_tokens), float(temperature)
@@ -102,10 +104,11 @@ class Agent(BaseAgent):
         await setup(environment, self.state)
 
     # Model ----------------------------------------------------------------------------
-    async def complete(self, messages: list[dict], kind: str = "agent", tools: list[dict] | None = TOOLS):
+    async def complete(self, messages: list[dict], kind: str = "agent", tools: list[dict] | None | str = "run"):
         """One model call with retries: transient errors back off; a malformed tool call is resent.
-        `kind` goes to the gateway's log: agent, or summary for a compaction call. `tools` None sends
-        no tools (Codex's compaction call)."""
+        `kind` goes to the gateway's log: agent, or summary for a compaction call. `tools`: the run's tool set
+        by default; None sends no tools (Codex's compaction call)."""
+        tools = self.tools if tools == "run" else tools
         malformed, delay = 0, 2.0
         for attempt in range(8):
             started = time.monotonic()
@@ -134,8 +137,9 @@ class Agent(BaseAgent):
             return reply
         raise RuntimeError("model call failed after retries")
 
-    def count(self, messages: list[dict], tools: list[dict] | None = TOOLS) -> int:
+    def count(self, messages: list[dict], tools: list[dict] | None | str = "run") -> int:
         """The prompt's tokens as the server will count them (measure/tokens.py), with the request's tools."""
+        tools = self.tools if tools == "run" else tools
         if self.counter is None:
             from measure.tokens import count_prompt
             self.counter = lambda m, t: count_prompt(m, t, self.model, **TEMPLATE)
@@ -222,6 +226,7 @@ class Agent(BaseAgent):
     def _save(self) -> None:
         Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
         (Path(self.logs_dir) / "trajectory.json").write_text(json.dumps(
-            {"model": self.model, "policy": self.policy.name, "interface": self.interface.name, "budget": self.budget,
+            {"model": self.model, "policy": self.policy.name, "interface": self.interface.name, "tool_set": self.tool_set,
+             "budget": self.budget,
              "end": self.end, "end_P": self.end_P, "final_turns": self.gate.final_turns if self.gate else [],
              "report": self.policy.report(), "messages": self.messages, "calls": self.calls}, indent=1, default=str))

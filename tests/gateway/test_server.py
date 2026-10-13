@@ -211,3 +211,30 @@ def test_health_reports_the_caps_and_todays_requests(stack):
     with urllib.request.urlopen(f"{s.url}/health", timeout=5) as response:
         health = json.load(response)
     assert (health["requests_today"], health["max_requests_per_day"], health["max_calls_per_run"]) == (2, 8000, 150)
+
+
+def test_a_benchmark_gets_its_own_output_cap_by_run_id_prefix(stack):
+    s = stack(lambda body: (200, OK), max_tokens_for={"bcp": 4096})
+    post(s.url, chat(max_tokens=2048), run="bcp13p.base.q1.r1")
+    post(s.url, chat(max_tokens=2048), run="tc9.raw.t.r1")
+    assert s.upstream.requests[0]["body"]["max_tokens"] == 4096 and s.upstream.requests[1]["body"]["max_tokens"] == PINS["max_tokens"]
+    assert log_rows(s.log_dir, "bcp13p.base.q1.r1")[0]["request"]["max_tokens"] == 4096
+
+
+def test_a_judge_call_keeps_its_own_model_and_sampling_and_is_logged(stack):
+    s = stack(lambda body: (200, OK))
+    body = chat(model="qwen3:32b", temperature=0.7, top_p=0.8, max_tokens=4096)
+    assert post(s.url, body, kind="judge", run="bcp13p.judge")[0] == 200
+    assert s.upstream.requests[0]["body"] == body
+    row = log_rows(s.log_dir, "bcp13p.judge")[0]
+    assert row["kind"] == "judge" and row["edits"] == [] and row["request"] == body
+
+
+def test_a_benchmarks_logs_go_to_its_own_directory_and_still_count(stack, tmp_path):
+    elsewhere = tmp_path / "outside"
+    s = stack(lambda body: (200, OK), log_dir_for={"bcp": elsewhere})
+    post(s.url, chat(), run="bcp13p.base.q1.r1")
+    post(s.url, chat(), run="tc9.raw.t.r1")
+    assert (elsewhere / "bcp13p.base.q1.r1" / "calls.jsonl").exists()
+    assert not (s.log_dir / "bcp13p.base.q1.r1").exists() and (s.log_dir / "tc9.raw.t.r1" / "calls.jsonl").exists()
+    assert s.gateway.logged_today() == 2 and len(s.gateway.logged("bcp13p.base.q1.r1")) == 1

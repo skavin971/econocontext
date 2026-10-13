@@ -3,7 +3,11 @@ agent.py). The shell keeps its working directory between calls; every output is 
 for every policy."""
 
 import base64
+import json
+import os
 import shlex
+import urllib.error
+import urllib.request
 
 STATE = "/tmp/.econo-agent"
 
@@ -34,8 +38,26 @@ async def shell(environment, state: str, timeout: int, script: str) -> str:
     return out.rstrip("\n") + f"\n(exit code {code}{', timed out' if code == 124 else ''})"
 
 
+def search_service(path: str, body: dict) -> str:
+    """BrowseComp-Plus's search service (benchmarks/bcp/search_server.py), called from the host: its text as is."""
+    url = os.environ.get("BCP_SEARCH_URL", "http://127.0.0.1:8790")
+    request = urllib.request.Request(f"{url}{path}", data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return response.read().decode()
+    except urllib.error.HTTPError as exc:
+        return exc.read().decode()
+    except (urllib.error.URLError, OSError) as exc:
+        return f"(search service failed: {str(exc)[:200]})"
+
+
 async def run_tool(environment, state: str, timeout: int, name: str, args: dict) -> str:
     """Run one tool; the full output (a policy decides what is shown)."""
+    if name == "bcp_search":
+        return search_service("/search", {"query": str(args.get("query", ""))})
+    if name == "bcp_get_document":
+        return search_service("/get_document", {"docid": str(args.get("docid", ""))})
     if name == "bash":
         return await shell(environment, state, timeout, args.get("command", ""))
     if name == "read_file":

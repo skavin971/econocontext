@@ -1,0 +1,30 @@
+# Step 13b: tblite, a replay of fixed trajectories (not live behaviour)
+
+Limit 29,952 tokens; evict at 80% down to 60%. 130 runs, 236 items.
+
+## The answer
+
+- FLOPs saved against (a) no eviction: (b) oldest first **-14.8%**; (c) knowing **-8.1%**.
+- Re-fetches caused by (b): **56** extra calls (by (c): 0).
+- **The gap between (b) and (c): 6.7% of (a)'s FLOPs** - the room a forecaster has.
+- Calls over the limit: (a) 313, (b) 166, (c) 187 (of 2190 calls in (a)).
+
+## Items needed again
+
+- 117 of 236 items are needed again (49.6%); never again: 50.4%.
+- First need, in turns after the item arrived: median 1, quartiles 1.0-2.0, range 1-10.
+
+## Per arm
+
+| step | arm | runs | items (needed again) | (b) saves | (c) saves | gap (b)-(c) | (b) re-fetches | over limit a/b/c | rebuild matches the logged prompts |
+|---|---|---|---|---|---|---|---|---|---|
+| step 9 | clm-32k | 30 | 41 (23) | -3.1% | -6.5% | -3.4% | 3 | 46/33/33 | – (managed arm) |
+| step 9 | clm-full | 30 | 52 (25) | -7.7% | -8.7% | -1.0% | 7 | 38/14/14 | – (managed arm) |
+| step 9 | econo+jev | 30 | 61 (35) | -15.9% | -7.6% | 8.3% | 12 | 82/47/47 | – (managed arm) |
+| step 9 | raw | 30 | 58 (29) | -34.4% | -11.2% | 23.2% | 33 | 93/36/57 | 100.0% of calls (mean over 30 runs) |
+| 10d | clm-32k | 2 | 3 (0) | -11.1% | -11.1% | 0.0% | 0 | 1/0/0 | – (managed arm) |
+| 10d | raw-32k | 2 | 4 (0) | -12.2% | -12.2% | 0.0% | 0 | 1/0/0 | 100.0% of calls (mean over 2 runs) |
+| 10d | summary-32k | 2 | 4 (2) | -10.1% | -18.6% | -8.5% | 1 | 27/15/15 | – (managed arm) |
+| step 11 | base-32k | 2 | 6 (3) | 0.0% | 0.0% | 0.0% | 0 | 0/0/0 | 100.0% of calls (mean over 2 runs) |
+| step 11 | clm-32k | 1 | 0 (0) | 0.0% | 0.0% | 0.0% | 0 | 0/0/0 | – (managed arm) |
+| step 11 | summary-32k | 1 | 7 (0) | 16.8% | 16.8% | 0.0% | 0 | 25/21/21 | – (managed arm) |

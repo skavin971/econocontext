@@ -58,3 +58,40 @@ def test_the_legacy_interface_runs_every_call_with_the_old_texts(make):
     out = tool_messages(agent)
     assert out[0].startswith("first") and out[1].startswith("second") and out[2].startswith("cut")
     assert {"role": "user", "content": LEGACY.nudge} in agent.messages
+
+
+def test_the_bcp_tool_set_adds_search_and_reads_from_the_one_search_service(make, monkeypatch):
+    # BrowseComp-Plus (step 13a): the four tools plus bcp_search and bcp_get_document, which call the local search
+    # service and return its text unchanged. TBLite's tool set is untouched.
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from harness.interface import BCP_TOOLS, TOOL_SETS, TOOLS
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((self.path, body))
+            raw = json.dumps([{"docid": "7", "score": 1.0, "snippet": "s"}] if self.path == "/search"
+                             else {"docid": body["docid"], "text": "t"}, indent=2).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("BCP_SEARCH_URL", f"http://127.0.0.1:{server.server_address[1]}")
+    agent, _, _ = make([reply(("bcp_search", {"query": "q"})), reply(("bcp_get_document", {"docid": "7"})),
+                        reply(("submit", {}))], tool_set="bcp")
+    server.shutdown()
+    assert TOOL_SETS["tblite"] == TOOLS and [t["function"]["name"] for t in TOOL_SETS["bcp"]][-2:] == \
+        ["bcp_search", "bcp_get_document"] and TOOL_SETS["bcp"][-2:] == BCP_TOOLS
+    assert seen == [("/search", {"query": "q"}), ("/get_document", {"docid": "7"})]
+    shown = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert json.loads(shown[0])[0]["docid"] == "7" and json.loads(shown[1]) == {"docid": "7", "text": "t"}
+    assert agent.client.tools[0] == TOOL_SETS["bcp"]

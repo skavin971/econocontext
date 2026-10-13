@@ -8,7 +8,9 @@ Two interfaces:
   vLLM 0.30 returns a cut call with its cut parameter dropped, step 10b).
 - legacy (steps 9 and 10), kept to reproduce old runs: the old system prompt and nudge, every tool
   call of a reply runs, and a cut call runs as vLLM returns it.
-The tools are the same in both: bash, read_file, write_file and submit.
+The tools are the same in both: bash, read_file, write_file and submit. A benchmark may add its own tools (a tool
+set, step 13a): BrowseComp-Plus adds bcp_search and bcp_get_document, BrowseComp-Plus's search and get_document
+(their descriptions verbatim, k = 10) under the names the CLM paper uses; TBLite uses the four alone.
 """
 
 from dataclasses import dataclass
@@ -31,6 +33,21 @@ TOOLS = [
         "name": "submit", "description": "Finish: call this once the task is fully done.",
         "parameters": {"type": "object", "properties": {}}}},
 ]
+
+
+BCP_TOOLS = [
+    {"type": "function", "function": {
+        "name": "bcp_search", "description": (
+            "Perform a search on a knowledge source. Returns top-10 hits with docid, score, and snippet. The snippet "
+            "contains the document's contents (may be truncated based on token limits)."),
+        "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "Search query string"}},
+                       "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "bcp_get_document", "description": "Retrieve a full document by its docid.",
+        "parameters": {"type": "object", "properties": {"docid": {"type": "string", "description": "Document ID to retrieve"}},
+                       "required": ["docid"]}}},
+]
+TOOL_SETS = {"tblite": TOOLS, "bcp": TOOLS + BCP_TOOLS}
 
 
 @dataclass(frozen=True)
