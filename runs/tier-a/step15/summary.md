@@ -1,0 +1,112 @@
+# Step 15 tables (fixed-trajectory estimates, canonical track)
+
+
+## TBLite
+
+### All CLM runs: 63 runs, 934 calls, 33 edits (0 rollbacks); runs with an edit: 22
+
+Piece model vs the real canonical track, plan (a): prompt tokens 98.6%, FLOPs 99.2%.
+
+| plan | PFLOPs | share of (a) |
+|---|---|---|
+| (a) as executed | 100.74 | **100.0%** |
+| (a') in place, formatting kept | 100.78 | **100.0%** |
+| (b) tail | 96.02 | **95.3%** |
+| (c) batched | 97.08 | **96.4%** |
+| (d) cost-planned | 95.06 | **94.4%** |
+
+Attribution of (b): the tail rule at rollbacks only (in place elsewhere) 100.0%; at context edits only 95.3%.
+
+Best simple rule: (b) tail. Gap to (d): 0.9% of (a) (0.95 PFLOPs; 2 of 63 runs give 80%).
+Exhaustive check (runs with 1-6 edits: 22): (d) is 100.0% of the true optimum; runs where (d) misses it by more than 0.1%: 0.
+(c) batched: removed tokens stay visible on 123 of 934 calls (13.2%), 3,998 extra tokens per such call on average; 10 batched applications. (d): extra tokens visible on 42 calls.
+
+| edit type | edits | (d) in place | (d) tail | (d) deferred | median first change, tokens (content only) | added tokens | of which reasoning | removed tokens |
+|---|---|---|---|---|---|---|---|---|
+| context edit | 33 | 8 | 18 | 7 | 3,247 (3,247) | 102,651 | 52,595 | 233,822 |
+
+Without the reasoning made visible (the same runs, those pieces removed from every prompt; (a) = 97.40 PFLOPs): (b) 95.1%, (c) 96.0%, (d) 94.1% of its (a); best simple rule (b) tail, gap to (d) 1.0%.
+
+Reasoning made visible (plan (a)): 3.3% of FLOPs; in 19 of 63 runs (22 runs have an edit); 52,595 tokens; 6 of 63 runs give 80%; largest single run 0.8% of the group's FLOPs.
+
+### arm clm-32k: 33 runs, 504 calls, 20 edits (0 rollbacks); runs with an edit: 13
+
+Piece model vs the real canonical track, plan (a): prompt tokens 98.5%, FLOPs 99.1%.
+
+| plan | PFLOPs | share of (a) |
+|---|---|---|
+| (a) as executed | 51.90 | **100.0%** |
+| (a') in place, formatting kept | 51.92 | **100.0%** |
+| (b) tail | 51.04 | **98.3%** |
+| (c) batched | 52.09 | **100.4%** |
+| (d) cost-planned | 50.12 | **96.6%** |
+
+Attribution of (b): the tail rule at rollbacks only (in place elsewhere) 100.0%; at context edits only 98.3%.
+
+Best simple rule: (b) tail. Gap to (d): 1.8% of (a) (0.91 PFLOPs; 2 of 33 runs give 80%).
+Exhaustive check (runs with 1-6 edits: 13): (d) is 100.0% of the true optimum; runs where (d) misses it by more than 0.1%: 0.
+(c) batched: removed tokens stay visible on 64 of 504 calls (12.7%), 6,813 extra tokens per such call on average; 9 batched applications. (d): extra tokens visible on 17 calls.
+
+| edit type | edits | (d) in place | (d) tail | (d) deferred | median first change, tokens (content only) | added tokens | of which reasoning | removed tokens |
+|---|---|---|---|---|---|---|---|---|
+| context edit | 20 | 7 | 9 | 4 | 3,576 (3,576) | 57,561 | 27,379 | 175,276 |
+
+Without the reasoning made visible (the same runs, those pieces removed from every prompt; (a) = 50.19 PFLOPs): (b) 98.2%, (c) 99.7%, (d) 96.4% of its (a); best simple rule (b) tail, gap to (d) 1.8%.
+
+Reasoning made visible (plan (a)): 3.3% of FLOPs; in 10 of 33 runs (13 runs have an edit); 27,379 tokens; 3 of 33 runs give 80%; largest single run 1.4% of the group's FLOPs.
+
+### arm clm-full: 30 runs, 430 calls, 13 edits (0 rollbacks); runs with an edit: 9
+
+Piece model vs the real canonical track, plan (a): prompt tokens 98.7%, FLOPs 99.2%.
+
+| plan | PFLOPs | share of (a) |
+|---|---|---|
+| (a) as executed | 48.84 | **100.0%** |
+| (a') in place, formatting kept | 48.86 | **100.0%** |
+| (b) tail | 44.98 | **92.1%** |
+| (c) batched | 44.99 | **92.1%** |
+| (d) cost-planned | 44.94 | **92.0%** |
+
+Attribution of (b): the tail rule at rollbacks only (in place elsewhere) 100.0%; at context edits only 92.1%.
+
+Best simple rule: (b) tail. Gap to (d): 0.1% of (a) (0.04 PFLOPs; 1 of 30 runs give 80%).
+Exhaustive check (runs with 1-6 edits: 9): (d) is 100.0% of the true optimum; runs where (d) misses it by more than 0.1%: 0.
+(c) batched: removed tokens stay visible on 59 of 430 calls (13.7%), 944 extra tokens per such call on average; 1 batched applications. (d): extra tokens visible on 25 calls.
+
+| edit type | edits | (d) in place | (d) tail | (d) deferred | median first change, tokens (content only) | added tokens | of which reasoning | removed tokens |
+|---|---|---|---|---|---|---|---|---|
+| context edit | 13 | 1 | 9 | 3 | 3,247 (3,247) | 45,090 | 25,216 | 58,546 |
+
+Without the reasoning made visible (the same runs, those pieces removed from every prompt; (a) = 47.21 PFLOPs): (b) 91.8%, (c) 92.1%, (d) 91.7% of its (a); best simple rule (b) tail, gap to (d) 0.1%.
+
+Reasoning made visible (plan (a)): 3.3% of FLOPs; in 9 of 30 runs (9 runs have an edit); 25,216 tokens; 3 of 30 runs give 80%; largest single run 1.6% of the group's FLOPs.
+
+## BrowseComp-Plus pilot
+
+### All CLM runs: 8 runs, 513 calls, 87 edits (30 rollbacks); runs with an edit: 8
+
+Piece model vs the real canonical track, plan (a): prompt tokens 98.7%, FLOPs 99.2%.
+
+| plan | PFLOPs | share of (a) |
+|---|---|---|
+| (a) as executed | 106.61 | **100.0%** |
+| (a') in place, formatting kept | 106.68 | **100.1%** |
+| (b) tail | 88.46 | **83.0%** |
+| (c) batched | 93.87 | **88.0%** |
+| (d) cost-planned | 85.47 | **80.2%** |
+
+Attribution of (b): the tail rule at rollbacks only (in place elsewhere) 82.0%; at context edits only 100.6%.
+
+Best simple rule: (b) tail. Gap to (d): 2.8% of (a) (2.99 PFLOPs; 3 of 8 runs give 80%).
+Exhaustive check (runs with 1-6 edits: 2): (d) is 100.0% of the true optimum; runs where (d) misses it by more than 0.1%: 0.
+Random-restart check (runs with 7+ edits: 6; 20 seeded restarts of the descent): best found is 100.0% of (d); runs where it beats (d) by more than 0.1%: 0.
+(c) batched: removed tokens stay visible on 166 of 513 calls (32.4%), 8,035 extra tokens per such call on average; 59 batched applications. (d): extra tokens visible on 44 calls.
+
+| edit type | edits | (d) in place | (d) tail | (d) deferred | median first change, tokens (content only) | added tokens | of which reasoning | removed tokens |
+|---|---|---|---|---|---|---|---|---|
+| context edit | 57 | 39 | 15 | 3 | 2,519 (2,519) | 144,576 | 69,095 | 599,755 |
+| rollback | 30 | 1 | 28 | 1 | 1,587 (1,587) | 10,109 | 1,126 | 55,194 |
+
+Without the reasoning made visible (the same runs, those pieces removed from every prompt; (a) = 98.00 PFLOPs): (b) 83.9%, (c) 88.7%, (d) 81.8% of its (a); best simple rule (b) tail, gap to (d) 2.0%.
+
+Reasoning made visible (plan (a)): 8.1% of FLOPs; in 6 of 8 runs (8 runs have an edit); 58,376 tokens; 3 of 8 runs give 80%; largest single run 5.0% of the group's FLOPs.
