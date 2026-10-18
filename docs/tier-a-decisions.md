@@ -481,6 +481,7 @@ What was built:
 - **Budget.** 23,560 with a 2,048 reserve (the paper states no other reserve), and 100 turns.
 - **Output cap.** 4,096 on BrowseComp-Plus for every arm, set per benchmark in the gateway (`--max-tokens-for bcp=4096`); TBLite stays at 2,048.
 - **Retrieval.** BM25 (prebuilt), 10 results, 512-token snippets, an 8,192-token document cap. **The 12g audit's runs used 5 results.**
+  - **Correction (2026-10-18).** BM25 was our choice in the 13a plan, not the paper's: Appendix E gives k, the snippet length and the reader cap but names no retriever, and CLM's repository has no BrowseComp-Plus search code. The plan presented only BM25. BrowseComp-Plus's own results differ sharply by retriever (GPT-5 55.9% BM25 vs 70.1% Qwen3-Embedding-8B), so every BrowseComp-Plus result in steps 13–19 is a BM25 result, and the pilot's accuracy is not comparable with the paper's 59.4%.
 - **CLM pin.** Moved to `648a48b`; `clm_harness` is unchanged.
 - **Split.** Seed 20261013: 150 test, then 50 development; the pilot is the first 10 development questions. Only IDs are committed.
 - **Where the data lives.** Everything holding BrowseComp-Plus text (tasks, trials, the gateway logs of `bcp*` runs) is in `~/econo/bcp/`, never in the repo.

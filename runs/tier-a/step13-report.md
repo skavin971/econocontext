@@ -1,5 +1,7 @@
 # Step 13 report: BrowseComp-Plus setup (13a) and does our data support forecast-driven context? (13b) (2026-10-13)
 
+> **Erratum (2026-10-18).** The retrieval row below cites the CLM paper's Appendix E for BM25. That is wrong: Appendix E gives only "the top 10 snippets of 512 tokens" and the 8,192-token reader cap, and the paper never names its retriever. BM25 was our own choice in the 13a plan (`edad515`), presented without the dense alternative (BrowseComp-Plus also ships Qwen3-Embedding indexes; its paper reports GPT-5 at 55.9% with BM25 and 70.1% with Qwen3-Embedding-8B). Every BrowseComp-Plus result from steps 13 to 19 is a **BM25** result. CLM's repository (`648a48b`, and its head `4831982`) contains no BrowseComp-Plus search code or retriever.
+
 **Branch:** `agentdb-12a`.
 - `ace1995` was pushed after the secrets gate.
 - 13a and 13b are one local commit, **not pushed**.
@@ -26,7 +28,7 @@
 | packaging | **"CLM agent as released; task and search packaging built from Appendix E"**: one Harbor task per question; CLM's search skill `benchmarks/bcp/skill/bcp_search` (`bcp_search`, `bcp_get_document`, the names in the CLM paper's Figure 3) | CLM did not release its BrowseComp-Plus tasks or skill; Harbor has no adapter |
 | budget | 23,560 with a 2,048 reserve (limit 21,512); 100 turns | CLM paper, App. E; the paper states no other reserve, and `bcp.yaml` has 2,048 |
 | output cap | 4,096 on BrowseComp-Plus for every arm (gateway `--max-tokens-for bcp=4096`); TBLite stays at 2,048 | your decision |
-| retrieval | BM25, prebuilt index; top 10, 512-token snippets, documents capped at 8,192 tokens (Qwen3-0.6B tokenizer, as BrowseComp-Plus's tools) | App. E. The 12g audit's runs used 5 results. |
+| retrieval | BM25, prebuilt index; top 10, 512-token snippets, documents capped at 8,192 tokens (Qwen3-0.6B tokenizer, as BrowseComp-Plus's tools) | k, snippet and reader cap: App. E. **BM25: our choice, not App. E (erratum above).** The 12g audit's runs used 5 results. |
 | observations | up to 60,000 characters for both arms | CLM's `bcp.yaml` ("search results and documents arrive whole") |
 | CLM pin | `648a48b`; `clm/clm_harness` unchanged from `18dc111` | `step13a-3-clm-pin.out` |
 | split | seed 20261013: 150 test, then 50 development; the pilot is the first 10 development questions (IDs only, `benchmarks/bcp/split.json`) | `step13a-4-split.out` |

@@ -20,6 +20,7 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - Pushed: through `a3c8eac` (step 18). Unpushed: the step-19 commit.
 - The Complexity Trap's archives live in `~/econo/ctrap/data/` (5.4 GB), never in the repo.
 - BrowseComp-Plus data, trials and gateway logs live in `~/econo/bcp/`, never in the repo.
+- **All BrowseComp-Plus results so far (steps 13–19) use the BM25 retriever,** our own choice; the CLM paper does not name its retriever (correction, 2026-10-18; see `docs/tier-a-decisions.md`, step 13).
 - To run BrowseComp-Plus: start the gateway with `--max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300`, and `benchmarks/bcp/search_server.py`; then `benchmarks/bcp/run.py` and `judge.py`.
 - Step 12g was pushed (`ace1995`).
 - Steps 12d and 12f were pushed (`401773a`, `6a7bc60`); their reports are `runs/tier-a/step12d-report.md` and `step12f-report.md`.
