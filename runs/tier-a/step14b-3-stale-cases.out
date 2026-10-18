@@ -1,0 +1,51 @@
+79 TBLite cases; 0 V-class
+
+tc9.clm-32k.scan-linux-persistence-artifacts.r3 call 36 path /app/scan_persistence.sh
+  read made at call 27: bash: {"command": "sed -n '118,160p' /app/scan_persistence.sh"}
+  revision at call 35: bash: {"command": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold='''        if jq empty \"$tmp\" 2>/dev/null; then\n            mv -- \"$tmp\" \"$REPORT\"\n        else\n            cp -- \"$tmp\" \"$
+  next action (call 36): bash: {"command": "cp /app/persistence_report.json /tmp/a.json && /app/scan_persistence.sh && diff -q /tmp/a.json /app/persistence_report.json && echo IDEMPOTENT && rm -f /tmp/a.json\n# verify all seeded artifacts present\nfor
+
+tc9.econo+jev.scan-linux-persistence-artifacts.r1 call 45 path /app/persistence_report.json
+  read made at call 36: bash: {"command": "cat /app/persistence_report.json"}
+  revision at call 41: bash: {"command": "# Test empty-artifacts formatting: make a copy where main scans nothing\nsed -e 's#^REPORT=\"/app/persistence_report.json\"#REPORT=\"/tmp/empty_report.json\"#' -e 's#^main \"\\$@\"#main_empty \"$@\"#' /app/s
+  next action (call 45): bash: {"command": "/app/scan_persistence.sh && cp /app/persistence_report.json /tmp/final1.json && /app/scan_persistence.sh && diff /tmp/final1.json /app/persistence_report.json && echo \"IDEMPOTENT\"\npython3 - <<'EOF'\nimpor
+
+tc9.clm-full.scan-linux-persistence-artifacts.r1 call 21 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '70,95p' /app/scan_persistence.sh"}
+  revision at call 18: bash: {"command": "awk 'NR>=83 && NR<=200 {printf \"%d: %s\\n\", NR, $0}' /app/scan_persistence.sh"}
+  next action (call 21): bash: {"command": "python3 - <<'PY'\nfor i, line in enumerate(open('/app/scan_persistence.sh'), 1):\n    if line.count('\"') % 2 != 0:\n        print(i, line.rstrip())\nPY"}
+
+tc9.clm-full.scan-linux-persistence-artifacts.r1 call 24 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '70,95p' /app/scan_persistence.sh"}
+  revision at call 23: bash: {"command": "sed -i '79c\\    userfield=\"$(awk '\"'\"'{print $6}'\"'\"' <<<\"$line\")\"' /app/scan_persistence.sh && sed -n '79p' /app/scan_persistence.sh && bash -n /app/scan_persistence.sh && echo SYNTAX_OK"}
+  next action (call 24): bash: {"command": "cd /tmp && /app/scan_persistence.sh; echo \"exit=$?\"; jq . /app/persistence_report.json"}
+
+tc9.clm-full.scan-linux-persistence-artifacts.r1 call 22 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '70,95p' /app/scan_persistence.sh"}
+  revision at call 18: bash: {"command": "awk 'NR>=83 && NR<=200 {printf \"%d: %s\\n\", NR, $0}' /app/scan_persistence.sh"}
+  next action (call 22): bash: {"command": "sed -n '79p' /app/scan_persistence.sh | od -c | head"}
+
+tc9.clm-full.scan-linux-persistence-artifacts.r1 call 30 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '70,95p' /app/scan_persistence.sh"}
+  revision at call 26: bash: {"command": "python3 - <<'PY'\np='/app/scan_persistence.sh'\ns=open(p).read()\n\n# 1) add dpkg manifest build after ENTRIES init\ns=s.replace('ENTRIES=\"$TMPDIR_WORK/entries.tsv\"\\n: > \"$ENTRIES\"\\n',\n'''ENTRIES=\"$T
+  next action (call 30): bash: {"command": "grep -n 'DPKG_UNITS' /app/scan_persistence.sh | head; sed -n '/Build set of systemd/,/sort -u/p' /app/scan_persistence.sh"}
+
+tc9.clm-32k.scan-linux-persistence-artifacts.r3 call 27 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '130,140p' /app/scan_persistence.sh"}
+  revision at call 24: bash: {"command": "python3 - <<'PY'\np=\"/app/scan_persistence.sh\"; s=open(p).read()\nold='''        # a job line needs 5 time fields + (user) + command\n        local start=6 minfields=6\n        [[ $fmt == system ]] && { st
+  next action (call 27): bash: {"command": "sed -n '118,160p' /app/scan_persistence.sh"}
+
+tc9.econo+jev.scan-linux-persistence-artifacts.r1 call 40 path /app/scan_persistence.sh
+  read made at call 29: bash: {"command": "sed -n '70,115p' /app/scan_persistence.sh"}
+  revision at call 39: bash: {"command": "# Test symlink handling: create a symlinked cron file in a temp scan target\nmkdir -p /tmp/symtest/etc/cron.d /tmp/symtest/scripts\nprintf '* * * * * root /tmp/symtest/scripts/evil.sh\\n' > /tmp/symtest/scri
+  next action (call 40): bash: {"command": "# Empty case: no app_target, no malicious system files\nmkdir -p /tmp/emptysys\nsed -e 's#^APP_TARGET=\"/app_target\"#APP_TARGET=\"/nonexistent_target\"#' -e 's#^REPORT=\"/app/persistence_report.json\"#REPOR
+
+tc9.clm-full.scan-linux-persistence-artifacts.r1 call 31 path /app/scan_persistence.sh
+  read made at call 14: bash: {"command": "sed -n '70,95p' /app/scan_persistence.sh"}
+  revision at call 26: bash: {"command": "python3 - <<'PY'\np='/app/scan_persistence.sh'\ns=open(p).read()\n\n# 1) add dpkg manifest build after ENTRIES init\ns=s.replace('ENTRIES=\"$TMPDIR_WORK/entries.tsv\"\\n: > \"$ENTRIES\"\\n',\n'''ENTRIES=\"$T
+  next action (call 31): bash: {"command": "cd /tmp && bash -x /app/scan_persistence.sh 2>/tmp/trace.log; grep -c 'dpkg_units' /tmp/trace.log; grep -m2 'sort -u' /tmp/trace.log; ls -la /tmp/tmp.*/dpkg_units.txt 2>/dev/null | head -3; grep -n 'grep -qx
+
+tc9.econo+jev.scan-linux-persistence-artifacts.r1 call 41 path /app/scan_persistence.sh
+  read made at call 29: bash: {"command": "sed -n '70,115p' /app/scan_persistence.sh"}
+  revision at call 40: bash: {"command": "# Empty case: no app_target, no malicious system files\nmkdir -p /tmp/emptysys\nsed -e 's#^APP_TARGET=\"/app_target\"#APP_TARGET=\"/nonexistent_target\"#' -e 's#^REPORT=\"/app/persistence_report.json\"#REPOR
+  next action (call 41): bash: {"command": "# Test empty-artifacts formatting: make a copy where main scans nothing\nsed -e 's#^REPORT=\"/app/persistence_report.json\"#REPORT=\"/tmp/empty_report.json\"#' -e 's#^main \"\\$@\"#main_empty \"$@\"#' /app/s

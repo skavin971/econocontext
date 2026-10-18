@@ -1,0 +1,119 @@
+[
+  {
+    "step": 1,
+    "llm_s": 2.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && ls -la && echo \"---DATA---\" && ls -la data/ 2>/dev/null && echo \"---OUTPUT---\" && ls -la output/ 2>/dev/null && echo \"---ARTIFACT SIZE---\" && wc -c data/artifact.bin 2>/dev/null"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && xxd data/artifact.bin | head -60"
+  },
+  {
+    "step": 3,
+    "llm_s": 2.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\ndata=open('data/artifact.bin','rb').read()\nprint('len',len(data))\nimport re\noffs=[m.start() for m in re.finditer(b'PK\\x03\\x04',data)]\nprint('local file headers:',offs)\noffs2=[m"
+  },
+  {
+    "step": 4,
+    "llm_s": 2.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport zipfile, io\ndata=open('data/artifact.bin','rb').read()\nz=io.BytesIO(data[336:])\nzf=zipfile.ZipFile(z)\nprint(zf.namelist())\nzf.extractall('/tmp/extracted')\n\" && ls -la /t"
+  },
+  {
+    "step": 5,
+    "llm_s": 3.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport struct, zlib\npng=open('/tmp/extracted/hidden.png','rb').read()\nprint('len',len(png))\nassert png[:8]==b'\\x89PNG\\r\\n\\x1a\\n'\npos=8\nwhile pos < len(png):\n    ln=struct.unpac"
+  },
+  {
+    "step": 6,
+    "llm_s": 12.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport base64, codecs\ntext='LSgsK3VvM28uKCApcRdxEW48GDExAmkMLhdpLmM5aSMscRgTI3FoETwrcT4tKDQXbDltMC0XaSkyYiBtMGw/CDNiDj0tFhgfPAACaWk/MzZtbxgJbTk1biIYNSI7GB0pM2MgaTA/Chs/Kiw8aG0z"
+  },
+  {
+    "step": 7,
+    "llm_s": 7.1,
+    "bash_s": 0.1,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport base64\ntext='jeid/5v5gemf+Z+X4sOxxK3IgZ3g9p3li+OVl+2Xsd+qjeaZ6p7wjZ3fu8m7w6rEv8GtjYORsMK33rvy75OF7pb4kObknOTfv9m3wrCNrcis27vf/sStjbLCvcyq8OLDscStyIGf4Pad5YvjlZfsl7vJ/syq"
+  },
+  {
+    "step": 8,
+    "llm_s": 8.5,
+    "bash_s": 0.1,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport base64\ntext='jeid/5v5gemf+Z+X4sOxxK3IgZ3g9p3li+OVl+2Xsd+qjeaZ6p7wjZ3fu8m7w6rEv8GtjYORsMK33rvy75OF7pb4kObknOTfv9m3wrCNrcis27vf/sStjbLCvcyq8OLDscStyIGf4Pad5YvjlZfsl7vJ/syq"
+  },
+  {
+    "step": 9,
+    "llm_s": 11.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport base64\ntext='jeid/5v5gemf+Z+X4sOxxK3IgZ3g9p3li+OVl+2Xsd+qjeaZ6p7wjZ3fu8m7w6rEv8GtjYORsMK33rvy75OF7pb4kObknOTfv9m3wrCNrcis27vf/sStjbLCvcyq8OLDscStyIGf4Pad5YvjlZfsl7vJ/syq"
+  },
+  {
+    "step": 10,
+    "llm_s": 8.3,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"\nimport base64, re\ntext='jeid/5v5gemf+Z+X4sOxxK3IgZ3g9p3li+OVl+2Xsd+qjeaZ6p7wjZ3fu8m7w6rEv8GtjYORsMK33rvy75OF7pb4kObknOTfv9m3wrCNrcis27vf/sStjbLCvcyq8OLDscStyIGf4Pad5YvjlZfsl7vJ"
+  },
+  {
+    "step": 11,
+    "llm_s": 15.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > /app/solve.py\nimport zipfile, io, struct, zlib, base64, codecs, re, json\n\ndata = open('/app/data/artifact.bin','rb').read()\n\n# Stage 1\noffs = [m.start() for m in re.finditer(b"
+  },
+  {
+    "step": 12,
+    "llm_s": 2.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 -c \"import json; d=json.load(open('output/extraction_chain.json')); print('VALID JSON'); print('final:', d['stage5_reassemble']['final_message']); print('crc:', d['stage2_png']['png"
+  },
+  {
+    "step": 13,
+    "llm_s": 5.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

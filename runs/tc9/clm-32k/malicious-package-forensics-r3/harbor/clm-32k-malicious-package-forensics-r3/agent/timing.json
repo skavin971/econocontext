@@ -1,0 +1,120 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/logs/ && wc -l /app/logs/*"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /app/logs/pip_packages.json"
+  },
+  {
+    "step": 3,
+    "llm_s": 1.6,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /app/logs/auditd.log"
+  },
+  {
+    "step": 4,
+    "context_budget_nudge": 0.25,
+    "tokens": 11158
+  },
+  {
+    "step": 4,
+    "llm_s": 9.8,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -n '40,80p' /app/logs/auditd.log"
+  },
+  {
+    "step": 5,
+    "context_budget_nudge": 0.5,
+    "tokens": 18016
+  },
+  {
+    "step": 5,
+    "llm_s": 23.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -n '36,44p' /app/logs/auditd.log | cut -c1-220; echo ===; cat /app/logs/dns_queries.log; echo ===; cat /app/logs/netflow.csv"
+  },
+  {
+    "step": 6,
+    "context_budget_nudge": "persistent",
+    "tokens": 23971,
+    "persistent_rule": "obs",
+    "persistent_need": 11088,
+    "recent_obs": 5544
+  },
+  {
+    "step": 6,
+    "llm_s": 26.6,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": true,
+    "ctx_synced": true,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/tmp/.live_ctx/LIVE_CTX_MAIN.txt\"; s=open(p).read()\nsummary = \"\"\"[Compacted forensic findings - VERIFIED from logs]\nMalicious package: requsets (typosquatted 'requests', "
+  },
+  {
+    "iter": 6,
+    "free_ctx_turn": true,
+    "cmd": "python3 - <<'PY'\nimport re\np=\"/tmp/.live_ctx/LIVE_CTX_MAIN.txt\"; s=open(p).read()\nsummary = \"\"\"[Compacted forensic findi"
+  },
+  {
+    "step": 6,
+    "llm_s": 2.1,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "grep -iE \"requsets|update-helper|systemd.*service|cron|pip\" /app/logs/journal.log | head -40; echo ===DPKG===; grep -iE \"requsets|colourama|urllib4|python\" /app/logs/dpkg.log | head -20"
+  },
+  {
+    "step": 7,
+    "llm_s": 2.2,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "awk '$3 >= \"11:00:22\"' /app/logs/journal.log | tail -30"
+  },
+  {
+    "step": 8,
+    "context_budget_nudge": 0.25,
+    "tokens": 9020
+  },
+  {
+    "step": 8,
+    "llm_s": 33.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/timeline.csv\ntimestamp,source,event_type,details\n2024-03-15 07:00:15,dpkg,package_install,Debian package python3.11 3.11.8-1 installed (legitimate base environment setup)\n2024-03-15"
+  },
+  {
+    "step": 9,
+    "llm_s": 8.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

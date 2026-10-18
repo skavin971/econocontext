@@ -1,0 +1,14 @@
+$ .venv-clm/bin/python tests/measure/clm_three_ways.py runs/ta2/clm-b8000/maven-slf4j-conflict-r1
+== ta2.clm-b8000.maven-slf4j-conflict.r1: reward 1.0; LM calls 35, bash 35; context edits: syncs 3, real 2, grew 0, rejected 0; budget 8000
+   validation of our rebuild: 36/36 pass; dP values [0]
+   (a) ours:            ΣP  144,844  Σ(P-R)   24,780  ΣG 12,589  F 1.8754e+15  (hit 0.829)
+   (b) CLM on its trajectory [hf:Qwen/Qwen3.8-27B-FP8; tokens server_usage_per_step]: ΣP  140,106  Σ(P-R)   27,632  ΣG 12,397  F 2.0047e+15  (calls 35, re-prefill turns 7)
+   (b') CLM's own, attached during the run: Σ(P-R) 27632, F 2004720755500646.5, source hf:Qwen/Qwen3.8-27B-FP8
+   (c) CLM blocks on our ids: ΣP  144,844  Σ(P-R)   24,764  ΣG 12,589  F 1.8714e+15
+   gap (c) - (a): -0.215% of F = decode averaging -0.171% + prefill -0.043% (prefill tokens equal: False)
+   gap (b) - (a): +6.90% of F (ΣP -4,738, Σ(P-R) +2,852, ΣG -192)
+exit 0
+(a) all 36 calls:            ΣP 144,844  Σ(P-R) 24,780  ΣG 12,589  F 1.8754e+15
+(a) without abandoned call 10: ΣP 139,276  Σ(P-R) 24,396  ΣG 12,397  F 1.8461e+15   (call 10: P 5568, R 5184, U 384, G 192)
+CLM's usage.json (server-reported, its 35 calls): prompt_tokens 139,276, completion_tokens 12,397
+(b) vs (a) without call 10: +8.59% of F

@@ -1,0 +1,52 @@
+# EconoContext v2: one session, decide at each hook (plan: ~/.claude/plans/give-the-policy-the-shiny-donut.md).
+# econocontext/owner.py reads the `harness` and `jev` sections; `price`, `session` and `force` were read by the
+# Claude Code hook service (at tag econo-jev-final). Prices come from billing_rates.yaml (provider/model below).
+
+price:
+  provider: anthropic
+  model: claude-sonnet-5
+  hit_share: 0.95          # share of resident tokens Anthropic serves from cache each call (spike 1a: 36,402 of 36,404)
+  expected_output: 500     # output tokens of an extra call (a re-read)
+
+session:
+  calls_total: 30          # PLACEHOLDER: expected model calls per session; H = calls_total − calls so far (min 3)
+  big_tokens: 1000         # results at least this big are priced (Jev asked); smaller ones stay full
+  preview_lines: 10        # head + tail lines shown in a preview (5 + 5)
+  slice_min_prob: 0.15     # a chunk is kept in a slice when Jev gives it at least this probability
+  chunk_lines: 40          # lines per chunk offered to Jev's relevant_parts question (≤ 255 chunks)
+  live_check_every: 4      # calls between "done yet?" checks while big items are in context
+  compact_min_conversation: 20000   # never compact a conversation smaller than this (tokens beyond the fixed prefix)
+  fixed_prefix: 36400      # Claude Code's system prompt + tools, cached at the start (spike 1a)
+  summary_tokens: 10630    # the summary kept in context after Claude Code's /compact (one measurement: v2x2 maven)
+  summary_output_tokens: 16783  # output of the /compact call itself, thinking included (same measurement)
+  force_compact_after: 12  # spike 1b: a forced compaction waits for this many calls, and happens once
+
+jev:
+  model: jev-latest
+  timeout_seconds: 20
+  max_state_chars: 200000  # the conversation sent to Jev is cut to its most recent part beyond this
+  max_input_tokens: 28000  # Jev's input limit with margin, in Jev's tokens (2.5 characters each: ~70,000 characters)
+
+force: []                  # spike 1b: names of rules applied whenever they apply, regardless of price
+
+# Our own Gemini agent (agents/react/agent.py), where EconoContext owns the conversation
+# (econocontext/owner.py). Values marked ASSUMED are to be revisited with data.
+harness:
+  price: {provider: vertex_gemini, model: gemini-3.6-flash}
+  hit_share: 0.81            # fitted implicit-cache hit rate (cost_model miss 0.19, 243 Gemini calls, 2026-09-30)
+  cache_in_decisions: true   # v2: price the provider's cache with hit_share. v2.1 (econo_cache=off): no cache in
+                             # decisions; measured hit rate was ~0.68, not 0.81, and a closed cache can't be predicted
+  expected_output: 1500      # mean output + thinking tokens per call (Gemini smoke run gsmoke, 21 calls; at tag econo-jev-final)
+  calls_total: 25            # ASSUMED: expected calls per session (EconoCLM raw mean); H = this - calls so far, min 3
+  fixed_prefix: 1502         # system prompt + tools + task, first call of the smoke run
+  big_tokens: 1000           # results at least this big are priced (Jev asked)
+  preview_lines: 10
+  chunk_lines: 40
+  slice_min_prob: 0.15
+  check_every: 4             # calls between "done yet?" questions while there is something to evict or compact
+  evict_min_done: 0.5        # an item counts as finished when Jev's done >= this
+  compact_min_prompt: 30000  # ASSUMED (user): no compaction below this prompt size
+  compact_cooldown_calls: 8  # ASSUMED (user): calls between compactions
+  segment_done_min: 0.7      # ASSUMED (user): Jev's segment_done needed to compact
+  keep_verbatim_min: 0.5     # a big item in the segment is kept word for word when 1 - done >= this
+  summary_output_estimate: 2000  # ASSUMED: logged price only (compaction is not gated on price)

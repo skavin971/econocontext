@@ -7,25 +7,25 @@ name = "econocontext"
 version = "0.3.0.dev0"
 description = "A cost-based optimizer for LLM agent systems"
 requires-python = ">=3.11"
-# The optimizer needs only PyYAML. The Omnigent layer (omnigent_layer/) and the SWE-bench
-# bench (bench/) have their own dependencies; see docs/TESTING.md.
+# The method (econocontext/) needs only PyYAML. harness/ runs inside Harbor (installed in .venv).
+# Earlier tracks (at tag econo-jev-final) keep their own dependencies.
 dependencies = ["pyyaml==6.0.3"]
 
 [project.optional-dependencies]
-bench = ["swebench==5.0.2"]
 dev = ["pytest==9.1.1"]
+# measure/ rebuilds prompts with the model's own tokenizer and chat template.
+measure = ["transformers==5.19.0"]
+# EconoContext keeps its context in the agent DB (AgentDB/, installed with pip install -e AgentDB):
+# Postgres through psycopg; tests start their own Postgres with pgserver (no Docker).
+agentdb = ["psycopg[binary]==3.3.6", "pgserver==0.1.4"]
 
 [tool.setuptools.packages.find]
-include = ["econocontext*"]
-
-[tool.setuptools.package-data]
-econocontext = ["store/schema.sql"]
+include = ["econocontext*", "harness*", "baselines*", "gateway*", "measure*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "AgentDB/tests"]
 pythonpath = ["."]
 markers = [
   "live: real paid calls (needs credentials); run with -m live",
-  "docker: needs Docker and a pulled SWE-bench image, but no model calls",
 ]
 addopts = "-m 'not live'"

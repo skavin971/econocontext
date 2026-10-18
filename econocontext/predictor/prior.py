@@ -1,0 +1,16 @@
+"""Fixed guesses: the predictor with no knowledge of the session (the baseline for Jev)."""
+
+NEEDED_AGAIN = {"Read": 0.5, "Agent": 0.5, "Task": 0.5}  # anything else: DEFAULT
+DEFAULT = 0.3
+
+
+class Prior:
+    name = "prior"
+
+    def arrival(self, task, convo, item):
+        return {"needed_again": NEEDED_AGAIN.get(item["tool"], DEFAULT), "lifetime": "few_calls",
+                "relevant": None}, None
+
+    def segment(self, task, turns, items, boundaries):
+        # Without knowledge of the trajectory, no segment is judged finished and nothing evicted.
+        return {"done": {i["id"]: 0.0 for i in items}, "segment_done": 0.0, "segment_end": None}, None

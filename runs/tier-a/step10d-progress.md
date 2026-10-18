@@ -1,0 +1,10 @@
+- 2026-10-11 17:30:55 UTC | START | tc10s: 3 trials (raw-32k, summary-32k, clm-32k; 1 tasks; repeats 1-1), 1 workers; 2017 of 8000 requests used today
+- 2026-10-11 17:34:24 UTC | raw-32k | acl-permissions-inheritance | r1 | pass | 4 calls | 0.127 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 17:35:01 UTC | summary-32k | acl-permissions-inheritance | r1 | pass | 4 calls | 0.115 PFLOPs | valid 4/4 | retries 0 | repeats 0
+- 2026-10-11 17:36:09 UTC | clm-32k | acl-permissions-inheritance | r1 | pass | 7 calls | 0.324 PFLOPs | valid 7/7 | retries 0 | repeats 0
+- 2026-10-11 17:36:09 UTC | END | tc10s: 3 of 3 trials finished
+- 2026-10-11 17:36:24 UTC | START | tc10s: 3 trials (raw-32k, summary-32k, clm-32k; 1 tasks; repeats 1-1), 1 workers; 2032 of 8000 requests used today
+- 2026-10-11 17:51:39 UTC | raw-32k | bandit-delayed-feedback | r1 | fail | 45 calls | 5.424 PFLOPs | valid 45/45 | retries 0 | repeats 0
+- 2026-10-11 18:13:57 UTC | summary-32k | bandit-delayed-feedback | r1 | fail (end max_steps) | 65 calls | 8.781 PFLOPs | valid 65/65 | retries 0 | repeats 0 | compactions 1, summary G [1933], P after [4561]
+- 2026-10-11 18:17:28 UTC | clm-32k | bandit-delayed-feedback | r1 | fail | 16 calls | 2.372 PFLOPs | valid 16/16 | retries 0 | repeats 0
+- 2026-10-11 18:17:28 UTC | END | tc10s: 3 of 3 trials finished

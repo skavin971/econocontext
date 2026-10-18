@@ -1,0 +1,183 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /app/service/pom.xml"
+  },
+  {
+    "step": 2,
+    "llm_s": 4.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "find /app/service -type f -name \"*.java\" | head -50; echo ---; ls /app/service"
+  },
+  {
+    "step": 3,
+    "llm_s": 1.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat /app/service/src/main/java/com/example/service/LoggingService.java; echo ===; cat /app/service/src/test/java/com/example/service/LoggingServiceTest.java"
+  },
+  {
+    "step": 4,
+    "llm_s": 4.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 300 mvn -q dependency:tree 2>&1 | grep -iE \"slf4j|logback|log4j|conflict\" | head -60"
+  },
+  {
+    "step": 5,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 600 mvn dependency:tree 2>&1 | grep -iE \"slf4j|logback|log4j|conflict\" | head -80"
+  },
+  {
+    "step": 6,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 600 mvn dependency:tree > /tmp/tree.txt 2>&1; echo \"exit=$?\"; tail -20 /tmp/tree.txt"
+  },
+  {
+    "step": 7,
+    "llm_s": 2.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "which mvn java; java -version 2>&1; mvn -version 2>&1 | head -3"
+  },
+  {
+    "step": 8,
+    "llm_s": 1.4,
+    "bash_s": 0.1,
+    "return_code": 2,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls /opt 2>/dev/null; ls /usr/share/maven 2>/dev/null; find / -maxdepth 4 -name \"mvn\" -type f 2>/dev/null | head; ls ~/.m2 2>/dev/null"
+  },
+  {
+    "step": 9,
+    "llm_s": 1.6,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "find / -name \"mvn\" 2>/dev/null | head; ls /root 2>/dev/null; ls /app; cat /etc/os-release | head -3"
+  },
+  {
+    "step": 10,
+    "llm_s": 1.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "timeout 60 apt-get install -y maven 2>&1 | tail -5 || timeout 60 curl -sI https://repo.maven.apache.org/maven2/ | head -3"
+  },
+  {
+    "step": 11,
+    "llm_s": 1.6,
+    "bash_s": 2.7,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "timeout 30 curl -sI https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz | head -5; echo ---; timeout 30 apt-get update 2>&1 | tail -3"
+  },
+  {
+    "step": 12,
+    "llm_s": 1.9,
+    "bash_s": 2.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": true,
+    "cmd": "cd /opt && timeout 300 curl -sO https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz && tar xzf apache-maven-3.9.6-bin.tar.gz && ln -sf /opt/apache-maven-3.9.6/bi"
+  },
+  {
+    "step": 13,
+    "llm_s": 1.9,
+    "bash_s": 16.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 900 mvn -B dependency:tree > /tmp/tree.txt 2>&1; echo \"exit=$?\"; grep -iE \"slf4j|logback|log4j|conflict\" /tmp/tree.txt | head -60"
+  },
+  {
+    "step": 14,
+    "llm_s": 1.7,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "sed -n '/maven-dependency-plugin.*tree\\|com.example:logging-service/p,$p' /tmp/tree.txt | grep -E \"^\\[INFO\\] [+\\\\\\\\| ]\" | head -80"
+  },
+  {
+    "step": 15,
+    "llm_s": 8.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "grep -n \"logging-service:jar\" /tmp/tree.txt | head -3; awk '/com.example:logging-service:jar/,/^\\[INFO\\] \\+-- /' /tmp/tree.txt | head -5; grep -E \"^\\[INFO\\] [\\\\\\\\+|]\" /tmp/tree.txt | head -100"
+  },
+  {
+    "step": 16,
+    "llm_s": 41.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/service/pom.xml\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xsi"
+  },
+  {
+    "step": 17,
+    "context_budget_nudge": 0.25,
+    "tokens": 15384
+  },
+  {
+    "step": 17,
+    "llm_s": 1.8,
+    "bash_s": 5.6,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 900 mvn -B clean compile > /tmp/compile.txt 2>&1; echo \"compile exit=$?\"; grep -E \"BUILD|ERROR\" /tmp/compile.txt | head -5"
+  },
+  {
+    "step": 18,
+    "llm_s": 2.7,
+    "bash_s": 1.8,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 900 mvn -B dependency:tree -Dverbose > /tmp/tree2.txt 2>&1; echo \"exit=$?\"; grep -iE \"slf4j|logback|log4j\" /tmp/tree2.txt | grep -v Download | sort | uniq -c | sort -rn | he"
+  },
+  {
+    "step": 19,
+    "context_budget_nudge": 0.25,
+    "tokens": 14705
+  },
+  {
+    "step": 19,
+    "llm_s": 3.6,
+    "bash_s": 4.0,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app/service && timeout 900 mvn -B test > /tmp/test.txt 2>&1; echo \"exit=$?\"; grep -E \"Tests run|BUILD|ERROR|NoSuchMethod\" /tmp/test.txt | head -10"
+  }
+]

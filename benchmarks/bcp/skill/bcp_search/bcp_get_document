@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""bcp_get_document DOCID: a document from the BrowseComp-Plus search service (benchmarks/bcp/search_server.py),
+printed exactly as the service returns them, the same text the other arms get."""
+import json, os, sys, urllib.request
+url = os.environ.get("BCP_SEARCH_URL", "http://host.docker.internal:8790")
+docid = " ".join(sys.argv[1:]).strip()
+if not docid:
+    sys.exit('usage: bcp_get_document DOCID')
+request = urllib.request.Request(f"{url}/get_document", data=json.dumps({"docid": docid}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+try:
+    with urllib.request.urlopen(request, timeout=120) as response:
+        sys.stdout.write(response.read().decode())
+except urllib.error.HTTPError as exc:
+    sys.stdout.write(exc.read().decode())
+    sys.exit(1)

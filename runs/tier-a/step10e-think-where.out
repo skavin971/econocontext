@@ -1,0 +1,41 @@
+$ .venv/bin/python <scratchpad>/think_where.py
+
+== tc10s raw-32k: 45 agent calls, 23 at the cap; runs of consecutive cut calls: [7, 5, 5, 2, 1, 1, 1, 1]; replies with 2+ tool calls: 1; tools used: {'bash': 29, 'submit': 1}
+   thinking after a budget notice     : n   1, median    132, max   132, share > 2,048:   0%
+   thinking after a nudge             : n  16, median   2048, max  2048, share > 2,048:   0%
+   thinking after a task              : n   1, median      9, max     9, share > 2,048:   0%
+   thinking after a tool result       : n  27, median    812, max  2048, share > 2,048:   0%
+   cut call 8 after a tool result: thinking 7526 chars; hedges {'but': 10, 'hmm': 2, 'actually': 7, 'wait': 2, 'let me': 11}
+      starts: "Now I understand the data structure. The arm rates vary by time of day (there's an interaction effect). The values vary by arm (roughly constant across time of day and segment).\n\nKey design:\n- Delay m"
+      ends:   'cle. Oracle picks the best arm per context (using true rates). If my estimates are decent, I should be close. Let me estimate the gap: oracle reward = Σ_x max_a p_a(x) v_a. My reward = Σ_x p_{a*(x)}(x'
+   cut call 9 after a nudge: thinking 6816 chars; hedges {'let me': 10, 'but': 10, 'hmm': 6, 'actually': 3, 'wait': 2, 'alternatively': 1}
+      starts: 'Let me build the solution. Main components:\n\n1. Delay model: log-normal MLE from observed delays. But caution — 110 delays are exactly 72 (censoring). The evaluation probably computes mu/sigma from th'
+      ends:   'ion rate RMSE ≤ 0.03". The actual rate is probably the true per-arm rate. My corrected estimate should be close.\n\n3. Arm selection for test contexts: I need the best arm per context. Expected reward ='
+   cut call 10 after a nudge: thinking 7078 chars; hedges {'but': 5, 'actually': 4, 'alternatively': 1, 'hmm': 1}
+      starts: 'Let\'s build the solution. Plan:\n\n1. Delay model: MLE from observed delays (mu, sigma), median = exp(mu), p90 = exp(mu + 1.2816*sigma), conversion rate estimate.\n\nConversion rate estimate: what is "act'
+      ends:   "erall conversion rate used in generation. My estimate: delay-corrected overall rate. Let's compute: for each impression, corrected indicator = converted / F(age) (if age<72). Then the mean. Let's test"
+
+== tc10s clm-32k: 16 agent calls, 1 at the cap; runs of consecutive cut calls: [1]; replies with 2+ tool calls: 0; tools used: {'bash': 15}
+   thinking after a budget notice     : n   2, median    571, max  1119, share > 2,048:   0%
+   thinking after a nudge             : n   1, median     25, max    25, share > 2,048:   0%
+   thinking after a task              : n   1, median     16, max    16, share > 2,048:   0%
+   thinking after a tool result       : n  12, median    209, max  2048, share > 2,048:   0%
+   cut call 5 after a tool result: thinking 6574 chars; hedges {'let me': 8, 'actually': 3, 'but': 9, 'wait': 1, 'hmm': 2}
+      starts: 'Arm rankings vary significantly by time of day. Arm 3 is strong at 9-19h, arm 1 is strong at 10-15h, arm 8 is strong at 7-19h. Arm 9 is weak. Arm 2 is weak.\n\nInteresting point: the maximum conversion '
+      ends:   'mething)? Let me think: outcome Y ∈ {0, v}, v ~ [0.5, 10], mean v_a. P(Y=0)=1-p. 80% CI for Y: lower = 0 (since P(Y=0)=1-p ≤ 0.9? if p ≥ 0.1 then 1-p ≤ 0.9). Upper: the smallest u such that P(Y ≤ u) ≥'
+
+== tc9 raw: 119 agent calls, 2 at the cap; runs of consecutive cut calls: [1, 1]; replies with 2+ tool calls: 1; tools used: {'bash': 114, 'submit': 2, 'write_file': 1, 'read_file': 1}
+   thinking after a nudge             : n   2, median   5080, max  6571, share > 2,048: 100%
+   thinking after a task              : n   3, median     10, max    10, share > 2,048:   0%
+   thinking after a tool result       : n 114, median    420, max  8192, share > 2,048:  18%
+
+== tc9 clm-32k: 86 agent calls, 0 at the cap; runs of consecutive cut calls: []; replies with 2+ tool calls: 3; tools used: {'bash': 89}
+   thinking after a budget notice     : n  12, median    183, max  2507, share > 2,048:   8%
+   thinking after a task              : n   3, median     14, max    14, share > 2,048:   0%
+   thinking after a tool result       : n  71, median    429, max  4107, share > 2,048:   7%
+exit 0
+
+== tc10s summary-32k: 64 agent calls, 30 at the cap; after our nudge: n 23, at the cap 17, thinking median 2048; after a tool result: n 39, at the cap 13, thinking median 720
+
+== the summary call (tc10s summary-32k bandit, call 32): prompt 24,227, output 1,933 = thinking 32 + visible 1,901; finish stop; visible summary 5995 characters; thinking 143 characters
+   summary starts: '\n\n# Task Handoff Summary: Multi-Armed Bandit with Delayed Feedback\n\n## Task Overview\nAdTech Corp ad selection system. Choose best of 10 ad campaigns per context from `test_contexts.csv` (2,000 rows), accounting for delayed conversion feedback (up to 72h) and non-stationary performance.\n\n## Output Fi'

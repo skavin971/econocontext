@@ -1,0 +1,21 @@
+# EconoContext's agent DB for real runs (step 12a): Postgres 16 on localhost:5433, data in a named volume.
+#   docker compose up -d
+# Then set AGENTDB_DSN in .env to this database (user, password and name below, host localhost, port 5433).
+# Tests do not use it: they start their own Postgres from pip (pgserver).
+services:
+  agentdb:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: econo
+      POSTGRES_PASSWORD: econo-local
+      POSTGRES_DB: agentdb
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - agentdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U econo -d agentdb"]
+      interval: 2s
+      retries: 30
+volumes:
+  agentdb:

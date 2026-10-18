@@ -1,0 +1,147 @@
+[
+  {
+    "step": 1,
+    "llm_s": 1.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls /app/ && cat /app/input.txt 2>/dev/null | head -50"
+  },
+  {
+    "step": 2,
+    "llm_s": 1.5,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "ls -la /app/; find / -name \"input.txt\" 2>/dev/null | head; find / -name \"*canonical*\" 2>/dev/null | grep -v proc | head"
+  },
+  {
+    "step": 3,
+    "llm_s": 81.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cat <<'EOF' > /app/canonicalize.py\nimport re\nfrom collections import OrderedDict\n\nVAR_RE = re.compile(r'\\{([A-Za-z0-9_-]+)\\}')\nMETHODS = {'GET', 'POST', 'PUT', 'DELETE', 'PATCH'}\nPERMS = {'ALLOW', 'DE"
+  },
+  {
+    "step": 4,
+    "context_budget_nudge": 0.25,
+    "tokens": 10651
+  },
+  {
+    "step": 4,
+    "llm_s": 3.1,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/api/users/{id} GET admin ALLOW\n/api/users/{userId} GET admin ALLOW\n/api/users POST user DENY\n/api/orders/{orderId} DELETE manager ALLOW\n/api GET admin ALLOW\n/api/us"
+  },
+  {
+    "step": 5,
+    "llm_s": 6.9,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/a GET r1 ALLOW\n/a/b POST r2 DENY\n/a/c GET r3 ALLOW\n\nbase /a\nexclude r3\n\nEOF\npython3 canonicalize.py && echo \"--- empty plan:\" && cat -A output.txt\ncat <<'EOF' > inp"
+  },
+  {
+    "step": 6,
+    "llm_s": 3.5,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/a GET shadow ALLOW\n/a/b POST r2 DENY\n\nexclude shadow\n\n/a/b POST r2\nEOF\npython3 canonicalize.py && echo \"--- inheritance special:\" && cat -A output.txt\ncat <<'EOF' >"
+  },
+  {
+    "step": 7,
+    "llm_s": 7.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport canonicalize as c\nsrc = open('canonicalize.py').read()\n# quick debug: replicate logic\ncontent = open('input.txt').read()\nPY\ncat <<'EOF' > input.txt\n/a GET shadow ALL"
+  },
+  {
+    "step": 8,
+    "llm_s": 21.9,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && python3 - <<'PY'\nimport re\nfrom collections import OrderedDict\nVAR_RE = re.compile(r'\\{([A-Za-z0-9_-]+)\\}')\ndef norm_path(p): return VAR_RE.sub('{var}', p)\ncontent = open('input.txt').read("
+  },
+  {
+    "step": 9,
+    "llm_s": 7.5,
+    "bash_s": 0.1,
+    "return_code": 1,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat -A input.txt && python3 - <<'PY'\nline = '/a/b POST r2'\nf_ = line.split()\nprint(f_, len(f_))\npath, method = f_\nmethod = method.upper()\nprint(repr(path), repr(method), path.strip(), metho"
+  },
+  {
+    "step": 10,
+    "llm_s": 8.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/a GET shadow ALLOW\n/a/b POST r2 DENY\n\nexclude shadow\n\n/a/b POST\nEOF\npython3 canonicalize.py && echo \"--- inheritance special (correct plan):\" && cat -A output.txt"
+  },
+  {
+    "step": 11,
+    "llm_s": 3.5,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/api/x/{a-b} get admin allow\n/api/x/{c} GET admin DENY\n/api/apix GET admin ALLOW\n/api GET admin ALLOW\n/api POST bob ALLOW\n/api GET bob DENY\n/api GET bob ALLOW\n\nbase "
+  },
+  {
+    "step": 12,
+    "llm_s": 8.3,
+    "bash_s": 0.2,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && printf '' > input.txt && python3 canonicalize.py && echo \"--- empty input:\" && cat -A output.txt\nprintf '/a GET r1 ALLOW\\n\\n\\n\\n/a GET\\n' > input.txt && python3 canonicalize.py && echo \"---"
+  },
+  {
+    "step": 13,
+    "llm_s": 9.0,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && printf '/a/{x,y} GET r1 ALLOW\\n' > input.txt && python3 canonicalize.py && echo \"--- literal invalid var:\" && cat -A output.txt\nprintf '/a/b GET r1 ALLOW\\n/a/bc POST r2 DENY\\n' > input.txt "
+  },
+  {
+    "step": 14,
+    "llm_s": 6.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "cd /app && cat <<'EOF' > input.txt\n/api/v1/users/{id} GET admin ALLOW\n/api/v1/users POST user ALLOW\n/api/v1/users/{uid} DELETE admin DENY\n/api/v1 GET admin ALLOW\n/api/v1/orders/{oid} PATCH clerk ALLOW"
+  },
+  {
+    "step": 15,
+    "context_budget_nudge": 0.25,
+    "tokens": 8215
+  },
+  {
+    "step": 15,
+    "llm_s": 5.4,
+    "bash_s": 0.1,
+    "return_code": 0,
+    "ctx_touched": false,
+    "ctx_synced": false,
+    "cmd": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+  }
+]

@@ -7,7 +7,7 @@ delegated work. The harness keeps its loop, tools, state and security; if
 EconoContext fails, the harness proceeds exactly as it would without it.
 
 This package is the core. It imports only the standard library and PyYAML; host
-frameworks and provider SDKs live under adapters/ and hosts/.
+frameworks live under agents/, and model access goes through gateway/.
 """
 
 __version__ = "0.3.0.dev0"

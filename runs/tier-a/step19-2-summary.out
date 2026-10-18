@@ -1,0 +1,106 @@
+# Step 19 tables (fixed-trajectory estimates, canonical track)
+
+## Qwen3-Coder-480B: 499 paired instances (of 500; dropped: unreadable or not append-only)
+
+### 1. Cost ratio against raw, by cache-read price (share of the input price)
+
+| cache read | 0% | 5% | 10% | 13% | 20% | 25% | 40% | 50% | 100% |
+|---|---|---|---|---|---|---|---|---|---|
+| masking / raw (arms as run) | 5.12 | 1.91 | 1.21 | 1.01 | 0.74 | 0.63 | 0.45 | 0.39 | 0.27 |
+| summary / raw (arms as run) | 1.69 | 0.85 | 0.66 | 0.61 | 0.54 | 0.51 | 0.46 | 0.45 | 0.41 |
+| masking / raw (same trajectory) | 4.73 | 1.76 | 1.12 | 0.93 | 0.68 | 0.58 | 0.42 | 0.36 | 0.24 |
+
+### 2. Variants on the raw arm's trajectory, with the arms as run
+
+| policy | tokens sent | FLOPs | $ at 10% | $ at 25% | $ at 40% | median prompt | p90 prompt | replies needing a stubbed observation | restores |
+|---|---|---|---|---|---|---|---|---|---|
+| raw (as run) | 979.3M | 1,725 PF | $210.45 | $457.57 | $704.69 | 24,831 | 68,420 | 0 | 0 |
+| masking (arm as run) | 413.2M | 11,489 PF | $255.66 | $288.12 | $320.57 | 12,244 | 21,735 | 0 | 0 |
+| LLM-Summary (arm as run) | 633.0M | 3,572 PF | $139.37 | $232.45 | $325.53 | 16,946 | 28,392 | 0 | 0 |
+| masking, same trajectory | 384.3M | 10,698 PF | $235.74 | $265.14 | $294.54 | 12,039 | 21,122 | 1,212 | 0 |
+| V1 k=10 | 459.9M | 2,486 PF | $99.51 | $167.38 | $235.26 | 14,818 | 25,698 | 928 | 0 |
+| V1 k=20 | 524.9M | 2,119 PF | $104.57 | $189.52 | $274.48 | 16,518 | 30,873 | 761 | 0 |
+| V1 k=5 | 418.9M | 3,430 PF | $110.71 | $167.76 | $224.80 | 13,344 | 23,093 | 1,069 | 0 |
+| V2 | 257.7M | 1,455 PF | $57.97 | $93.98 | $129.99 | 7,137 | 16,703 | 2,107 | 0 |
+| V2r | 316.1M | 1,651 PF | $69.54 | $116.72 | $163.91 | 8,709 | 20,449 | 0 | 1,620 |
+| V3 cap=median 12244 | 291.3M | 1,659 PF | $64.02 | $103.59 | $143.17 | 9,765 | 13,406 | 2,820 | 0 |
+| V3 cap=p90 21735 | 427.3M | 1,802 PF | $79.28 | $138.98 | $198.68 | 15,229 | 20,766 | 1,611 | 0 |
+
+## Qwen3-32B: 500 paired instances (of 500; dropped: unreadable or not append-only)
+
+### 1. Cost ratio against raw, by cache-read price (share of the input price)
+
+| cache read | 0% | 5% | 10% | 13% | 20% | 25% | 40% | 50% | 100% |
+|---|---|---|---|---|---|---|---|---|---|
+| masking / raw (arms as run) | 8.21 | 3.05 | 1.96 | 1.64 | 1.22 | 1.05 | 0.78 | 0.69 | 0.49 |
+| summary / raw (arms as run) | 1.78 | 0.88 | 0.69 | 0.64 | 0.56 | 0.54 | 0.49 | 0.47 | 0.44 |
+| masking / raw (same trajectory) | 6.22 | 2.30 | 1.47 | 1.23 | 0.91 | 0.78 | 0.58 | 0.50 | 0.35 |
+
+### 2. Variants on the raw arm's trajectory, with the arms as run
+
+| policy | tokens sent | FLOPs | $ at 10% | $ at 25% | $ at 40% | median prompt | p90 prompt | replies needing a stubbed observation | restores |
+|---|---|---|---|---|---|---|---|---|---|
+| raw (as run) | 868.5M | 1,218 PF | $75.52 | $164.80 | $254.08 | 22,682 | 82,767 | 0 | 0 |
+| masking (arm as run) | 421.6M | 9,999 PF | $148.22 | $173.59 | $198.95 | 11,904 | 25,517 | 0 | 0 |
+| LLM-Summary (arm as run) | 376.7M | 1,996 PF | $52.35 | $88.20 | $124.05 | 12,548 | 28,157 | 0 | 0 |
+| masking, same trajectory | 305.1M | 7,353 PF | $111.26 | $128.85 | $146.45 | 11,122 | 19,319 | 237 | 0 |
+| V1 k=10 | 360.6M | 1,711 PF | $47.67 | $82.34 | $117.01 | 13,072 | 24,215 | 162 | 0 |
+| V1 k=20 | 410.0M | 1,458 PF | $47.94 | $88.33 | $128.73 | 14,332 | 28,773 | 142 | 0 |
+| V1 k=5 | 330.8M | 2,349 PF | $53.32 | $83.56 | $113.81 | 12,086 | 21,466 | 205 | 0 |
+| V2 | 201.0M | 1,025 PF | $28.99 | $48.16 | $67.32 | 6,039 | 14,874 | 502 | 0 |
+| V2r | 220.4M | 1,077 PF | $30.89 | $52.01 | $73.12 | 6,404 | 16,697 | 0 | 343 |
+| V3 cap=median 11906 | 236.0M | 1,117 PF | $32.50 | $55.17 | $77.83 | 9,016 | 12,258 | 531 | 0 |
+| V3 cap=p90 25517 | 388.7M | 1,186 PF | $43.44 | $82.10 | $120.75 | 16,266 | 23,630 | 217 | 0 |
+
+## Gemini 2.5 Flash: 500 paired instances (of 500; dropped: unreadable or not append-only)
+
+### 1. Cost ratio against raw, by cache-read price (share of the input price)
+
+| cache read | 0% | 5% | 10% | 13% | 20% | 25% | 40% | 50% | 100% |
+|---|---|---|---|---|---|---|---|---|---|
+| masking / raw (arms as run) | 5.80 | 1.63 | 0.99 | 0.82 | 0.59 | 0.51 | 0.37 | 0.32 | 0.22 |
+| summary / raw (arms as run) | 2.40 | 0.93 | 0.70 | 0.64 | 0.56 | 0.53 | 0.48 | 0.46 | 0.43 |
+| masking / raw (same trajectory) | 6.63 | 1.87 | 1.14 | 0.94 | 0.69 | 0.59 | 0.43 | 0.38 | 0.26 |
+
+### 2. Variants on the raw arm's trajectory, with the arms as run
+
+| policy | tokens sent | FLOPs | $ at 10% | $ at 25% | $ at 40% | median prompt | p90 prompt | replies needing a stubbed observation | restores |
+|---|---|---|---|---|---|---|---|---|---|
+| raw (as run) | 1,382.5M | 1,625 PF | $48.18 | $109.39 | $170.60 | 36,206 | 137,221 | 0 | 0 |
+| masking (arm as run) | 309.9M | 7,606 PF | $47.83 | $55.42 | $63.01 | 12,803 | 24,254 | 0 | 0 |
+| LLM-Summary (arm as run) | 582.9M | 2,973 PF | $33.68 | $57.61 | $81.54 | 18,668 | 39,802 | 0 | 0 |
+| masking, same trajectory | 363.9M | 8,696 PF | $55.02 | $64.16 | $73.30 | 13,398 | 25,288 | 195 | 0 |
+| V1 k=10 | 458.5M | 2,027 PF | $24.17 | $43.18 | $62.20 | 16,600 | 32,843 | 151 | 0 |
+| V1 k=20 | 534.9M | 1,746 PF | $24.90 | $47.61 | $70.32 | 18,651 | 39,342 | 131 | 0 |
+| V1 k=5 | 406.5M | 2,772 PF | $26.44 | $42.48 | $58.51 | 14,929 | 28,875 | 175 | 0 |
+| V2 | 210.9M | 1,200 PF | $13.11 | $21.59 | $30.07 | 6,154 | 16,403 | 492 | 0 |
+| V2r | 241.7M | 1,275 PF | $14.35 | $24.16 | $33.98 | 7,132 | 19,503 | 0 | 371 |
+| V3 cap=median 12803 | 235.9M | 1,265 PF | $14.20 | $23.75 | $33.30 | 9,519 | 12,626 | 436 | 0 |
+| V3 cap=p90 24254 | 372.2M | 1,348 PF | $18.49 | $34.14 | $49.78 | 15,870 | 22,665 | 273 | 0 |
+
+## Lead: does a variant beat raw and masking in FLOPs and in dollars at 10% and 40%, with a median prompt within 20% of masking's?
+
+| model | variant | beats raw | beats masking arm | beats masking, same trajectory | median within 20% of masking arm | of masking, same trajectory | FLOPs / raw | $10 / raw | $40 / raw | median / masking arm | replies needing a stubbed observation |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Qwen3-Coder-480B | V1 k=10 | no | **yes** | **yes** | no | no | 1.44 | 0.47 | 0.33 | 1.21 | 928 |
+| Qwen3-Coder-480B | V1 k=20 | no | **yes** | **yes** | no | no | 1.23 | 0.50 | 0.39 | 1.35 | 761 |
+| Qwen3-Coder-480B | V1 k=5 | no | **yes** | **yes** | **yes** | **yes** | 1.99 | 0.53 | 0.32 | 1.09 | 1,069 |
+| Qwen3-Coder-480B | V2 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.84 | 0.28 | 0.18 | 0.58 | 2,107 |
+| Qwen3-Coder-480B | V2r | **yes** | **yes** | **yes** | **yes** | **yes** | 0.96 | 0.33 | 0.23 | 0.71 | 0 |
+| Qwen3-Coder-480B | V3 cap=median 12244 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.96 | 0.30 | 0.20 | 0.80 | 2,820 |
+| Qwen3-Coder-480B | V3 cap=p90 21735 | no | **yes** | **yes** | no | no | 1.04 | 0.38 | 0.28 | 1.24 | 1,611 |
+| Qwen3-32B | V1 k=10 | no | **yes** | **yes** | **yes** | **yes** | 1.40 | 0.63 | 0.46 | 1.10 | 162 |
+| Qwen3-32B | V1 k=20 | no | **yes** | **yes** | no | no | 1.20 | 0.63 | 0.51 | 1.20 | 142 |
+| Qwen3-32B | V1 k=5 | no | **yes** | **yes** | **yes** | **yes** | 1.93 | 0.71 | 0.45 | 1.02 | 205 |
+| Qwen3-32B | V2 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.84 | 0.38 | 0.26 | 0.51 | 502 |
+| Qwen3-32B | V2r | **yes** | **yes** | **yes** | **yes** | **yes** | 0.88 | 0.41 | 0.29 | 0.54 | 0 |
+| Qwen3-32B | V3 cap=median 11906 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.92 | 0.43 | 0.31 | 0.76 | 531 |
+| Qwen3-32B | V3 cap=p90 25517 | **yes** | **yes** | **yes** | no | no | 0.97 | 0.58 | 0.48 | 1.37 | 217 |
+| Gemini 2.5 Flash | V1 k=10 | no | **yes** | **yes** | no | no | 1.25 | 0.50 | 0.36 | 1.30 | 151 |
+| Gemini 2.5 Flash | V1 k=20 | no | no | **yes** | no | no | 1.07 | 0.52 | 0.41 | 1.46 | 131 |
+| Gemini 2.5 Flash | V1 k=5 | no | **yes** | **yes** | **yes** | **yes** | 1.71 | 0.55 | 0.34 | 1.17 | 175 |
+| Gemini 2.5 Flash | V2 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.74 | 0.27 | 0.18 | 0.48 | 492 |
+| Gemini 2.5 Flash | V2r | **yes** | **yes** | **yes** | **yes** | **yes** | 0.78 | 0.30 | 0.20 | 0.56 | 0 |
+| Gemini 2.5 Flash | V3 cap=median 12803 | **yes** | **yes** | **yes** | **yes** | **yes** | 0.78 | 0.29 | 0.20 | 0.74 | 436 |
+| Gemini 2.5 Flash | V3 cap=p90 24254 | **yes** | **yes** | **yes** | no | **yes** | 0.83 | 0.38 | 0.29 | 1.24 | 273 |
+exit 0

@@ -1,0 +1,24 @@
+$ .venv/bin/python -m pytest -q
+..................................                                       [100%]
+34 passed in 0.80s
+exit 0
+$ pytest --collect-only per file
+   7 tests/agents/test_react_agent.py
+  19 tests/econocontext/test_owner.py
+   5 tests/econocontext/test_prices.py
+   3 tests/unit/test_isolation.py
+$ import the agent and the owner
+econo-agent True False
+exit 0
+$ .venv/bin/python -m pytest -q   (final, step 2)
+..................................                                       [100%]
+34 passed in 0.78s
+exit 0
+secrets check: 9 .env values x 21 added/modified files; hits: 2
+note (added before the step-2 report): the 2 "hits" above are a false positive. Both files contain the
+.env value of ECONOCONTEXT_CREDENTIAL_ENV, which is the variable NAME "AGENT_PLATFORM_API_KEY" (where a key
+lives), not a key: tests/unit/test_isolation.py lists it as a provider key name, and archive/README-old.md
+(the old README, already public at tag econo-jev-final) mentions it. No key value is in any committed file.
+The check's failure did not stop the commit because its exit code was lost in a pipe through tee; from
+step 3 on the check is scripts/check_secrets.py (exit code respected; values that are only variable names
+are skipped and counted).
