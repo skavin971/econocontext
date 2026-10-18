@@ -65,7 +65,7 @@ def main() -> None:
         print("The simulator matches this server on all 4 requests. Next: .venv/bin/python pflop_accuracy/run_clm.py --backend vllm")
     else:
         gran = {r % 16 == 0 for r in real}
-        print("The simulator differs from this server on this probe. Keep these numbers (send them with your results).")
+        print("The simulator differs from this server on this probe; these numbers are worth keeping with the full results.")
         print("vLLM's cached counts " + ("are" if gran == {True} else "are NOT all") + " multiples of 16 tokens.")
         print("You can still run the full check: .venv/bin/python pflop_accuracy/run_clm.py --backend vllm")
 

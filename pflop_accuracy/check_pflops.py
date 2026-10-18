@@ -114,7 +114,7 @@ def main() -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / f"{a.label}.md").write_text("\n".join(out) + "\n")
     print("\n".join(out))
-    print(f"\nSaved: {RESULTS / f'{a.label}.md'} (numbers only; this is what to send back)")
+    print(f"\nSaved: {RESULTS / f'{a.label}.md'} (numbers and question ids only, easy to share)")
 
 
 if __name__ == "__main__":

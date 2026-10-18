@@ -1,8 +1,10 @@
-# PFLOP accuracy: check our PFLOPs math with CLM
+# PFLOP accuracy: checking our PFLOPs math with CLM
 
-**This folder is the only thing you need.** It runs **CLM's agent only** (zero-shot, as released by its authors) on 8 BrowseComp-Plus questions, then checks **our PFLOPs measurement** against a real server. It does not touch EconoContext, our own agents, or any of our numbered experiment steps. All its runs are labelled `bcp-pflop-…` and kept apart.
+This folder bundles what I use to check our PFLOPs measurement against a real server. It runs **CLM's agent on its own** (zero-shot, as its authors released it) on 8 BrowseComp-Plus questions. Then it compares our numbers with what the server actually did.
 
-## 1. What this checks
+It's self-contained: it doesn't depend on EconoContext or any of the other experiments in the repo. Its runs are labelled `bcp-pflop-…`, so they stay separate from everything else. Feel free to use it, change it, or build on it for your own work.
+
+## What it checks
 We price every model call with the CLM paper's prefix-reuse FLOPs (Appendix C, Eq. 9):
 
     F = C_token·(P − R + G) + C_attn·[½(P² − R²) + G·P + ½·G²]
@@ -11,37 +13,40 @@ We price every model call with the CLM paper's prefix-reuse FLOPs (Appendix C, E
 - **G:** generated tokens.
 - **R:** prompt tokens served from the prefix cache.
 
-On Purdue's API we can see P and G, but **not R**: Purdue doesn't report cache hits, so R comes from our simulator (`measure/cache_sim.py`). On our own vLLM, which serves the same model, the server reports R itself. So this step checks:
+Purdue's API shows P and G but **not R**: it doesn't report cache hits, so I estimate R with a simulator (`measure/cache_sim.py`). A vLLM server we run ourselves, with the same model, reports R directly. So the comparison is:
 
 | check | what is compared | where |
 |---|---|---|
-| **1. Cache hits** (the main one) | our simulated R vs vLLM's real `cached_tokens`, call by call | Path B only |
-| **2. Tokens** | our rebuild of each prompt vs the server's own token ids | both paths |
-| **3. Totals** | our PFLOPs vs PFLOPs from the real cache hits, and vs CLM's own FLOPs export | both (real cache: Path B) |
+| **Cache hits** (the interesting one) | the simulated R vs vLLM's real `cached_tokens`, call by call | vLLM only |
+| **Tokens** | our rebuild of each prompt vs the server's own token ids | both |
+| **Totals** | our PFLOPs vs PFLOPs from the real cache hits, and vs CLM's own FLOPs export | both (real cache: vLLM) |
 
-**Path A (Purdue) is only a smoke test.** It shows the setup works and that the tokens match; it can't check the cache.
+**The Purdue path is mostly a smoke test.** It confirms the setup works and the tokens line up, but it can't say anything about the cache.
 
-**What this does not test:** answer accuracy (BM25 retrieval, not tuned), EconoContext, or the FLOPs constants. The constants are fixed by the model's architecture and already checked in `tests/measure/`.
+**Not covered here:**
+- answer accuracy: retrieval is BM25 and nothing is tuned;
+- EconoContext;
+- the FLOPs constants, which come from the model's architecture and are already checked in `tests/measure/`.
 
-## 2. Requirements
-- **Hardware and system:** a Linux machine (Chameleon), Docker Engine (`docker info` works for your user), Python 3.12, Java 21 (`sudo apt install openjdk-21-jdk`), and about 15 GB of free disk.
-- **Path A:** your **own** Purdue GenAI Studio key, in `.env` as `GENAI_API_KEY=…`. Never commit `.env`.
-- **Path B:** one GPU with 80 GB (A100 80GB or H100), and vLLM **0.30.0**, the version Purdue runs.
+## What you'll need
+- **System:** Linux (I've been using Chameleon), Docker Engine (`docker info` working for your user), Python 3.12, Java 21 (`sudo apt install openjdk-21-jdk`), and about 15 GB of free disk.
+- **For the Purdue path:** your own Purdue GenAI Studio key, in `.env` as `GENAI_API_KEY=…`. `.env` is git-ignored.
+- **For the vLLM path:** one 80 GB GPU (A100 80GB or H100) and vLLM 0.30.0, the version Purdue runs.
 
-Clone without downloading all old run logs:
+The repo tracks a lot of old run logs, so a partial clone saves time:
 
     git clone --filter=blob:none https://github.com/skavin971/econocontext.git && cd econocontext
 
-## 3. Setup (once)
+## Setup (once)
     python3.12 pflop_accuracy/setup.py
 
-It installs the three environments, clones BrowseComp-Plus, decrypts its questions (a 2.8 GB download), downloads the BM25 index (2.2 GB) and writes the task folders.
-- It is safe to rerun.
-- `--check` only reports what is ready.
-- Everything from BrowseComp-Plus goes to `~/econo/bcp/`, outside the repository.
+This installs the three environments, clones BrowseComp-Plus, decrypts its questions (about a 2.8 GB download), downloads the BM25 index (about 2.2 GB) and writes the task folders.
+- It's safe to rerun.
+- `--check` only reports what's there.
+- Everything from BrowseComp-Plus lands in `~/econo/bcp/`, outside the repo.
 
-## 4. Path A: Purdue (smoke test)
-Use three terminals.
+## Path A: through Purdue
+This is easiest with three terminals.
 
 **A1.** The search service:
 
@@ -53,20 +58,20 @@ Use three terminals.
     .venv/bin/python -m gateway.server --provider purdue --max-tokens-for bcp=4096 \
         --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300
 
-**A3.** Check, then run 1 question first, then all 8:
+**A3.** A quick readiness check, one question to start, then all 8:
 
     python3 pflop_accuracy/check_ready.py --backend purdue
     .venv/bin/python pflop_accuracy/run_clm.py --backend purdue --questions 1
     .venv/bin/python pflop_accuracy/run_clm.py --backend purdue --label bcp-pflop-purdue-<date>-8
 
-**A4.** Check the PFLOPs (use the label the run printed):
+**A4.** The PFLOPs check, with the label the run printed:
 
     .venv/bin/python pflop_accuracy/check_pflops.py --label bcp-pflop-purdue-<date>
 
-Purdue allows 20 requests a minute and 8,000 a day per key. 8 questions need about 500 requests and 2–3 hours.
+Purdue allows 20 requests a minute and 8,000 a day per key. 8 questions take about 500 requests and 2–3 hours.
 
-## 5. Path B: our vLLM (the real check)
-**B1.** Serve the model. It's the same model and revision our FLOPs constants were measured on:
+## Path B: through our own vLLM
+**B1.** Serve the model, at the same revision our FLOPs constants were measured on:
 
     pip install vllm==0.30.0      # in its own environment
     vllm serve Qwen/Qwen3.8-27B-FP8 --revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a \
@@ -74,44 +79,44 @@ Purdue allows 20 requests a minute and 8,000 a day per key. 8 questions need abo
         --enable-prefix-caching --enable-prompt-tokens-details \
         --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 --port 8000
 
-- `--enable-prompt-tokens-details` is required: it makes vLLM report the cache hits.
-- Purdue's exact serving flags aren't published. If tool calls fail to parse, report it, along with the flag you changed.
+- `--enable-prompt-tokens-details` is the flag that makes vLLM report cache hits.
+- The two parser flags are my best guess from the model's chat template; Purdue doesn't publish its serving flags. If tool calls don't parse, a different parser is probably needed. I'd be glad to hear which one works.
 
-**B2.** The search service: as in A1.
+**B2.** The search service, as in A1.
 
 **B3.** The gateway, pointed at vLLM:
 
     .venv/bin/python -m gateway.server --provider vllm --upstream http://127.0.0.1:8000/v1 --rpm 600 \
         --max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300
 
-**B4.** Check, probe the cache (1 minute), then run:
+**B4.** A readiness check, a one-minute cache probe, then the run:
 
     python3 pflop_accuracy/check_ready.py --backend vllm
     .venv/bin/python pflop_accuracy/probe_vllm_cache.py
     .venv/bin/python pflop_accuracy/run_clm.py --backend vllm
 
-**B5.** Check the PFLOPs:
+**B5.** The PFLOPs check:
 
     .venv/bin/python pflop_accuracy/check_pflops.py --label bcp-pflop-vllm-<date>
 
-**Run one batch at a time, and nothing else on that vLLM server**, so no other traffic shares or evicts the cache being measured.
+The cache numbers are cleanest with one batch at a time and nothing else running on that vLLM server, so no other traffic shares or evicts the cache.
 
-## 6. Reading the result
-`check_pflops.py` prints one row per question and a verdict:
-- **Tokens: "All match"** means our prompt rebuild equals the server's ids. Mismatches are reported, not hidden.
-- **Cache hits:** the share of calls where our simulated R equals vLLM's, the largest difference, and the first call that differs. **100% means our simulator reproduces the real cache.** Anything less is a finding, not a failure on your part: send it as is.
+## Reading the result
+`check_pflops.py` prints a row per question and a short summary:
+- **Tokens:** "All match" means our prompt rebuild equals the server's token ids. Any mismatches are listed.
+- **Cache hits:** the share of calls where the simulated R equals vLLM's, the largest gap, and the first call that differs. 100% would mean the simulator reproduces the real cache. Anything less is interesting in itself, since it shows where the simulator and vLLM disagree.
 - **PFLOPs:**
-  - ours vs with the real cache, as a ratio (1.0000 = identical);
-  - ours vs CLM's own export, which uses vLLM's cache counts when they are available.
+  - ours vs with the real cache, as a ratio (1.0000 means identical);
+  - ours vs CLM's own export, which uses vLLM's cache counts when they're available.
 
-## 7. What to send back
-Send only the generated files `runs/pflop-accuracy/<label>.md`, plus the probe's printed table. They hold numbers and question ids only. Commit them on a branch or paste them in the chat.
+The summary is also saved to `runs/pflop-accuracy/<label>.md`. It holds numbers and question ids only, so it's easy to share if you want to compare notes.
 
-## 8. Rules
-- **Never commit, post or paste BrowseComp-Plus text** (questions, documents, answers, model outputs). It lives in `~/econo/bcp/` and carries a canary that asks that it never appear online. `.gitignore` already excludes it.
-- **Never commit keys:** they live only in `.env`.
-- **Don't edit anything outside this folder.** If something needs a change, report it.
-- **A new label for every batch:** `run_clm.py` refuses to reuse one.
+## Good to know
+- **BrowseComp-Plus asks that its text never appear online.** That covers questions, documents, answers and model outputs, and the data carries a canary string for this. Everything stays in `~/econo/bcp/`, and `.gitignore` keeps it out of the repo. The saved summaries contain no BrowseComp-Plus text.
+- **Labels are never reused:** `run_clm.py` won't overwrite an earlier batch, so pass a new `--label` for each one.
 
 ---
-Background for the curious: `measure/flops.py` (Eq. 9, token rebuild and validation), `measure/cache_sim.py` (the simulator: 16-token blocks, a chain of block hashes, vLLM's last-token rule), `docs/tier-a-decisions.md` ("PFLOP accuracy").
+Background, if you want to dig in:
+- `measure/flops.py`: Eq. 9, the token rebuild and its validation;
+- `measure/cache_sim.py`: the simulator (16-token blocks, a chain of block hashes, vLLM's last-token rule);
+- `docs/tier-a-decisions.md`: the "PFLOP accuracy" section.

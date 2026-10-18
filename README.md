@@ -2,7 +2,7 @@
 
 EconoContext is online declarative context optimization for LLM agents. Between an agent's steps, a predictor answers questions about the agent's context. The predictor is Jev (a classifier) or a set of fixed guesses. A price then decides what to keep, shrink, evict or summarize, and EconoContext applies it to the conversation.
 
-**Lab mates checking our PFLOPs math with CLM: start at [`pflop_accuracy/README.md`](pflop_accuracy/README.md).** That folder runs only CLM's agent and our measurement code; you need nothing else in this repository.
+**Checking our PFLOPs math with CLM?** [`pflop_accuracy/README.md`](pflop_accuracy/README.md) has everything for it in one place: it runs only CLM's agent and our measurement code.
 
 Tier A measures this on an open model: Qwen3.8-27B on Purdue's GenAI Studio. The cost is prefix-reuse FLOPs, following CLM (Shao et al., arXiv 2609.37725, Appendix C). The baselines are CLM's own agent and, following CLM's design, Base and Summary. The earlier Gemini-dollar results are in `docs/results/2026-10-06/`.
 
