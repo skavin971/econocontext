@@ -238,3 +238,16 @@ def test_a_benchmarks_logs_go_to_its_own_directory_and_still_count(stack, tmp_pa
     assert (elsewhere / "bcp13p.base.q1.r1" / "calls.jsonl").exists()
     assert not (s.log_dir / "bcp13p.base.q1.r1").exists() and (s.log_dir / "tc9.raw.t.r1" / "calls.jsonl").exists()
     assert s.gateway.logged_today() == 2 and len(s.gateway.logged("bcp13p.base.q1.r1")) == 1
+
+
+def test_the_vllm_provider_pins_requests_exactly_as_purdue_does_and_needs_no_key(tmp_path):
+    # PFLOP accuracy (pflop_accuracy/): our own vLLM gets the same request as Purdue, so the two logs compare.
+    from gateway.server import read_env
+    body = chat(messages=[{"role": "user", "content": "hi"},
+                          {"role": "assistant", "content": "ok", "reasoning_content": "thinking"}])
+    purdue, _ = Gateway(PROVIDERS["purdue"], KEY, tmp_path).prepare(body)
+    vllm, _ = Gateway(PROVIDERS["vllm"], "EMPTY", tmp_path).prepare(body)
+    assert vllm == purdue and vllm["return_token_ids"] is True and "reasoning_content" not in vllm["messages"][1]
+    assert read_env("NO_SUCH_VARIABLE", tmp_path / "missing.env", default="EMPTY") == "EMPTY"
+    with pytest.raises(SystemExit):
+        read_env("NO_SUCH_VARIABLE", tmp_path / "missing.env")

@@ -555,3 +555,13 @@ Purdue reorders the tools block's keys on requests, so observed is 3.63× canoni
 
 **Variants on the raw arm's (append-only) prompts.** V1 their rule every k = 5/10/20 turns: beats masking but costs 1.07–2.0× raw in FLOPs. V2 age-1 stubs (keep only what the next reply referenced) and V2r (plus restore on detected need): beat raw and masking in FLOPs and in dollars at 10% and 40% on all three models, with median prompts 0.54–0.71× masking's; V2r leaves no detected need unmet (343–1,620 restores), V2 leaves 492–2,107. V3 two-zone with the masking median as cap also passes, with 436–2,820 unmet needs. Fixed-trajectory estimates.
 
+## PFLOP accuracy (a separate step, 2026-10-18; not part of the numbered steps)
+
+**Why.** Our PFLOPs (Eq. 9) need R_t, the prompt tokens served from the prefix cache. Purdue reports no cache hits, so every Tier A number uses our simulator (`measure/cache_sim.py`). This step checks the simulator, the token rebuild and the totals against a server that reports R_t: our own vLLM (Tier B), serving the same Qwen3.8-27B-FP8 at the same revision.
+
+**What.** `pflop_accuracy/`, one folder for lab mates: CLM's agent only (zero-shot, as released) on the first 8 BrowseComp-Plus pilot questions (BM25), through Purdue (Path A: a smoke test, tokens only) and through our vLLM (Path B: cache hits call by call, tokens, totals against CLM's own export). Labels `bcp-pflop-<backend>-<date>`; results `runs/pflop-accuracy/<label>.md` (numbers only). No EconoContext, no other baseline.
+
+**Code underneath.** The gateway gains a `vllm` provider (same pins and logs as Purdue; `--upstream`; no key needed). `measure/tokens.py` applies the Purdue tokenizer patch only to Purdue's logs (`tokenizer_for_log`). `measure/flops.py` keeps the server's `cached_tokens` as R_real and reports F_real and the call-by-call agreement. `benchmarks/bcp/search_server.py` gets `--host`; `benchmarks/bcp/tasks.py` writes a task `docker-compose.yaml` mapping `host.docker.internal` for Linux Docker.
+
+**Rule.** A difference between the simulator and vLLM is a finding about the simulator, reported as it is, not patched to fit.
+

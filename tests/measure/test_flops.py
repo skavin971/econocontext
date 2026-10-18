@@ -70,3 +70,16 @@ def test_a_prompt_sent_again_identically_is_counted_as_a_repeat():
     calls = [{"call_no": n, "kind": "agent", "ids": ids(40), "server_ids": None, "G": 1} for n in (1, 2)]
     result = run_flops(calls, C_TOKEN, C_ATTN)
     assert result["totals"]["repeats"] == 1 and [r["repeat"] for r in result["rows"]] == [False, True]
+
+
+def test_a_servers_own_cache_hits_are_compared_with_the_simulator_call_by_call():
+    # PFLOP accuracy: our vLLM reports cached tokens (R_real); the simulated R on the server's ids is compared with them.
+    a, b = ids(64), ids(64) + ids(32, 900)
+    calls = [{"call_no": 1, "kind": "agent", "ids": a, "server_ids": a, "G": 5, "R_real": 0},
+             {"call_no": 2, "kind": "agent", "ids": b, "server_ids": b, "G": 5, "R_real": 48}]
+    t = run_flops(calls, C_TOKEN, C_ATTN)["totals"]
+    assert t["R_server_sim"] == 64 and t["R_real"] == 48 and t["cache_equal"] == 1 and t["cache_max_abs_diff"] == 16
+    assert t["cache_first_diff"] == {"call_no": 2, "P": 96, "R_sim": 64, "R_real": 48}
+    assert t["F_real"] == pytest.approx(sum(eq9(64, 0, 5, C_TOKEN, C_ATTN)) + sum(eq9(96, 48, 5, C_TOKEN, C_ATTN)))
+    calls[1]["R_real"] = None                                  # Purdue: no counts, so no comparison
+    assert run_flops(calls, C_TOKEN, C_ATTN)["totals"]["F_real"] is None

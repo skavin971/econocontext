@@ -81,3 +81,11 @@ def test_the_served_tokenizer_splits_combining_marks_as_purdue_does():
     pieces = [tok.decode([i]) for i in tok.encode(" \u092e.\u0935\u0940.", add_special_tokens=False)]
     assert pieces == [" \u092e", ".", "\u0935", "\u0940", "."]
     assert len(tok.encode("def parse_items(x): return x", add_special_tokens=False)) == 7
+
+
+def test_a_stock_server_keeps_combining_marks_together():
+    # PFLOP accuracy: our own vLLM tokenizes as published, so its logs are rebuilt with the unpatched tokenizer.
+    from measure.tokens import tokenizer
+    tok = tokenizer(MEASURED, server="vllm")
+    pieces = [tok.decode([i]) for i in tok.encode(" म.वी.", add_special_tokens=False)]
+    assert "वी" in "".join(pieces) and pieces != [" म", ".", "व", "ी", "."]

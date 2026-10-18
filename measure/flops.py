@@ -20,6 +20,9 @@ calls.jsonl alone. For each call of a run:
      which would break the simulated prefix on every call (step 14a, Kavin): the server's ids are used for
      validation only, and for the F_server variant. G_t: the call's completion_tokens, thinking included.
   4. F_t = C_token·(U_t + G_t) + C_attn·[½(P_t² − R_t²) + G_t·P_t + ½·G_t²], with U_t = P_t − R_t.
+  5. When the server reports its cached prompt tokens (usage.prompt_tokens_details.cached_tokens: our own vLLM,
+     "PFLOP accuracy", pflop_accuracy/), they are kept as R_real: F_real and the call-by-call agreement of the
+     simulated R (on the server's ids) with them are added to the totals. Purdue reports none.
 
 Per run (docs/tier-a-decisions.md):
 - headline: on the canonical rebuild, summary calls in the run's cache sequence;
@@ -129,16 +132,21 @@ def eq9(P: int, R: int, G: int, c_token: float, c_attn: float) -> tuple[float, f
 
 
 def run_flops(calls: list[dict], c_token: float, c_attn: float) -> dict:
-    """calls: in order, each {"call_no", "kind", "ids", "server_ids", "G"}. Per-call rows and run totals, on the
-    canonical rebuild ("ids"); the server's ids give the F_server variant only."""
+    """calls: in order, each {"call_no", "kind", "ids", "server_ids", "G"}, and "R_real" when the server reports its
+    cached prompt tokens (our own vLLM, Tier B). Per-call rows and run totals, on the canonical rebuild ("ids"); the
+    server's ids give the F_server variant. With R_real on every call: F_real (Eq. 9 on the server's ids with the
+    server's own cache hits) and how the simulated R on the server's ids agrees with it, call by call."""
     R = cached_prefix([c["ids"] for c in calls])
     agent_only = cached_prefix([c["ids"] for c in calls if c["kind"] != "summary"])
     R_clm = [0 if c["kind"] == "summary" else agent_only.pop(0) for c in calls]   # CLM's aux convention
     server = [c.get("server_ids") for c in calls]
     R_srv = cached_prefix(server) if all(ids is not None for ids in server) else None
+    real = [c.get("R_real") for c in calls]
+    has_real = bool(calls) and R_srv is not None and all(r is not None for r in real)
     seen_prompts: set[tuple] = set()
     rows, totals = [], {"calls": len(calls), "summary_calls": 0, "repeats": 0, "P": 0, "R": 0, "U": 0, "G": 0, "F_lin": 0.0,
-                        "F_attn": 0.0, "F": 0.0, "F_summary": 0.0, "F_clm_aux": 0.0, "F_server": 0.0 if R_srv else None}
+                        "F_attn": 0.0, "F": 0.0, "F_summary": 0.0, "F_clm_aux": 0.0, "F_server": 0.0 if R_srv else None,
+                        **_real_totals(has_real)}
     for i, c in enumerate(calls):
         P, G = len(c["ids"]), c["G"]
         lin, attn = eq9(P, R[i], G, c_token, c_attn)
@@ -151,6 +159,18 @@ def run_flops(calls: list[dict], c_token: float, c_attn: float) -> dict:
         row["P_server"], row["R_server"] = (len(server[i]), R_srv[i]) if R_srv else (None, None)
         if R_srv:
             totals["F_server"] += sum(eq9(len(server[i]), R_srv[i], G, c_token, c_attn))
+        row["R_real"] = real[i] if has_real else None
+        if has_real:
+            totals["F_real"] += sum(eq9(len(server[i]), real[i], G, c_token, c_attn))
+            diff = R_srv[i] - real[i]
+            totals["cache_equal"] += diff == 0
+            totals["cache_abs_diff"] += abs(diff)
+            totals["cache_max_abs_diff"] = max(totals["cache_max_abs_diff"], abs(diff))
+            totals["R_real"] += real[i]
+            totals["R_server_sim"] += R_srv[i]
+            if diff and totals["cache_first_diff"] is None:
+                totals["cache_first_diff"] = {"call_no": c["call_no"], "P": len(server[i]), "R_sim": R_srv[i],
+                                              "R_real": real[i]}
         rows.append(row)
         for key in ("P", "R", "U", "G", "F_lin", "F_attn", "F"):
             totals[key] += row[key]
@@ -160,6 +180,11 @@ def run_flops(calls: list[dict], c_token: float, c_attn: float) -> dict:
             totals["F_summary"] += lin + attn
     totals["hit_share"] = totals["R"] / totals["P"] if totals["P"] else 0.0
     return {"rows": rows, "totals": totals}
+
+
+def _real_totals(has_real: bool) -> dict:
+    return ({"F_real": 0.0, "R_real": 0, "R_server_sim": 0, "cache_equal": 0, "cache_abs_diff": 0,
+             "cache_max_abs_diff": 0, "cache_first_diff": None} if has_real else {"F_real": None})
 
 
 def measure_log(calls_log: Path, tokenizer, c_token: float, c_attn: float) -> dict:
@@ -180,7 +205,8 @@ def measure_log(calls_log: Path, tokenizer, c_token: float, c_attn: float) -> di
         checks.append({"call_no": row["call_no"], "ok": ok, "note": note, "dP": delta, "P_local": len(ids),
                        "P_server": len(server) if server else None, "prompt_tokens": usage.get("prompt_tokens")})
         calls.append({"call_no": row["call_no"], "kind": row.get("kind", "agent"), "ids": ids, "server_ids": server,
-                      "G": usage["completion_tokens"]})
+                      "G": usage["completion_tokens"],
+                      "R_real": (usage.get("prompt_tokens_details") or {}).get("cached_tokens")})
     result = run_flops(calls, c_token, c_attn)
     result["validation"] = checks
     split = [c for c in checks if c["ok"] and "split-only" in c["note"]]

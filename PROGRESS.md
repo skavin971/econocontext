@@ -19,6 +19,7 @@ The full record of decisions is `docs/tier-a-decisions.md`. Each step's logs and
 - The report is `runs/tier-a/step19-report.md` (tables in `runs/tier-a/step19/summary.md`); step 18's is `runs/tier-a/step18-report.md`.
 - Pushed: through `a3c8eac` (step 18). Unpushed: the step-19 commit.
 - The Complexity Trap's archives live in `~/econo/ctrap/data/` (5.4 GB), never in the repo.
+- **PFLOP accuracy** (separate from the numbered steps): `pflop_accuracy/` lets lab mates run CLM alone on 8 BrowseComp-Plus questions on Purdue and on our own vLLM (Chameleon), to check our cache simulation and PFLOPs against real cache hits. Results go to `runs/pflop-accuracy/`.
 - BrowseComp-Plus data, trials and gateway logs live in `~/econo/bcp/`, never in the repo.
 - **All BrowseComp-Plus results so far (steps 13–19) use the BM25 retriever,** our own choice; the CLM paper does not name its retriever (correction, 2026-10-18; see `docs/tier-a-decisions.md`, step 13).
 - To run BrowseComp-Plus: start the gateway with `--max-tokens-for bcp=4096 --log-dir-for bcp=~/econo/bcp/gateway --max-calls-per-run 300`, and `benchmarks/bcp/search_server.py`; then `benchmarks/bcp/run.py` and `judge.py`.

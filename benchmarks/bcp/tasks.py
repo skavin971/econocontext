@@ -4,7 +4,9 @@ task and search packaging built from Appendix E".
 
 One task per question, written OUTSIDE the repo (BrowseComp-Plus asks that its text never appear online):
   ~/econo/bcp/tasks/<query_id>/  task.toml, instruction.md (prompts.TASK_BRIEF with the question),
-                                 environment/Dockerfile (python:3.12-slim, /app), tests/test.sh
+                                 environment/Dockerfile (python:3.12-slim, /app),
+                                 environment/docker-compose.yaml (host.docker.internal -> the host, for Linux
+                                 Docker; Docker Desktop already has it), tests/test.sh
 The verifier only keeps the answer file (/app/answer.md -> /logs/verifier/answer.md) and writes reward 0; the
 judge grades the answers afterwards (benchmarks/bcp/judge.py). Search goes to the one local service
 (search_server.py); CLM reaches it through the skill in skill/bcp_search, our harness through its bcp tools.
@@ -39,6 +41,13 @@ timeout_sec = 7200.0
 build_timeout_sec = 600.0
 """
 DOCKERFILE = "FROM python:3.12-slim\n\nWORKDIR /app\n"
+# Harbor merges a task's environment/docker-compose.yaml into its own (service "main"). The search skill calls
+# http://host.docker.internal:8790, which Linux Docker Engine only resolves with this mapping.
+COMPOSE = """services:
+  main:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+"""
 TEST_SH = """#!/bin/bash
 # Keep the answer file for the judge (benchmarks/bcp/judge.py grades it later); reward 0 here.
 mkdir -p /logs/verifier
@@ -64,6 +73,7 @@ def build(ids: list[str], dest: Path = TASKS) -> list[Path]:
         (d / "task.toml").write_text(TASK_TOML.format(qid=qid))
         (d / "instruction.md").write_text(TASK_BRIEF.format(Question=text[qid]) + "\n")
         (d / "environment" / "Dockerfile").write_text(DOCKERFILE)
+        (d / "environment" / "docker-compose.yaml").write_text(COMPOSE)
         (d / "tests" / "test.sh").write_text(TEST_SH)
         (d / "tests" / "test.sh").chmod(0o755)
         out.append(d)

@@ -2,7 +2,9 @@
 
 EconoContext is online declarative context optimization for LLM agents. Between an agent's steps, a predictor answers questions about the agent's context. The predictor is Jev (a classifier) or a set of fixed guesses. A price then decides what to keep, shrink, evict or summarize, and EconoContext applies it to the conversation.
 
-The branch `tier-a-purdue` measures this on an open model: Qwen3.8-27B on Purdue's GenAI Studio. The cost is prefix-reuse FLOPs, following CLM (Shao et al., arXiv 2609.37725, Appendix C). The baselines are CLM's own agent and, following CLM's design, Base and Summary. The earlier Gemini-dollar results are in `docs/results/2026-10-06/`.
+**Lab mates checking our PFLOPs math with CLM: start at [`pflop_accuracy/README.md`](pflop_accuracy/README.md).** That folder runs only CLM's agent and our measurement code; you need nothing else in this repository.
+
+Tier A measures this on an open model: Qwen3.8-27B on Purdue's GenAI Studio. The cost is prefix-reuse FLOPs, following CLM (Shao et al., arXiv 2609.37725, Appendix C). The baselines are CLM's own agent and, following CLM's design, Base and Summary. The earlier Gemini-dollar results are in `docs/results/2026-10-06/`.
 
 Earlier code (v0, the v1 engine, Omnigent/SWE-bench, Claude Code hooks, the Gemini runner) is at tag `econo-jev-final`. A few files written on this branch and removed in step 10's clean-up are at tag `tier-a-step9`. These are the step-1 Purdue scripts and the step-2 restructure map; `docs/cleanup-map.md` lists them.
 

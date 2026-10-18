@@ -57,7 +57,7 @@ class Search:
         return {"docid": str(docid), "text": text, **({"truncated": True} if cut else {})}
 
 
-def serve(search: Search, port: int) -> ThreadingHTTPServer:
+def serve(search: Search, port: int, host: str = "127.0.0.1") -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def reply(self, status: int, body) -> None:
             raw = (body if isinstance(body, str) else json.dumps(body, indent=2, ensure_ascii=False)).encode()
@@ -92,17 +92,20 @@ def serve(search: Search, port: int) -> ThreadingHTTPServer:
 
         def log_message(self, *args):
             pass
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    return ThreadingHTTPServer((host, port), Handler)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--index", required=True)
     p.add_argument("--port", type=int, default=8790)
+    p.add_argument("--host", default="127.0.0.1",
+                   help="address to listen on; on Linux the task containers reach the host at the docker bridge, so use "
+                        "0.0.0.0 there (Docker Desktop on a Mac: the default works)")
     a = p.parse_args()
-    server = serve(Search(Path(a.index).expanduser()), a.port)
+    server = serve(Search(Path(a.index).expanduser()), a.port, a.host)
     print(f"search: BM25 at {a.index}, top {K}, snippets {SNIPPET_TOKENS} and documents {DOCUMENT_TOKENS} tokens "
-          f"({TOKENIZER}), on port {a.port}", flush=True)
+          f"({TOKENIZER}), on {a.host}:{a.port}", flush=True)
     server.serve_forever()
 
 

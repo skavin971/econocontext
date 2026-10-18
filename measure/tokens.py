@@ -13,6 +13,8 @@ The tokenizer is the model's own, at the measured revision, with one change for 
 had no \p{M}. Every published revision of Qwen3.8-27B(-FP8) has [\p{L}\p{M}]+; with \p{M} removed, local ids equal
 Purdue's on all 2,259 logged calls (TBLite 2,194, BrowseComp-Plus 65), against 2,249 without the change
 (runs/tier-a/step13-tokenizer-check.out). So the counts and rebuilds match what the server computes.
+A stock server (our own vLLM, Tier B: pflop_accuracy/) tokenizes as published, so tokenizer(..., server="vllm") is
+the unpatched tokenizer; tokenizer_for_log picks the right one from a calls.jsonl's own "provider" field.
 
 Use: count_prompt(messages, tools, "qwen3.8:27b", reasoning_effort="medium",
                   chat_template_kwargs={"enable_thinking": True})
@@ -29,12 +31,13 @@ SERVER_SPLITS_MARKS = set(SERVED.values())      # models Purdue serves: its pre-
 
 
 @functools.cache
-def tokenizer(hf_id: str, **kwargs):
+def tokenizer(hf_id: str, server: str = "purdue", **kwargs):
     """The model's own tokenizer and chat template, at the revision measured in model_constants.json; for a model
-    Purdue serves, with the server's pre-tokenizer (combining marks split off; see above)."""
+    Purdue serves, with Purdue's pre-tokenizer (combining marks split off; see above). server: the provider whose
+    tokenization to reproduce ("purdue", or "vllm" for a stock server)."""
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(hf_id, revision=load(hf_id)["revision"], **kwargs)
-    if hf_id in SERVER_SPLITS_MARKS:
+    if server == "purdue" and hf_id in SERVER_SPLITS_MARKS:
         import json
         from tokenizers import Tokenizer
         spec = json.loads(tok.backend_tokenizer.to_str())
@@ -43,6 +46,18 @@ def tokenizer(hf_id: str, **kwargs):
         assert "\\p{M}" not in split["Regex"], "the pre-tokenizer pattern changed: review the step-13 fix"
         tok.backend_tokenizer.pre_tokenizer = Tokenizer.from_str(json.dumps(spec)).pre_tokenizer
     return tok
+
+
+def tokenizer_for_log(calls_log, hf_id: str):
+    """The tokenizer that reproduces the server of one run's calls.jsonl (its rows' "provider"; Purdue if absent)."""
+    import json
+    from pathlib import Path
+    provider = "purdue"
+    for line in Path(calls_log).read_text().splitlines():
+        if line.strip():
+            provider = json.loads(line).get("provider") or "purdue"
+            break
+    return tokenizer(hf_id, server=provider)
 
 
 def resolve(model: str) -> str:

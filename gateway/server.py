@@ -72,16 +72,24 @@ class Provider:
 SAMPLING = {"temperature": 0.7, "top_p": 0.95, "max_tokens": 2048}
 PROVIDERS = {"purdue": Provider("purdue", "https://genai.rcac.purdue.edu/api", "GENAI_API_KEY",
                                 {"reasoning_effort": "medium", "return_token_ids": True, **SAMPLING},
-                                {"enable_thinking": True})}
+                                {"enable_thinking": True}),
+             # Tier B ("PFLOP accuracy", pflop_accuracy/README.md): our own vLLM serving the same model, with the same
+             # pins as Purdue, so the requests and logs are identical; its usage also reports the cached tokens.
+             "vllm": Provider("vllm", "http://127.0.0.1:8000/v1", "VLLM_API_KEY",
+                              {"reasoning_effort": "medium", "return_token_ids": True, **SAMPLING},
+                              {"enable_thinking": True})}
+OPTIONAL_KEY = {"vllm"}       # a local vLLM needs no key; a dummy one is sent
 # TODO(vertex): the Gemini route of the Omnigent gateway (omnigent_layer/ at tag econo-jev-final) is not ported yet.
 
 
-def read_env(name: str, env: Path = ROOT / ".env") -> str:
-    for line in env.read_text().splitlines():
+def read_env(name: str, env: Path = ROOT / ".env", default: str | None = None) -> str:
+    for line in (env.read_text().splitlines() if env.exists() else []):
         if line.startswith(f"{name}="):
             value = line.split("=", 1)[1].strip().strip('"').strip("'")
             if value:
                 return value
+    if default is not None:
+        return default
     raise SystemExit(f"{name} is not set in .env")
 
 
@@ -138,7 +146,8 @@ class Gateway:
         with self.lock:
             if self.day != self.today():
                 self.day, self.day_count = self.today(), 0
-            return {"ok": True, "provider": self.provider.name, "log_dir": str(self.log_dir), "day": self.day,
+            return {"ok": True, "provider": self.provider.name, "upstream": self.provider.base,
+                    "log_dir": str(self.log_dir), "day": self.day,
                     "requests_today": self.day_count, "max_requests_per_day": self.max_day,
                     "max_calls_per_run": self.max_run, "max_tokens": self.provider.pins.get("max_tokens"),
                     "max_tokens_for": self.max_tokens_for,
@@ -296,7 +305,8 @@ def make_server(gateway: Gateway, port: int = 8787) -> ThreadingHTTPServer:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--provider", required=True, choices=["purdue", "vertex"])
+    p.add_argument("--provider", required=True, choices=["purdue", "vllm", "vertex"])
+    p.add_argument("--upstream", help="the provider's API root (vllm: http://<host>:8000/v1, the default)")
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--log-dir", default=str(ROOT / "runs" / "gateway"))
     p.add_argument("--max-calls-per-run", type=int, default=150)
@@ -312,13 +322,14 @@ def main() -> None:
     if a.provider == "vertex":
         raise SystemExit("--provider vertex is a TODO: only purdue is implemented")
     provider = PROVIDERS[a.provider]
-    provider = Provider(provider.name, provider.base, provider.key_env, {**provider.pins, "max_tokens": a.max_tokens},
-                        provider.template)
+    provider = Provider(provider.name, (a.upstream or provider.base).rstrip("/"), provider.key_env,
+                        {**provider.pins, "max_tokens": a.max_tokens}, provider.template)
     caps = {prefix: int(n) for prefix, _, n in (x.partition("=") for x in a.max_tokens_for)}
     dirs = {prefix: Path(d) for prefix, _, d in (x.partition("=") for x in a.log_dir_for)}
-    gateway = Gateway(provider, read_env(provider.key_env), Path(a.log_dir), a.max_calls_per_run,
+    key = read_env(provider.key_env, default="EMPTY" if provider.name in OPTIONAL_KEY else None)
+    gateway = Gateway(provider, key, Path(a.log_dir), a.max_calls_per_run,
                       a.max_requests_per_day, a.rpm, max_tokens_for=caps, log_dir_for=dirs)
-    print(f"gateway: {provider.name} on 127.0.0.1:{a.port}, log {a.log_dir}, {a.rpm}/min, "
+    print(f"gateway: {provider.name} ({provider.base}) on 127.0.0.1:{a.port}, log {a.log_dir}, {a.rpm}/min, "
           f"{a.max_calls_per_run} calls per run, {a.max_requests_per_day} requests per day; output cap by run-id prefix "
           f"{caps or 'none'}; log dirs by run-id prefix {dirs or 'none'}; pins "
           f"{json.dumps({**provider.pins, 'chat_template_kwargs': provider.template})}", flush=True)

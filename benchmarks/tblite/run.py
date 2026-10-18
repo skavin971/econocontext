@@ -247,15 +247,17 @@ def summarize(run_id: str, arm: str, clm: bool, task: str, repeat: int, out: Pat
 def measure(summary: dict) -> dict:
     """Rebuild, validate and price one trial's calls (measure/), for the gates and the progress log."""
     with measured:
-        if "tokenizer" not in _measure:
-            from measure.tokens import tokenizer
+        if "model" not in _measure:
             from measure.models import MEASURED, load
             _measure["model"] = load(MEASURED)
-            _measure["tokenizer"] = tokenizer(MEASURED)
         from measure.flops import measure_log
+        from measure.models import MEASURED
+        from measure.tokens import tokenizer_for_log
         m = _measure["model"]
         log = ROOT / summary["calls_log"]
-        return measure_log(log, _measure["tokenizer"], m["C_token"], m["C_attn"])["totals"] if log.exists() else {}
+        if not log.exists():
+            return {}
+        return measure_log(log, tokenizer_for_log(log, MEASURED), m["C_token"], m["C_attn"])["totals"]   # its server's tokenizer
 
 
 def check(a, summary: dict) -> None:
