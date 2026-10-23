@@ -42,6 +42,11 @@ It uses the standard library, PyYAML, the agent DB (`agent_db`) and one function
 
 **`benchmarks/tblite/`** holds the benchmark (`tasks.py`: the 10 frozen TBLite tasks and their path) and the runner for every arm (`run.py`, all calls through the gateway).
 
+**`benchmarks/bcp/doc_labeling/`** is the single-question document-reading pilot:
+question-specific topics, independent Jev chunk scores, ranked pages, answering
+controls, and BCP grading. Its [command guide](benchmarks/bcp/doc_labeling/README.md)
+keeps benchmark text and model traces outside the repository.
+
 **`scripts/`** holds two scripts:
 - `check_secrets.py`, the last gate before every push;
 - `purdue_template_probe.py`, which checks the chat-template options Purdue applies.
