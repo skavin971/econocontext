@@ -14,7 +14,7 @@ from benchmarks.bcp.doc_labeling.prepare import (chunk_document, freeze_topics,
                                                 grader_protocol, prepare, propose_topics, validate_topics)
 from benchmarks.bcp.doc_labeling.rank import score
 from benchmarks.bcp.doc_labeling.report import build_report
-from benchmarks.bcp.doc_labeling.run import action, run, run_session
+from benchmarks.bcp.doc_labeling.run import action, normalize_citations, run, run_session
 
 
 class CharTokens:
@@ -71,6 +71,31 @@ def tool_reply(name, args=None, usage=None):
     return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call1", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}}],
         "usage": usage or {"prompt_tokens": 100, "completion_tokens": 10}}
+
+
+@pytest.mark.parametrize("label", ["c00006", "48471:c00006", "48471 c00006", "document 48471 chunk c00006"])
+def test_citation_aliases(label):
+    chunks = [{"chunk_id": "c00006", "docid": "48471"}]
+    assert normalize_citations([label], chunks, {"c00006"}) == ["c00006"]
+
+
+@pytest.mark.parametrize("label", ["c00007", "999:c00006", "document 999 chunk c00006"])
+def test_citations_reject_unseen_or_wrong_document(label):
+    chunks = [{"chunk_id": "c00006", "docid": "48471"}, {"chunk_id": "c00007", "docid": "48471"}]
+    with pytest.raises(ValueError, match="received bare chunk IDs"):
+        normalize_citations([label], chunks, {"c00006"})
+
+
+def test_answer_accepts_displayed_citation(pilot):
+    folder, tokens, cfg = pilot
+    chunks = rows(folder / "chunks.jsonl")
+    pages = pack(chunks, tokens.count, 180)
+    reply = tool_reply("answer")
+    args = json.loads(reply["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])
+    args["citations"] = [f"document 42 chunk {pages[0]['chunk_ids'][0]}"]
+    result = run_session("q", pages, chunks, cfg, tokens, lambda *a, **k: tool_reply("answer", args), condition="ranked")
+    assert result["status"] == "answered" and result["invalid_actions"] == 0
+    assert result["answer"]["citations"] == [pages[0]["chunk_ids"][0]]
 
 
 def test_chunks_reconstruct_unicode_and_unbroken_text():
@@ -234,6 +259,8 @@ def test_incomplete_usage_and_malformed_action_are_visible(pilot):
     result = run_session("q", pages, rows(folder / "chunks.jsonl"), cfg, tokens,
                          lambda *a, **k: bad, condition="original")
     assert result["invalid_actions"] == cfg["invalid_limit"] and result["status"] == "error"
+    assert result["error"] == "invalid_action_limit"
+    assert result["events"][0]["reason"] == "return exactly one tool call"
 
 
 def test_full_offline_pipeline_and_report_resume(pilot):
@@ -254,8 +281,28 @@ def test_full_offline_pipeline_and_report_resume(pilot):
     assert len(report["runs"]) == 3
     assert all(r["exact_match"] for r in report["runs"])
     assert all(r["judged_correct"] is None for r in report["runs"])
+    ranked = next(r for r in report["runs"] if r["condition"] == "ranked")
+    assert ranked["answerer_total_tokens"] == 110
+    assert ranked["answerer_input_saved_vs_full"] == 0
+    assert ranked["answerer_input_reduction_vs_full"] == 0
+    assert ranked["answerer_output_reduction_vs_original"] == 0
+    assert ranked["answerer_cached_input_tokens"] is None
+    assert ranked["answerer_plus_topics_total_tokens"] == 110
+    assert ranked["grading_calls"] == 0
+    assert ranked["jev_overhead_input_tokens"] > 0
+    assert ranked["jev_overhead_output_tokens"] is None
+    assert all(r["topic_overhead_input_tokens"] == 0 for r in report["runs"])
     assert "1900" not in json.dumps(report)
     assert (folder / "summary.csv").read_text().startswith("condition,repeat,")
+    topic_dir = folder / "topics-generation"
+    topic_dir.mkdir()
+    (topic_dir / "calls.jsonl").write_text(json.dumps({"response": {"usage": {
+        "prompt_tokens": 20, "completion_tokens": 30}}}) + "\n")
+    updated = build_report(folder)
+    ranked = next(r for r in updated["runs"] if r["condition"] == "ranked")
+    assert ranked["answerer_plus_topics_total_tokens"] == 160
+    assert ranked["answerer_plus_topics_saved_vs_full"] == -50
+    assert next(r for r in updated["runs"] if r["condition"] == "full")["topic_overhead_input_tokens"] == 0
 
 
 def test_pinned_upstream_grader_is_read_without_execution(tmp_path):

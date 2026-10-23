@@ -7,6 +7,31 @@ deduplicated pages in topic round-robin order. Original-order pages and a
 full-document condition provide controls. See the
 [experiment plan](../../../docs/bcp-doc-labeling-plan.md) for the research design.
 
+## What the three conditions compare
+
+- `ranked`: one selected document, with Jev-ranked chunks paginated best-first.
+- `original`: the same document paginated in its original order, without ranking.
+- `full`: the entire selected document supplied in the initial prompt.
+
+Page 1 is supplied automatically; `next_page` requests later pages and `answer`
+finishes. There is no search/retrieval tool in this fixed-document pilot. The
+full condition allows only `answer`; it is not the full BrowseComp-Plus agent
+benchmark, which searches across documents to solve one question.
+
+Reports sum provider input/output usage across every model call in each session,
+including repeated conversation history and invalid-action retries. They also
+include page requests, pages used, source exposure, delivered page tokens, latency,
+correctness, cache-read counters when reported, and absolute/fractional input,
+output, and combined-token differences versus both controls. Positive savings
+mean fewer tokens; negative savings mean more. Fractions are 0–1, not percentages.
+
+CSV rows and JSON distinguish topic-generation, Jev, and evaluation-grading
+overhead. `answerer_plus_topics_saved_vs_full` includes full topic overhead for
+each ranked counterfactual, but excludes Jev and grading. Jev units are separate;
+combined input/output token counts are not dollar costs. Missing usage stays null.
+Repeated ranked rows each attribute full shared ranking overhead: do not sum
+those columns as an actual experiment bill. Archived/replaced trials are excluded.
+
 Run commands from the repository root with Python 3.11+:
 
 ```sh
