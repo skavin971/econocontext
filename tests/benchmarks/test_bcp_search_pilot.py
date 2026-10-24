@@ -279,6 +279,15 @@ def test_judge_grades_answers_once_and_only_answers(tmp_path, monkeypatch):
     assert verdicts == {"full": (True, True), "original": (None, False), "ranked": (False, True)}
 
 
+def test_flop_input_drops_only_the_schema_keyword_purdue_drops():
+    tools = tools_for("ranked")
+    stripped = search_pilot.server_tools(tools)
+    assert "additionalProperties" not in json.dumps(stripped)
+    assert json.dumps(stripped).replace(" ", "") in json.dumps(tools).replace(', "additionalProperties": false', "").replace(" ", "")
+    assert [t["function"]["name"] for t in stripped] == [t["function"]["name"] for t in tools]
+    assert tools_for("ranked") == tools                     # the agent's own tools are untouched
+
+
 def test_retrieval_ignores_query_sql_and_searches_whole_collection(tmp_path):
     path = tmp_path / "corpus.sqlite"
     with sqlite3.connect(path) as db:

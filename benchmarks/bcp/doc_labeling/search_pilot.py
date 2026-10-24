@@ -388,13 +388,29 @@ def trial(folder, question, arm, corpus, tokens, cfg, gateway, jev=None):
     return result
 
 
+def server_tools(value):
+    """Purdue's front end drops `additionalProperties` from tool schemas before applying the chat template
+    (checked 2026-10-24: every call of a run matched its server prompt ids once it was dropped), so the model
+    never sees it. FLOPs are measured on what the server processed; any other difference still fails validation."""
+    if isinstance(value, dict):
+        return {k: server_tools(v) for k, v in value.items() if k != "additionalProperties"}
+    return [server_tools(v) for v in value] if isinstance(value, list) else value
+
+
 def measure(path, tokens):
+    """measure.flops.measure_log, unchanged, on a copy of the log whose tool schemas match what the server saw."""
     from measure.flops import measure_log
     from measure.models import load
     if not path.exists():
         return {"F": None, "valid": 0, "invalid": 0, "unanswered": []}
+    copy_path = path.with_name("calls.server-tools.jsonl")
+    with copy_path.open("w") as stream:
+        for row in rows(path):
+            if isinstance(row.get("request"), dict) and "tools" in row["request"]:
+                row["request"] = {**row["request"], "tools": server_tools(row["request"]["tools"])}
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
     constants = load(tokens.provenance["hf_id"])
-    measured = measure_log(path, tokens.tok, constants["C_token"], constants["C_attn"])
+    measured = measure_log(copy_path, tokens.tok, constants["C_token"], constants["C_attn"])
     return measured["totals"]
 
 
@@ -447,11 +463,12 @@ def judge(out, queries, url):
             print(f"Judged {qid}/{arm}: {verdict['correct']}", flush=True)
 
 
-def serve(out):
-    """The pilot's own in-process gateway: Purdue, 4,096 output tokens for bcp runs, no hidden retries."""
+def serve(out, timeout_s=120, tries=1):
+    """The pilot's own in-process gateway: Purdue, 4,096 output tokens for bcp runs. Agent trials use 120 s and
+    no hidden retries; the judge, which is evaluation only, uses the gateway's standard 600 s timeout and retries."""
     from gateway.server import Gateway as Service, PROVIDERS, make_server, read_env
     service = Service(PROVIDERS["purdue"], read_env("GENAI_API_KEY"), out / "gateway", max_calls_per_run=40,
-                      max_tokens_for={"bcp": 4096}, tries=1, timeout_s=120)
+                      max_tokens_for={"bcp": 4096}, tries=tries, timeout_s=timeout_s)
     server = make_server(service, 0)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_port}"
@@ -574,7 +591,7 @@ def main():
     queries = root / "BrowseComp-Plus/data/browsecomp_plus_decrypted.jsonl"
     if args.report_only:
         if args.judge:
-            server, url = serve(out)
+            server, url = serve(out, timeout_s=600, tries=3)
             try:
                 judge(out, queries, url)
             finally:
