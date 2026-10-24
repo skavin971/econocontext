@@ -239,6 +239,10 @@ def test_context_measures_peak_and_gold_document_luck(tmp_path):
     assert (measures["gold_doc_in_search"], measures["first_gold_search_step"]) == (True, 3)
     assert (measures["gold_doc_opened"], measures["first_gold_open_step"]) == (True, 5)
     assert context_measures(tmp_path, result, set())["gold_doc_in_search"] is None
+    evidence = context_measures(tmp_path, result, {"9"}, {"1", "9"})
+    assert (evidence["evidence_doc_in_search"], evidence["first_evidence_search_step"]) == (True, 1)
+    assert (evidence["evidence_doc_opened"], evidence["first_evidence_open_step"]) == (True, 4)
+    assert evidence["gold_doc_opened"] is True and evidence["first_gold_open_step"] == 5
     (tmp_path / "calls.jsonl").write_text(json.dumps({"response": {}}) + "\n")
     assert context_measures(tmp_path, result, {"9"})["peak_context_tokens"] is None
 

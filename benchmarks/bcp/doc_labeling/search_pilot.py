@@ -414,22 +414,26 @@ def measure(path, tokens):
     return measured["totals"]
 
 
-def context_measures(folder, result, gold_ids):
+def context_measures(folder, result, gold_ids, evidence_ids=frozenset()):
     """Measurement only, from the trial's own logs: the largest prompt sent to the main LLM (peak context), the
-    tool calls behind it, and whether search ever returned or the agent opened a gold document (evaluation only)."""
+    tool calls behind it, and whether search ever returned or the agent opened one of the question's documents
+    (evaluation only). BrowseComp-Plus lists gold_docs (they contain the answer) and evidence_docs (all documents
+    that support it, gold included); both are checked."""
     prompts = [((c.get("response") or {}).get("usage") or {}).get("prompt_tokens") for c in rows(folder / "calls.jsonl")]
     trace = rows(folder / "tools.jsonl")
-    found = [r["step"] for r in trace if r.get("tool") == "search" and gold_ids & {h["docid"] for h in r["result"]}]
-    reached = [r["step"] for r in trace if r.get("tool") == "get_document" and r["arguments"]["docid"] in gold_ids]
     counts, opened = result.get("tool_calls") or {}, len(result.get("documents_opened") or [])
     document_tokens = result.get("document_tool_output_tokens")
-    return {"peak_context_tokens": max(prompts) if prompts and all(type(p) is int for p in prompts) else None,
-            "search_calls": counts.get("search", 0), "next_page_calls": counts.get("next_page", 0),
-            "documents_opened_count": opened,
-            "document_tokens_per_opened_document": document_tokens / opened if opened and document_tokens is not None else None,
-            "gold_docs": len(gold_ids),
-            "gold_doc_in_search": bool(found) if gold_ids else None, "first_gold_search_step": min(found, default=None),
-            "gold_doc_opened": bool(reached) if gold_ids else None, "first_gold_open_step": min(reached, default=None)}
+    measures = {"peak_context_tokens": max(prompts) if prompts and all(type(p) is int for p in prompts) else None,
+                "search_calls": counts.get("search", 0), "next_page_calls": counts.get("next_page", 0),
+                "documents_opened_count": opened,
+                "document_tokens_per_opened_document": document_tokens / opened if opened and document_tokens is not None else None}
+    for label, ids in (("gold", gold_ids), ("evidence", evidence_ids)):
+        found = [r["step"] for r in trace if r.get("tool") == "search" and ids & {h["docid"] for h in r["result"]}]
+        reached = [r["step"] for r in trace if r.get("tool") == "get_document" and r["arguments"]["docid"] in ids]
+        measures.update({f"{label}_docs": len(ids),
+                         f"{label}_doc_in_search": bool(found) if ids else None, f"first_{label}_search_step": min(found, default=None),
+                         f"{label}_doc_opened": bool(reached) if ids else None, f"first_{label}_open_step": min(reached, default=None)})
+    return measures
 
 
 def judge(out, queries, url):
@@ -482,6 +486,7 @@ def report(out, queries, tokens, include_flops=False):
         gold = record["answer"]
         # Evaluation only: the agents never see these docids.
         gold_ids = {str(d["docid"]) for d in record.get("gold_docs") or []}
+        evidence_ids = {str(d["docid"]) for d in record.get("evidence_docs") or []} | gold_ids
         pair = {}
         for arm in manifest.get("arms", ("full", "ranked")):
             folder = out / qid / arm
@@ -503,7 +508,7 @@ def report(out, queries, tokens, include_flops=False):
                           whole_system_flops_complete=arm == "full" and complete)
             topic_usage = usage_totals(rows(out / qid / "topics-generation" / "calls.jsonl")) if arm == "ranked" else usage_totals([])
             result["model_calls"] = len(rows(folder / "calls.jsonl"))
-            result.update(context_measures(folder, result, gold_ids))
+            result.update(context_measures(folder, result, gold_ids, evidence_ids))
             verdict = read(folder / "verdict.json") if (folder / "verdict.json").exists() else {}
             result.update(judged_correct=verdict.get("correct"), judge_parsed=verdict.get("parsed", False))
             usage = [result["total_model_input_tokens"], result["total_model_output_tokens"]]
