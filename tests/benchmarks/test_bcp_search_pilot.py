@@ -74,9 +74,27 @@ def test_baseline_arms_are_unchanged_and_ranked_doc_matches_ranked():
         return hashlib.sha256(value.encode()).hexdigest()
     assert {arm: fingerprint(arm) for arm in BASELINE} == BASELINE
     assert fingerprint("ranked_doc") == BASELINE["ranked"]
+    assert fingerprint("ranked_doc_labels") == BASELINE["ranked"]
 
 
-@pytest.mark.parametrize("arm", ["full", "original", "ranked", "ranked_doc"])
+def test_ranked_doc_labels_never_sends_the_question_to_jev(tmp_path):
+    cfg, tokens = settings({"chunk_tokens": 40, "page_tokens": 180}), CharTokens()
+    topics = requested_topics(["date", "identity"])
+    text, jev = Search().document("42"), FakeDocJev()
+    question = "When did the secret benchmark event happen?"
+    ask = jev.ask
+    asked = []
+    jev.ask = lambda state, questions: asked.append(copy.deepcopy(questions)) or ask(state, questions)
+    _, pages = ranked_doc_pages(tmp_path / "labels", question, topics, "42", text, tokens, cfg, jev, with_question=False)
+    state, _ = jev.seen[0]
+    assert set(state) == {"topics", "document"}
+    assert question not in json.dumps(state) and question not in json.dumps(asked)
+    assert all("original question" not in q["instructions"] for q in asked[0].values())
+    _, with_question = ranked_doc_pages(tmp_path / "question", question, topics, "42", text, tokens, cfg, FakeDocJev())
+    assert pages == with_question                 # same scores give the same pages; only Jev's input differs
+
+
+@pytest.mark.parametrize("arm", ["full", "original", "ranked", "ranked_doc", "ranked_doc_labels"])
 def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
     cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000, "repeats": 1})
     class Gateway:
@@ -91,7 +109,7 @@ def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
                 return tool_reply("get_document", {"docid": "42", **({"topics": ["when the event happened"]} if arm in RANKED_ARMS else {})})
             return tool_reply("answer", {"explanation": "Evidence", "exact_answer": "1900",
                 "confidence": 90, "insufficient_evidence": False, "citations": ["42"]})
-    gateway, jev = Gateway(), FakeDocJev() if arm == "ranked_doc" else FakeJev()
+    gateway, jev = Gateway(), FakeDocJev() if arm.startswith("ranked_doc") else FakeJev()
     result = trial(tmp_path, "When?", arm, Search(), CharTokens(), cfg, gateway, jev)
     assert result["status"] == "answered"
     assert result["tool_calls"] == {"search": 1, "get_document": 1, "answer": 1}

@@ -166,3 +166,11 @@ ever returned or the agent opened one of the question's `gold_docs`. `--report-o
 each answered trial once with BrowseComp-Plus's judge prompt (`benchmarks/bcp/prompts.py`, qwen3:32b),
 as kind `judge` with its own run ID; `--measure-flops` adds the existing prefix-reuse FLOP and
 prefix-cache simulation (`measure/`), including `ranked_doc_net_flops_saved_before_jev`.
+
+## Labels-only arm (`ranked_doc_labels`)
+
+`ranked_doc_labels` is `ranked_doc` without the benchmark question in Jev's request: `state` holds
+only the agent's topic labels and the whole document view, and each question asks whether a chunk
+provides information about one label (`DOC_LABEL_PROMPT`). The agent's prompt, tools and pages are
+the same as the other ranked arms. Comparing it with `ranked_doc` tests whether Jev needs the task's
+question, or whether a task-agnostic "label + document -> relevance" classifier is enough.
