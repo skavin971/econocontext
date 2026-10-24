@@ -137,3 +137,32 @@ pre-Jev budget already rules out a compute win under this accounting; a positive
 budget only establishes the maximum ranking overhead a win could tolerate.
 Retrieval/indexing CPU work and evaluation compute are outside this model-FLOP
 comparison. PFLOP calculations must be explicitly requested as report-only work.
+
+## Whole-document Jev scoring arm (`ranked_doc`) and the repeat study
+
+`ranked_doc` is a fourth arm added beside the three above; it replaces nothing. The agent's view is
+identical to `ranked`: the same system prompt, tools, agent-supplied topics, ~400-token chunks,
+topic round-robin pages and importance percentages (a test checks this by hash, and checks that
+`full`, `original` and `ranked` are byte-identical to the committed pilot). Only Jev's scoring
+differs. `ranked` sends one request per chunk with that chunk alone in `state`. `ranked_doc` sends
+one request per opened document and topic set, with the whole 8,192-token view in `state`
+(`{question, topics, document: [{chunk_id, text}, ...]}`) and one independent `noul` question per
+(chunk, topic), keyed `<chunk_id>_<topic_id>`. Each question asks about its own chunk; the rest of
+the document is there only to resolve who or what the chunk refers to.
+
+Jev has no limit on the number of questions per request; a request must fit 64k Jev tokens in total
+and 32k for the state plus any one question (docs.typesafe.ai, read 2026-10-24). An 8,192-token view
+fits the per-question limit. If all questions would exceed the per-request limit, they are split
+across several requests that each send the same whole state. Nothing is truncated: a state too large
+for the per-question limit is an error. Validation and error handling are the same as `ranked`, and
+its Jev client has a 120-second timeout because one request is larger.
+
+For repeated trials, run one question at a time, each repeat in a fresh output folder, rotating the
+arm order across repeats. Every trial starts a fresh conversation (system prompt and question only),
+with its own gateway run ID and its own Jev cache. The report also records, from each trial's own
+logs: peak context (the largest prompt sent to the answering model), searches, documents opened,
+`next_page` calls, document tokens per opened document, and, for evaluation only, whether search
+ever returned or the agent opened one of the question's `gold_docs`. `--report-only --judge` grades
+each answered trial once with BrowseComp-Plus's judge prompt (`benchmarks/bcp/prompts.py`, qwen3:32b),
+as kind `judge` with its own run ID; `--measure-flops` adds the existing prefix-reuse FLOP and
+prefix-cache simulation (`measure/`), including `ranked_doc_net_flops_saved_before_jev`.

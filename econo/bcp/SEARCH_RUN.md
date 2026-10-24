@@ -69,3 +69,22 @@ No Harbor, Docker, Java, online pricing, or plotting dependency is required.
 Completed trials resume from results. Interrupted trials refuse silent replay:
 retain them and select a fresh output folder with BCP_SEARCH_OUTPUT. Reports can
 be regenerated without inference by adding --report-only to the command.
+
+## Repeat study: one question at a time, four arms, FLOPs and judge
+
+Each run is one question in all four arms (`full`, `original`, `ranked`, and `ranked_doc`, which
+scores chunks with the whole document in one Jev request). Use a fresh folder per repeat and rotate
+the arm order (r1 `full original ranked ranked_doc`, r2 `original ranked ranked_doc full`,
+r3 `ranked ranked_doc full original`):
+
+```sh
+BCP_SEARCH_OUTPUT="$PWD/econo/bcp/full-search/repeats-v1/q741-r1" \
+  bash econo/bcp/run_search.sh --query-ids 741 --arms full original ranked ranked_doc
+BCP_SEARCH_OUTPUT="$PWD/econo/bcp/full-search/repeats-v1/q741-r1" \
+  bash econo/bcp/run_search.sh --report-only --measure-flops --judge
+```
+
+The second command makes judge calls only (no agent calls) and post-processes the saved logs.
+`summary.csv` then also has `judged_correct`, `peak_context_tokens`, `search_calls`,
+`next_page_calls`, `document_tokens_per_opened_document`, `gold_doc_in_search`, `gold_doc_opened`,
+and the FLOP fields (`model_flops`, `flops_validation`). Rerunning it skips trials already judged.

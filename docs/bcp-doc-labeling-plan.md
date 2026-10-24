@@ -2,7 +2,8 @@
 
 Branch: `bcp-doc-labeling`. Status: implemented as the staged CLI in
 `benchmarks/bcp/doc_labeling/`; see its [command guide](../benchmarks/bcp/doc_labeling/README.md).
-No live experiment has been run. Goal: determine whether ranking document chunks by their relevance to
+The one-question pilot (QID 741 / DOCID 48471, `econo/bcp/RUN.md`) has been run locally; its traces stay
+private and no aggregate is committed. Goal: determine whether ranking document chunks by their relevance to
 question-specific topics lets an answering model reach a correct answer while
 receiving less tool-output text.
 

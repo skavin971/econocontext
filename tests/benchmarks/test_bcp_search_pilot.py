@@ -1,16 +1,34 @@
 """Synthetic full-search trials: no private benchmark text or live requests."""
 
+import copy
+import hashlib
 import json
 import sqlite3
 
 import pytest
 
-from benchmarks.bcp.doc_labeling.common import rows, settings
+from benchmarks.bcp.doc_labeling import search_pilot
+from benchmarks.bcp.doc_labeling.common import read, rows, settings
 from benchmarks.bcp.doc_labeling.retrieval import Corpus
 from benchmarks.bcp.doc_labeling.prepare import chunk_document
-from benchmarks.bcp.doc_labeling.search_pilot import (canonical_citations, ranked_pages, report,
-                                                    page_importance, requested_topics, system_prompt, tools_for, trial)
+from benchmarks.bcp.doc_labeling.search_pilot import (RANKED_ARMS, canonical_citations, context_measures, judge,
+                                                    ranked_doc_pages, ranked_pages, report, page_importance,
+                                                    requested_topics, system_prompt, tools_for, trial)
 from tests.benchmarks.test_bcp_doc_labeling import CharTokens, FakeJev, tool_reply
+
+# sha256 of {"system", "tools"} for each baseline arm at the committed pilot (92b02ff): they must never change.
+BASELINE = {"full": "b1e7facc01c253c4ab5ebe4bdc5b5949846a35592e279bfeda79d3f62f1ada68",
+            "original": "bcf40ecde3ecdb35dbcf01a2999a37f6644338482ca87cfed0d6aa51484f0aa5",
+            "ranked": "750623784c3e1af8d9817e2d2e766bcdae90e205c5c7be69794d9052a841d9c7"}
+
+
+class FakeDocJev(FakeJev):
+    """Scores a "<chunk_id>_<topic_id>" question by its chunk's text, the same rule as FakeJev."""
+
+    def ask(self, state, questions):
+        self.seen.append((copy.deepcopy(state), list(questions)))
+        text = {c["chunk_id"]: c["text"] for c in state["document"]}
+        return {k: {"noul": 0.9 if "evidence" in text[k.rsplit("_", 1)[0]] else 0.1} for k in questions}, {"input_tokens": 10}
 
 
 class Search:
@@ -50,7 +68,15 @@ def test_canonical_search_citations():
         canonical_citations(["43:c00001"], {"42:c00001"})
 
 
-@pytest.mark.parametrize("arm", ["full", "original", "ranked"])
+def test_baseline_arms_are_unchanged_and_ranked_doc_matches_ranked():
+    def fingerprint(arm):
+        value = json.dumps({"system": system_prompt(arm, 2000), "tools": tools_for(arm)}, sort_keys=True)
+        return hashlib.sha256(value.encode()).hexdigest()
+    assert {arm: fingerprint(arm) for arm in BASELINE} == BASELINE
+    assert fingerprint("ranked_doc") == BASELINE["ranked"]
+
+
+@pytest.mark.parametrize("arm", ["full", "original", "ranked", "ranked_doc"])
 def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
     cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000, "repeats": 1})
     class Gateway:
@@ -62,15 +88,15 @@ def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
             if step == 1:
                 return tool_reply("search", {"query": "evidence"})
             if step == 2:
-                return tool_reply("get_document", {"docid": "42", **({"topics": ["when the event happened"]} if arm == "ranked" else {})})
+                return tool_reply("get_document", {"docid": "42", **({"topics": ["when the event happened"]} if arm in RANKED_ARMS else {})})
             return tool_reply("answer", {"explanation": "Evidence", "exact_answer": "1900",
                 "confidence": 90, "insufficient_evidence": False, "citations": ["42"]})
-    gateway, jev = Gateway(), FakeJev()
+    gateway, jev = Gateway(), FakeDocJev() if arm == "ranked_doc" else FakeJev()
     result = trial(tmp_path, "When?", arm, Search(), CharTokens(), cfg, gateway, jev)
     assert result["status"] == "answered"
     assert result["tool_calls"] == {"search": 1, "get_document": 1, "answer": 1}
     assert result["documents_opened"] == ["42"]
-    assert bool(jev.seen) == (arm == "ranked")
+    assert bool(jev.seen) == (arm in RANKED_ARMS)
     assert all("1900" not in m.get("content", "") for m in gateway.calls[0])
     assert gateway.calls[0][0]["content"] == system_prompt(arm, cfg["page_tokens"])
     assert len(rows(tmp_path / "tools.jsonl")) == 2
@@ -78,7 +104,7 @@ def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
     tool_rows = rows(tmp_path / "tools.jsonl")
     assert result["document_tool_output_tokens"] == tool_rows[1]["output_tokens"]
     assert tool_rows[1]["output_tokens"] == CharTokens().count(json.dumps(tool_rows[1]["result"], ensure_ascii=False))
-    if arm == "ranked":
+    if arm in RANKED_ARMS:
         assert tool_rows[1]["result"]["topics"] == ["when the event happened"]
         assert "importance_percent" in tool_rows[1]["result"]
     assert trial(tmp_path, "When?", arm, Search(), CharTokens(), cfg, gateway, jev) == result
@@ -138,6 +164,119 @@ def test_doc_ranking_scores_once_and_preserves_all_chunks(tmp_path):
     ranked_pages(tmp_path, "When?", topics, "42", text, tokens, cfg, jev)
     assert len(jev.seen) == calls
     assert rows(tmp_path / "jev.jsonl")[0]["answers"]
+
+
+def test_ranked_doc_scores_whole_document_in_one_request(tmp_path):
+    cfg, tokens = settings({"chunk_tokens": 40, "page_tokens": 180}), CharTokens()
+    topics = requested_topics(["date", "identity"])
+    text, jev = Search().document("42"), FakeDocJev()
+    chunks, pages = ranked_doc_pages(tmp_path / "doc", "When?", topics, "42", text, tokens, cfg, jev)
+    assert len(jev.seen) == 1
+    state, keys = jev.seen[0]
+    assert [c["text"] for c in state["document"]] == [c["text"] for c in chunks]
+    assert state["question"] == "When?" and state["topics"] == topics
+    assert sorted(keys) == sorted(f"{c['chunk_id']}_{t['id']}" for c in chunks for t in topics)
+    # Same scores, same pages: only how Jev is asked differs from ranked.
+    _, same = ranked_pages(tmp_path / "chunk", "When?", topics, "42", text, tokens, cfg, FakeJev())
+    assert pages == same
+    ranked_doc_pages(tmp_path / "doc", "When?", topics, "42", text, tokens, cfg, jev)
+    assert len(jev.seen) == 1                      # resumed from its own audit log, not rescored
+
+
+def test_ranked_doc_splits_questions_but_keeps_the_whole_state(tmp_path, monkeypatch):
+    cfg, tokens = settings({"chunk_tokens": 40, "page_tokens": 180}), CharTokens()
+    topics = requested_topics(["date", "identity", "place"])
+    text, jev = Search().document("42"), FakeDocJev()
+    state_size = len(json.dumps({"question": "When?", "topics": topics, "document": [
+        {"chunk_id": c["chunk_id"], "text": c["text"]} for c in chunk_document(text, "42", tokens.count, 40)]}))
+    monkeypatch.setattr(search_pilot, "JEV_REQUEST_CHARS", state_size + 2000)
+    chunks, _ = ranked_doc_pages(tmp_path, "When?", topics, "42", text, tokens, cfg, jev)
+    assert len(jev.seen) > 1
+    assert all(state == jev.seen[0][0] for state, _ in jev.seen)
+    asked = [k for _, keys in jev.seen for k in keys]
+    assert sorted(asked) == sorted(f"{c['chunk_id']}_{t['id']}" for c in chunks for t in topics)
+    monkeypatch.setattr(search_pilot, "JEV_QUESTION_CHARS", state_size)
+    with pytest.raises(ValueError, match="per-question limit"):
+        ranked_doc_pages(tmp_path / "too-big", "When?", topics, "42", text, tokens, cfg, jev)
+
+
+@pytest.mark.parametrize("bad", ["missing", 1.5, float("nan"), "0.5"])
+def test_ranked_doc_rejects_missing_or_invalid_scores(tmp_path, bad):
+    class BadJev(FakeDocJev):
+        def ask(self, state, questions):
+            answers, usage = super().ask(state, questions)
+            first = next(iter(answers))
+            if bad == "missing":
+                del answers[first]
+            else:
+                answers[first] = {"noul": bad}
+            return answers, usage
+    cfg = settings({"chunk_tokens": 40, "page_tokens": 180})
+    with pytest.raises((ValueError, KeyError)):
+        ranked_doc_pages(tmp_path, "When?", requested_topics(["date"]), "42", Search().document("42"),
+                         CharTokens(), cfg, BadJev())
+    assert rows(tmp_path / "jev.jsonl")[-1]["status"] == "failed"
+    assert not (tmp_path / "pages.json").exists()
+
+
+def test_context_measures_peak_and_gold_document_luck(tmp_path):
+    with (tmp_path / "calls.jsonl").open("w") as stream:
+        for prompt in (100, 300, 200):
+            stream.write(json.dumps({"response": {"usage": {"prompt_tokens": prompt, "completion_tokens": 5}}}) + "\n")
+    with (tmp_path / "tools.jsonl").open("w") as stream:
+        for row in ({"step": 1, "tool": "search", "result": [{"docid": "1"}]},
+                    {"step": 2, "error": "malformed"},
+                    {"step": 3, "tool": "search", "result": [{"docid": "9"}, {"docid": "2"}]},
+                    {"step": 4, "tool": "get_document", "arguments": {"docid": "1"}},
+                    {"step": 5, "tool": "get_document", "arguments": {"docid": "9"}}):
+            stream.write(json.dumps(row) + "\n")
+    result = {"tool_calls": {"search": 2, "get_document": 2, "next_page": 1}, "documents_opened": ["1", "9"],
+              "document_tool_output_tokens": 600}
+    measures = context_measures(tmp_path, result, {"9"})
+    assert measures["peak_context_tokens"] == 300
+    assert (measures["search_calls"], measures["next_page_calls"], measures["documents_opened_count"]) == (2, 1, 2)
+    assert measures["document_tokens_per_opened_document"] == 300
+    assert (measures["gold_doc_in_search"], measures["first_gold_search_step"]) == (True, 3)
+    assert (measures["gold_doc_opened"], measures["first_gold_open_step"]) == (True, 5)
+    assert context_measures(tmp_path, result, set())["gold_doc_in_search"] is None
+    (tmp_path / "calls.jsonl").write_text(json.dumps({"response": {}}) + "\n")
+    assert context_measures(tmp_path, result, {"9"})["peak_context_tokens"] is None
+
+
+def test_judge_grades_answers_once_and_only_answers(tmp_path, monkeypatch):
+    out = tmp_path / "q741-r1"
+    (out / "741").mkdir(parents=True)
+    (out / "manifest.json").write_text(json.dumps({"query_ids": ["741"], "arms": ["full", "original", "ranked"]}))
+    queries = tmp_path / "queries.jsonl"
+    queries.write_text(json.dumps({"query_id": "741", "query": "Who?", "answer": "Ada",
+                                   "gold_docs": [{"docid": "42"}]}) + "\n")
+    answer = {"explanation": "It says so.", "exact_answer": "Ada Lovelace", "confidence": 90,
+              "citations": ["42"], "insufficient_evidence": False}
+    for arm, status in (("full", "answered"), ("original", "context_limit"), ("ranked", "insufficient_evidence")):
+        (out / "741" / arm).mkdir()
+        (out / "741" / arm / "result.json").write_text(json.dumps({"arm": arm, "status": status,
+            "answer": answer if status == "answered" else None,
+            "total_model_input_tokens": 10, "total_model_output_tokens": 1}))
+    seen = []
+    class FakeGateway:
+        def __init__(self, url, run_id, folder):
+            self.run_id = run_id
+        def call(self, messages, sampling, kind):
+            seen.append((self.run_id, messages[0]["content"], sampling["model"], kind))
+            return {"choices": [{"message": {"content": "<think>hm</think>correct: yes"}}]}
+    monkeypatch.setattr(search_pilot, "Gateway", FakeGateway)
+    judge(out, queries, "http://judge")
+    judge(out, queries, "http://judge")
+    assert len(seen) == 1
+    run_id, prompt, model, kind = seen[0]
+    assert run_id == "bcp-search.q741-r1.741.full.judge" and kind == "judge" and model == "qwen3:32b"
+    assert "Ada Lovelace" in prompt and "Ada" in prompt
+    assert read(out / "741/full/verdict.json")["correct"] is True
+    assert read(out / "741/ranked/verdict.json")["correct"] is False
+    assert not (out / "741/original/verdict.json").exists()
+    data = report(out, queries, CharTokens())
+    verdicts = {r["arm"]: (r["judged_correct"], r["judge_parsed"]) for r in data["runs"]}
+    assert verdicts == {"full": (True, True), "original": (None, False), "ranked": (False, True)}
 
 
 def test_retrieval_ignores_query_sql_and_searches_whole_collection(tmp_path):
