@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -55,7 +56,11 @@ def settings(overrides=None):
 def private_path(path):
     path = Path(path).expanduser().resolve()
     if path == ROOT or ROOT in path.parents:
-        raise ValueError("benchmark artifacts must be outside the repository")
+        workspace = ROOT / "econo" / "bcp"
+        ignored = subprocess.run(["git", "check-ignore", "-q", "--", str(path)],
+                                 cwd=ROOT, check=False).returncode == 0
+        if path != workspace and not (workspace in path.parents and ignored):
+            raise ValueError("benchmark artifacts must be outside the repository or in the ignored econo/bcp workspace")
     return path
 
 

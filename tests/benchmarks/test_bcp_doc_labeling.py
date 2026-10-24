@@ -319,6 +319,16 @@ def test_benchmark_artifacts_cannot_be_saved_in_repo():
         private_path("data/bcp-pilot")
 
 
+def test_local_workspace_only_allows_ignored_artifacts():
+    from benchmarks.bcp.doc_labeling.common import ROOT
+    assert private_path(ROOT / "econo/bcp") == ROOT / "econo/bcp"
+    for name in ("full-search/test-new", "doc-labeling/test-new", "corpus-fts.sqlite"):
+        assert private_path(ROOT / "econo/bcp" / name) == ROOT / "econo/bcp" / name
+    for name in ("RUN.md", "reports/RESULTS.md", "pilot.env.example"):
+        with pytest.raises(ValueError):
+            private_path(ROOT / "econo/bcp" / name)
+
+
 def test_topic_generator_only_receives_the_question(pilot):
     folder, _, _ = pilot
     seen = []

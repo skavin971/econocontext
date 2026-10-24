@@ -48,6 +48,15 @@ def system_prompt(arm, page_tokens):
             "next_page tool. If the view lacks needed evidence, inspect a different search hit "
             "or refine the search; repeating get_document cannot reveal text beyond the cap. "
         )
+    elif arm == "original":
+        mode = (
+            f"You are in ORIGINAL-ORDER PAGING mode. get_document returns page 1 with up to {page_tokens} "
+            "text tokens plus metadata. Pages follow the document's original order; they are NOT "
+            "ranked by relevance and contain no relevance percentages. next_page returns the next "
+            "consecutive page of an opened document. Request it when needed evidence may be later "
+            "in that document, or search/open another hit if the document is unrelated. Answer as "
+            "soon as you have sufficient evidence; do not exhaust pages unnecessarily. "
+        )
     elif arm == "ranked":
         mode = (
             f"You are in TOPIC-RANKED PAGING mode. get_document returns page 1 with up to {page_tokens} text tokens plus metadata. "
@@ -78,7 +87,7 @@ def system_prompt(arm, page_tokens):
 
 
 def tools_for(arm):
-    tools = copy.deepcopy([t for t in TOOLS if arm == "ranked" or t["function"]["name"] != "next_page"])
+    tools = copy.deepcopy([t for t in TOOLS if arm != "full" or t["function"]["name"] != "next_page"])
     tools[1]["function"]["description"] = (
         "Read a search hit's entire allowed view in original order, up to 8192 tokens; no further pages."
         if arm == "full" else "Read page 1 of a search hit, with chunks prioritized by topic-specific Jev rankings."
@@ -97,6 +106,9 @@ def tools_for(arm):
             "Read the next page using that document's existing topics; returns current/next importance "
             "percentages. Use only for a specific missing fact this document gives reason to expect."
         )
+    elif arm == "original":
+        tools[1]["function"]["description"] = "Read page 1 of a search hit in original document order, without relevance ranking."
+        tools[2]["function"]["description"] = "Read the next consecutive original-order page of an opened document."
     return tools
 
 
@@ -238,7 +250,8 @@ def trial(folder, question, arm, corpus, tokens, cfg, gateway, jev=None):
                                                      docid, text, tokens, cfg, jev)
                     else:
                         chunks = chunk_document(text, docid, tokens.count, cfg["chunk_tokens"])
-                        pages = [{"page": 1, "chunk_ids": [c["chunk_id"] for c in chunks], "text": render(chunks)}]
+                        pages = (pack(chunks, tokens.count, cfg["page_tokens"]) if arm == "original" else
+                                 [{"page": 1, "chunk_ids": [c["chunk_id"] for c in chunks], "text": render(chunks)}])
                     documents[docid] = {"chunks": chunks, "pages": pages, "cursor": 0, "topics": topics}
                 if docid not in documents:
                     raise ValueError("open the document before requesting another page")
@@ -308,7 +321,7 @@ def report(out, queries, tokens, include_flops=False):
     for qid in manifest.get("query_ids", ("741", "333", "600")):
         gold = load_record(queries, "query_id", qid)["answer"]
         pair = {}
-        for arm in ("full", "ranked"):
+        for arm in manifest.get("arms", ("full", "ranked")):
             folder = out / qid / arm
             if not (folder / "result.json").exists():
                 continue
@@ -328,6 +341,8 @@ def report(out, queries, tokens, include_flops=False):
                           whole_system_flops_complete=arm == "full" and complete)
             topic_usage = usage_totals(rows(out / qid / "topics-generation" / "calls.jsonl")) if arm == "ranked" else usage_totals([])
             result["model_calls"] = len(rows(folder / "calls.jsonl"))
+            usage = [result["total_model_input_tokens"], result["total_model_output_tokens"]]
+            result["total_model_tokens"] = sum(usage) if all(v is not None for v in usage) else None
             for metric, source in (("input", "total_model_input_tokens"), ("output", "total_model_output_tokens")):
                 result[f"topic_{metric}_tokens"] = topic_usage[source]
                 values = [r.get("usage", {}).get(f"{metric}_tokens") if r.get("usage") else None for r in attempts]
@@ -335,7 +350,7 @@ def report(out, queries, tokens, include_flops=False):
                 result[f"task_{metric}_tokens_including_topics"] = (result[source] + topic_usage[source]
                     if result[source] is not None and topic_usage[source] is not None else None)
             pair[arm] = result
-        if set(pair) == {"full", "ranked"}:
+        if {"full", "ranked"}.issubset(pair):
             full, ranked = pair["full"], pair["ranked"]
             known = all(r["model_flops"] is not None for r in pair.values()) and ranked["topic_flops"] is not None
             budget = full["model_flops"] - ranked["model_flops"] - ranked["topic_flops"] if known else None
@@ -355,6 +370,16 @@ def report(out, queries, tokens, include_flops=False):
                 saved = baseline - actual if baseline is not None and actual is not None else None
                 ranked[f"{field}_saved_vs_full"] = saved
                 ranked[f"{field}_reduction_vs_full"] = saved / baseline if baseline and saved is not None else None
+        for item in pair.values():
+            for baseline_name in ("full", "original"):
+                baseline = pair.get(baseline_name, {})
+                for label, field in (("input", "total_model_input_tokens"), ("output", "total_model_output_tokens"),
+                                     ("total", "total_model_tokens"), ("document_tool_output", "document_tool_output_tokens"),
+                                     ("search_tool_output", "search_tool_output_tokens")):
+                    before, after = baseline.get(field), item.get(field)
+                    saved = before - after if before is not None and after is not None else None
+                    item[f"{label}_tokens_saved_vs_{baseline_name}"] = saved
+                    item[f"{label}_tokens_reduction_vs_{baseline_name}"] = saved / before if before and saved is not None else None
         results.extend(pair.values())
     data = {"runs": results, "flops_analysis_requested": include_flops, "scope": "Complete-corpus retrieval; SQLite FTS5 BM25, not official Lucene reproduction. "
         "Document views capped at 8192 Qwen tokens in both arms. Prefix-reuse Eq9 FLOPs validated against server token IDs; "
@@ -378,6 +403,7 @@ def main():
     parser.add_argument("--report-only", action="store_true")
     parser.add_argument("--measure-flops", action="store_true", help="opt-in offline FLOP post-processing; requires --report-only")
     parser.add_argument("--query-ids", nargs="+", default=["741"], help="question IDs; default: problem one (741)")
+    parser.add_argument("--arms", nargs="+", choices=("full", "original", "ranked"), default=["full", "original", "ranked"])
     args = parser.parse_args()
     if args.measure_flops and not args.report_only:
         parser.error("--measure-flops requires --report-only; live trials remain token-only")
@@ -395,10 +421,10 @@ def main():
     from gateway.server import Gateway as Service, PROVIDERS, make_server, read_env
     corpus = Corpus(index, tokens)
     out.mkdir(parents=True, exist_ok=True)
-    write(out / "manifest.json", {"config": cfg, "corpus": corpus.metadata, "query_ids": args.query_ids,
+    write(out / "manifest.json", {"config": cfg, "corpus": corpus.metadata, "query_ids": args.query_ids, "arms": args.arms,
         "topic_source": "agent get_document arguments; no separate generation call",
-        "systems": {arm: system_prompt(arm, cfg["page_tokens"]) for arm in ("full", "ranked")},
-        "tools": {arm: tools_for(arm) for arm in ("full", "ranked")},
+        "systems": {arm: system_prompt(arm, cfg["page_tokens"]) for arm in args.arms},
+        "tools": {arm: tools_for(arm) for arm in args.arms},
         "implementation_hash": digest(Path(__file__).read_text()), "tokenizer": tokens.provenance})
     service = Service(PROVIDERS["purdue"], read_env("GENAI_API_KEY"), out / "gateway", max_calls_per_run=40,
                       max_tokens_for={"bcp": 4096}, tries=1, timeout_s=120)
@@ -410,7 +436,7 @@ def main():
         for i, qid in enumerate(args.query_ids):
             question = load_record(queries, "query_id", qid)["query"]
             # Alternate arm order to reduce shared-server/order effects.
-            for arm in (("full", "ranked") if i % 2 == 0 else ("ranked", "full")):
+            for arm in (args.arms if i % 2 == 0 else list(reversed(args.arms))):
                 print(f"Question {qid}: {arm}", flush=True)
                 folder = out / qid / arm
                 gateway = Gateway(url, f"bcp-search.{out.name}.{qid}.{arm}", folder)

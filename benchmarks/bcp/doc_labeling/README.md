@@ -63,7 +63,7 @@ paths inside the checkout, even under git-ignored `data/`.
 For the commands below, set these paths/IDs to your chosen private fixture:
 
 ```sh
-BCP_ROOT="$HOME/Desktop/Code/research/econo/bcp"
+BCP_ROOT="$PWD/econo/bcp" # Run from the repository root; artifacts here are Git-ignored.
 EXPERIMENT="$BCP_ROOT/doc-labeling/pilot-001"
 QID=YOUR_QUERY_ID
 DOCID=YOUR_DOCUMENT_ID

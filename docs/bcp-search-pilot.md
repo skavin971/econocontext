@@ -8,12 +8,14 @@ gateway, or measurement implementation from main. The new entry point is
 
 The current default focuses on problem one, QID 741, once per arm. The earlier
 six-trial results for 741, 333, and 600 remain historical and unchanged. Other
-questions require explicit `--query-ids` selections. The two arms are:
+questions require explicit `--query-ids` selections. The three arms are:
 
 - `full`: a bounded search agent receives whole document-reader observations.
+- `original`: consecutive original-order document pages, without topics, Jev
+  scoring, or relevance percentages.
 - `ranked`: the same agent receives Jev-ranked pages for every document it opens.
 
-Both arms search all 100,195 documents in the pinned official corpus. A new,
+All arms search all 100,195 documents in the pinned official corpus. A new,
 portable SQLite FTS5 BM25 index is shared, not a question-specific subset. It is
 not an official Lucene BM25 reproduction. Search returns ten 512-token snippets
 unchanged in both arms; document views are capped at 8,192 answering-model tokens
@@ -84,7 +86,7 @@ generated answer tokens. Agent-generated topic arguments are already included
 in provider output and subsequent input usage; new runs have zero standalone
 topic-generation overhead. Legacy reports retain their original topic overhead.
 
-Both arms use the same model/sampling and 65,536-token window, up to 32 model
+All arms use the same model/sampling and 65,536-token window, up to 32 model
 calls. Arm order alternates by question. One stochastic trial per cell is a
 pilot, not statistically reliable evidence. Provider calls time out after 120
 seconds with no hidden gateway retries. Interrupted tasks retain traces and
@@ -93,10 +95,11 @@ official independent LLM judge.
 
 ## Token-only execution
 
-The local wrapper is `/Users/ttvaroh/Desktop/Code/research/econo/bcp/run_search.sh`.
+From the repository root, run `bash econo/bcp/run_search.sh`.
 It loads the existing git-ignored keys, builds the complete index once, and
-starts/stops a private gateway. Results live outside Git under
-`econo/bcp/full-search/pilot-001/`.
+starts/stops a private gateway. Results remain Git-ignored under
+`econo/bcp/full-search/problem-741-agent-topics-v1/` for this three-way test.
+Earlier six-trial results remain in `full-search/pilot-001/`.
 
 `summary.json` / `summary.csv` include provider input/output totals across every
 agent call, tool counts, opened documents, task outcome/exact match, observation
@@ -118,7 +121,7 @@ After the token run, the following command can post-process saved gateway logs
 without new inference. It is intentionally **not** executed by default:
 
 ```sh
-bash /Users/ttvaroh/Desktop/Code/research/econo/bcp/run_search.sh --report-only --measure-flops
+bash econo/bcp/run_search.sh --report-only --measure-flops
 ```
 
 The implementation reuses `measure.flops.measure_log`: rebuild/validate prompt

@@ -39,6 +39,9 @@ def test_delivery_prompts_and_tools_are_arm_specific():
     assert "next_page_importance_percent" in ranked
     with pytest.raises(ValueError):
         system_prompt("unknown", 2000)
+    assert "ORIGINAL-ORDER PAGING mode" in system_prompt("original", 2000)
+    assert "topics" not in tools_for("original")[1]["function"]["parameters"]["required"]
+    assert "next_page" in [t["function"]["name"] for t in tools_for("original")]
 
 
 def test_canonical_search_citations():
@@ -47,7 +50,7 @@ def test_canonical_search_citations():
         canonical_citations(["43:c00001"], {"42:c00001"})
 
 
-@pytest.mark.parametrize("arm", ["full", "ranked"])
+@pytest.mark.parametrize("arm", ["full", "original", "ranked"])
 def test_search_agent_opens_arbitrary_hit_and_answers(tmp_path, arm):
     cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000, "repeats": 1})
     class Gateway:
@@ -180,3 +183,22 @@ def test_token_report_does_not_run_flops_and_counts_topic_overhead(tmp_path, mon
     assert ranked["document_tool_output_tokens_saved_vs_full"] == 50
     assert ranked["document_tool_output_tokens_reduction_vs_full"] == .625
     assert ranked["search_tool_output_tokens_saved_vs_full"] == 0
+
+
+def test_three_way_report_compares_original_and_total_tokens(tmp_path):
+    (tmp_path / "manifest.json").write_text(json.dumps({"query_ids": ["741"], "arms": ["full", "original", "ranked"]}))
+    queries = tmp_path / "queries.jsonl"
+    queries.write_text(json.dumps({"query_id": "741", "answer": "1900"}) + "\n")
+    for arm, inp, output, document in (("full", 100, 10, 80), ("original", 150, 20, 90), ("ranked", 80, 15, 30)):
+        folder = tmp_path / "741" / arm
+        folder.mkdir(parents=True)
+        (folder / "result.json").write_text(json.dumps({"answer": {"exact_answer": "1900"},
+            "status": "answered", "arm": arm, "total_model_input_tokens": inp,
+            "total_model_output_tokens": output, "document_tool_output_tokens": document}))
+    data = report(tmp_path, queries, CharTokens())
+    assert len(data["runs"]) == 3
+    ranked = next(r for r in data["runs"] if r["arm"] == "ranked")
+    assert ranked["total_model_tokens"] == 95
+    assert ranked["total_tokens_saved_vs_full"] == 15
+    assert ranked["total_tokens_saved_vs_original"] == 75
+    assert ranked["document_tool_output_tokens_saved_vs_original"] == 60

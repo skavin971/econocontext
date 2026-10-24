@@ -21,8 +21,8 @@ existing gateway/model configuration and record the exact model, tokenizer,
 revision, provider, prompts, and sampling settings at execution time.
 
 Keep benchmark questions, document text, labels containing excerpts, answers,
-Jev requests, and model traces outside the repository, under
-`~/Desktop/Code/research/econo/bcp/doc-labeling/<experiment-id>/` by default. Commit only code,
+Jev requests, and model traces in the Git-ignored local workspace, under
+`econo/bcp/doc-labeling/<experiment-id>/` by default. Commit only code,
 configuration, synthetic fixtures, and aggregate results. The local BCP data
 directory was not present during planning; locating/provisioning the dataset is
 an execution prerequisite.
