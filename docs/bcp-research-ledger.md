@@ -240,3 +240,33 @@ Next**.
   the queries did not hit.
 - **Disclosure:** one C1 call at 26,247 prompt tokens (above the limit) during CLM's rollback-retry, as in L11.
 - **Next:** Q1226 (long gold documents).
+
+## L13 · Study 2 results: Q1215 (long gold documents) · 2026-10-25
+
+- **What ran:** 8 methods × 3 repeats = 24 trials, same protocol; none excluded; every FLOP validation passed.
+  (Run alongside Q1226, whose last CLM trial was still going; Q1226 is L14.)
+
+| Q | ID | Method | n | Answered | Exact ✓ | Contains gold ✓ | Peak context | Input tokens | PFLOPs | Calls | Searches | Search tok/search | Doc tok/doc | Next-page calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1215 | M0 | full | 3 | 3/3 | 2/3 | 3/3 | 12,561 (12,346–12,576) | 19,727 (19,548–19,760) | 0.7 (0.7–0.8) | 3 (3–3) | 1 (1–2) | 5,687 (5,675–5,756) | 6,068 (6,068–6,068) | 0 (0–0) |
+| 1215 | M1 | ranked_doc | 3 | 3/3 | 2/3 | 3/3 | 8,802 (8,783–8,824) | 16,898 (16,882–16,934) | 0.5 (0.5–0.5) | 3 (3–3) | 1 (1–1) | 5,697 (5,697–5,703) | 1,789 (1,770–1,794) | 0 (0–0) |
+| 1215 | M2 | ranked_doc_search | 3 | 3/3 | 1/3 | 2/3 | 5,720 (5,639–22,138) | 12,492 (12,346–117,782) | 0.6 (0.6–1.5) | 4 (4–10) | 1 (1–7) | 2,286 (2,222–2,558) | 1,766 (1,760–1,862) | 0 (0–1) |
+| 1215 | M3 | ranked_doc_search_labels | 3 | 3/3 | 1/3 | 3/3 | 5,713 (5,671–6,030) | 11,251 (10,992–12,349) | 0.4 (0.4–0.5) | 3 (3–4) | 1 (1–2) | 2,194 (2,187–2,290) | 1,800 (1,795–1,806) | 0 (0–0) |
+| 1215 | M4 | strict_rank_search_labels | 3 | 3/3 | 0/3 | 1/3 | 21,690 (7,596–23,115) | 121,408 (17,777–134,021) | 1.4 (0.4–1.4) | 11 (4–11) | 8 (2–9) | 2,167 (2,147–2,177) | 2,620 (1,722–3,519) | 0 (0–1) |
+| 1215 | M5 | strict_rank_search_reasoning | 3 | 3/3 | 0/3 | 1/3 | 21,472 (7,495–21,724) | 114,900 (17,916–122,316) | 1.5 (0.5–2.2) | 11 (4–12) | 9 (2–9) | 2,130 (2,121–2,156) | 1,706 (1,706–1,706) | 0 (0–0) |
+| 1215 | C1 | clm | 3 | 3/3 | 0/3 | 2/3 | 19,196 (17,939–19,744) | 94,972 (54,901–355,182) | 2.6 (1.3–2.7) | 10 (6–25) | – | – | – | – |
+| 1215 | C2 | clm_instructed | 3 | 3/3 | 0/3 | 0/3 | 20,529 (20,303–21,300) | 115,059 (92,713–173,235) | 3.3 (2.4–3.5) | 11 (8–15) | – | – | – | – |
+
+- **Result:** the first question where document ranking pays off. M1 and M3 kept the baseline's accuracy (3/3) while
+  cutting median peak context 12.6k → 8.8k (M1, −30%) and → 5.7k (M3, −55%), and PFLOPs 0.7 → 0.5 / 0.4.
+  Opened documents arrived as ~1.8k-token pages instead of the ~6.1k-token whole (−71%).
+- **Strict Rank (M4, M5): 1/3 each.** In 4 of their 6 trials the first search missed the evidence, and they used the
+  budget on 8–9 searches; M1–M3's first search hit in 8 of 9. Hits depend only on the query, and SR's first
+  queries look like the others' (length, overlap with the question); on Q741 + Q1226 SR's first search hit as often
+  (6/12 vs 6/18). Read as query variance at n = 3, to recheck, not as an effect of the ranking.
+- **CLM:** C1 2/3 (contains; 0/3 exact: longer answers), C2 0/3; C2's searches never returned an evidence document.
+- **Correction to L11 and L12 (over-limit CLM prompts):** checked against CLM's own logs, the over-limit call
+  comes *first* and CLM's gate rolls the context back on the next step; it is not a call made during a retry.
+  In 4 of 30 CLM trials one prompt went above 23,000 tokens mid-run (23,129–31,038); 3 of those 4 trials were
+  wrong. Our arms exceed 21,512 only on the final turn (55 trials, max 24,700). CLM's code is unchanged.
+- **Next:** Q1226's last CLM trial, then the results page.
