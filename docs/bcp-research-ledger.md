@@ -17,6 +17,7 @@ Next**.
 | L6 | 2026-10-25 | Evidence-document lengths: why Study 1 savings were capped | done |
 | L7 | 2026-10-25 | Study 2 design and decisions | in progress |
 | L8 | 2026-10-25 | Brainstorming prompt for new ideas | done |
+| L9 | 2026-10-25 | Study 2 setup, long-document demo, smoke test | done |
 
 ---
 
@@ -124,3 +125,35 @@ Next**.
 - The prompt used to brainstorm new classification, paging and labelling ideas is saved in
   [`bcp-brainstorm-prompt.md`](bcp-brainstorm-prompt.md). Ideas taken from it so far: predicates instead of
   topics (recorded, not run) and the agent's reasoning as Jev input (Study 2 arm M5).
+
+## L9 · Study 2 setup, long-document demo, smoke test · 2026-10-25
+
+- **Setup:** official Lucene BM25 service (`search_server.py`, prebuilt index) on port 8790; Docker started in the
+  cloud container (CLM's tasks run in it); CLM at the pinned commit; shared gateway for CLM at 12 calls/min, our
+  arms at 8 (Purdue allows 20). pyserini first pulled the CUDA build of PyTorch (several GB, no GPU here) and
+  nearly filled the disk; replaced with the CPU build.
+- **Long-document demo (Jev only, Q1226):** on gold doc 66144 (7,124 tokens, 19 chunks), SI and SR put the same 4
+  chunks on page 1 (1,651 tokens, 77% less than the full view); SI page-1 importance 96%, SR "contains anything"
+  0.62. One label (a fact not in this document) scored ≤ 0.08 everywhere. On gold doc 18216 (25,141 tokens) the
+  answer string appears nowhere; Jev scored everything low (SI importance 23%, SR "contains anything" 0.01): a real
+  no-match case.
+- **Caveat for long documents:** in 8 of 9 gold documents of Q1226/Q1215 the answer string appears within the first
+  ~40 tokens (the page title). Original-order page 1 already "contains the answer"; what ranking can move forward
+  is the evidence for the clues. Answer-string matching is a weak evidence label here.
+- **Smoke test (Q741, one trial per method, CLM protocol):** all 8 methods ran end to end; every FLOP validation
+  passed; the budget gate stopped two trials at the 21,512 limit after CLM's final-turn notice; M5 passed the
+  agent's reasoning to Jev; paged search output averaged ~2,200 tokens per search vs ~5,700 unpaged.
+
+| ID | Result | Peak context | PFLOPs | Searches | Search tokens per search |
+|---|---|---|---|---|---|
+| M0 full | ✓ | 15,124 | 0.9 | 2 | 5,657 |
+| M1 ranked_doc | ✗ budget | 24,615 | 1.4 | 4 | 5,732 |
+| M2 ranked_doc_search | ✗ budget | 22,982 | 1.4 | 9 | 2,262 |
+| M3 labels | ✓ | 6,100 | 0.4 | 1 | 2,231 |
+| M4 strict rank | ✓ | 5,873 | 0.4 | 1 | 2,223 |
+| M5 strict rank + reasoning | ✓ | 5,729 | 0.35 | 1 | 2,135 |
+| C1 clm | ✓ | 17,015 | 1.0 | – | – |
+| C2 clm_instructed | ✓ | 21,346 | 9.4 | – | – |
+
+- **Interpretation:** a pipeline check, not evidence (one trial each).
+- **Next:** main runs, Q741 first, 3 repeats per method.
