@@ -178,6 +178,7 @@ question, or whether a task-agnostic "label + document -> relevance" classifier 
 ## Study 2 arms: search paging, Strict Rank, and the CLM protocol
 
 The ledger (`docs/bcp-research-ledger.md`, L7) lists the Study 2 arms with IDs M0–M5 and C1–C2.
+Results (120 trials, 5 questions): [`docs/results/2026-10-25-bcp-study2/README.md`](results/2026-10-25-bcp-study2/README.md).
 
 - **Search paging** (`ranked_doc_search`, `ranked_doc_search_labels`, `strict_rank_search_labels`,
   `strict_rank_search_reasoning`): `search` takes `topics`; the ten hits' snippets become one unit, cut into

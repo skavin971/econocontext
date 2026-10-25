@@ -270,3 +270,47 @@ Next**.
   In 4 of 30 CLM trials one prompt went above 23,000 tokens mid-run (23,129–31,038); 3 of those 4 trials were
   wrong. Our arms exceed 21,512 only on the final turn (55 trials, max 24,700). CLM's code is unchanged.
 - **Next:** Q1226's last CLM trial, then the results page.
+
+## L14 · Study 2 results: Q1226 (long gold documents) · 2026-10-25
+
+- **What ran:** 8 methods × 3 repeats = 24 trials, same protocol; none excluded; every FLOP validation passed.
+
+| Q | ID | Method | n | Answered | Exact ✓ | Contains gold ✓ | Peak context | Input tokens | PFLOPs | Calls | Searches | Search tok/search | Doc tok/doc | Next-page calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1226 | M0 | full | 3 | 1/3 | 0/3 | 0/3 | 23,888 (23,836–23,988) | 74,161 (61,532–79,697) | 1.6 (1.4–1.9) | 6 (5–6) | 4 (4–4) | 5,686 (5,683–5,687) | – | 0 (0–0) |
+| 1226 | M1 | ranked_doc | 3 | 1/3 | 0/3 | 0/3 | 24,431 (8,958–24,531) | 71,300 (17,202–82,878) | 1.5 (0.6–1.6) | 6 (3–6) | 4 (1–4) | 5,693 (5,684–5,701) | 1,834 (1,834–1,834) | 0 (0–0) |
+| 1226 | M2 | ranked_doc_search | 3 | 2/3 | 0/3 | 0/3 | 22,810 (22,706–22,857) | 121,517 (120,822–128,617) | 1.6 (1.6–1.9) | 10 (10–11) | 9 (9–9) | 2,243 (2,230–2,256) | 1,836 (1,836–1,836) | 0 (0–0) |
+| 1226 | M3 | ranked_doc_search_labels | 3 | 3/3 | 0/3 | 0/3 | 22,346 (22,312–22,518) | 132,572 (118,142–137,152) | 1.6 (1.5–1.8) | 11 (10–11) | 8 (8–8) | 2,239 (2,237–2,241) | 1,857 (1,815–1,872) | 0 (0–0) |
+| 1226 | M4 | strict_rank_search_labels | 3 | 1/3 | 0/3 | 0/3 | 21,554 (21,532–21,811) | 130,557 (125,286–130,868) | 1.7 (1.5–1.8) | 11 (11–11) | 8 (8–9) | 2,159 (2,153–2,172) | 1,696 (1,684–1,708) | 0 (0–0) |
+| 1226 | M5 | strict_rank_search_reasoning | 3 | 1/3 | 1/3 | 1/3 | 17,218 (7,756–22,043) | 107,512 (18,615–116,284) | 1.7 (0.5–2.1) | 10 (4–10) | 5 (2–9) | 2,188 (2,181–2,644) | 1,769 (1,722–1,816) | 0 (0–1) |
+| 1226 | C1 | clm | 3 | 3/3 | 1/3 | 1/3 | 21,343 (18,961–21,421) | 1,178,201 (93,982–1,232,652) | 22.1 (3.0–22.7) | 94 (7–99) | – | – | – | – |
+| 1226 | C2 | clm_instructed | 3 | 2/3 | 1/3 | 1/3 | 23,129 (19,629–25,672) | 1,054,307 (516,068–1,058,052) | 19.6 (10.8–23.0) | 100 (38–100) | – | – | – | – |
+
+- **Result:** 3 correct out of 24 (M5 r3, C1 r3, C2 r1). Almost every trial hit the budget.
+- **Recognition, not retrieval:** search returned the gold document in 16 of our 18 trials, and in every paged arm
+  its snippet was on page 1. Only 1 trial opened it (M5 r3, the correct one); the others kept searching or answered
+  from snippets. Wrong answers are genuinely different from the gold (string similarity 0.12–0.32).
+- **One model failure, counted:** M5 r2 twice spent all 4,096 output tokens thinking with no tool call
+  (`invalid_action_limit`).
+- **CLM:** C1 and C2 1/3 each, at 20–22 PFLOPs median (vs 1.5–1.7 for ours) and up to 100 calls.
+- **Interpretation:** classification put the right snippet in front of the agent; the agent did not act on it.
+  A cue such as "this page holds a high-relevance chunk from a document you have not opened" is the next idea.
+- **Next:** results page.
+
+## L15 · Study 2 summary · 2026-10-25
+
+- **Results page:** [`docs/results/2026-10-25-bcp-study2/README.md`](results/2026-10-25-bcp-study2/README.md),
+  120 trials, all completed, none excluded.
+- **Hypothesis (L7):** classifying search snippets and documents cuts the agent's context without hurting accuracy.
+- **Supported where questions fit the budget (741, 1215):** median peak context 14.0k → 6.3k–7.2k (M2, M3,
+  −48% to −55%), PFLOPs 0.83 → 0.50–0.52, correct 5/6 → 5/6 (M2) and 6/6 (M3). Document ranking alone (M1):
+  −35% peak, 6/6.
+- **Labels only works:** M3 (no question to Jev) ≥ M2 on every accuracy count.
+- **Strict Rank:** no gain over SI; its Q1215 losses trace to first-query misses (query variance at n = 3).
+  Reasoning hand-off (M5): no measurable effect.
+- **Not supported where questions exceed the budget (333, 600, 1226):** failures are retrieval or recognition;
+  paging buys ~2.2× more searches and ~2× total input tokens, with no accuracy gain.
+- **CLM:** 6/15 each (ours 4–7/15) at ~5× the compute per trial.
+- **Grading:** contains-gold (the LLM judge was unreachable all day); abstentions are incorrect.
+- **Next (recorded, not run):** an unopened-relevant-document cue (recognition); query help or a dense retriever
+  (retrieval); SR relevance floor and predicates; chunk-ratio sweep; DeepSWE feasibility (Study 3).
