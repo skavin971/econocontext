@@ -174,3 +174,26 @@ only the agent's topic labels and the whole document view, and each question ask
 provides information about one label (`DOC_LABEL_PROMPT`). The agent's prompt, tools and pages are
 the same as the other ranked arms. Comparing it with `ranked_doc` tests whether Jev needs the task's
 question, or whether a task-agnostic "label + document -> relevance" classifier is enough.
+
+## Study 2 arms: search paging, Strict Rank, and the CLM protocol
+
+The ledger (`docs/bcp-research-ledger.md`, L7) lists the Study 2 arms with IDs M0–M5 and C1–C2.
+
+- **Search paging** (`ranked_doc_search`, `ranked_doc_search_labels`, `strict_rank_search_labels`,
+  `strict_rank_search_reasoning`): `search` takes `topics`; the ten hits' snippets become one unit, cut into
+  chunks of `CHUNK_RATIO` (0.2) × 512 ≈ 100 tokens, ranked like a document and packed into the same 2,000-token
+  pages. The response lists all ten hit docids; `next_results` returns the next page. Documents use the same
+  ratio (0.2 × 2,000 = 400-token chunks, unchanged).
+- **Score + Interleave** (the first two): one `noul` per chunk and topic (`si_pages`), with importance
+  percentages; the `_labels` arm leaves the question out of Jev's request.
+- **Strict Rank** (the last two, labels only): one Jev `choice` over every chunk id orders the chunks strictly
+  1…N (ties by position), and pages follow that order with no scores shown (`strict_rank_pages`). One `noul`,
+  "does the unit hold anything on these topics?", is logged only. `strict_rank_search_reasoning` adds the
+  agent's own `reasoning_content` from the reply that issued the call (its last 4,000 characters; both lengths
+  are logged).
+- **`--search-url`** uses the official Lucene BM25 service (`benchmarks/bcp/search_server.py`) through
+  `LuceneCorpus`; **`--protocol clm`** applies the CLM paper's BCP budget with `harness/budget.py:BudgetGate`
+  (23,560 tokens, 2,048 reserve, CLM's final-turn notice) and 100 calls. **`--rpm`** caps this process's Purdue
+  requests per minute so it can share Purdue with the CLM runs.
+- **CLM:** `benchmarks/bcp/run.py --arms clm,clm_instructed --qids ...`; `tasks.py --instruction` writes the
+  `clm_instructed` task set (the task message followed by the paper's Appendix E threshold instruction, Y = 16,000).

@@ -56,11 +56,23 @@ echo 0 > /logs/verifier/reward.txt
 """
 
 
+# clm_instructed (Study 2): the CLM paper's in-context steering instruction for BrowseComp-Plus (Appendix E,
+# "Threshold"), verbatim, with Y = 16,000: the paper's smallest Y and the only one under the 21,512-token prompt
+# limit of the 23,560 budget. Appended after the task message, as in the paper. /tmp/.live_ctx/LIVE_CTX_MAIN.txt is
+# CLM's own context file (clm_harness/clm_agent/harness.py, _CTX_FILE).
+INSTRUCTION = (
+    "Monitor your context size: every tool result reports your current size. Whenever it exceeds 16,000 tokens, "
+    "immediately compact your context down to about 4000 tokens. For example: rewrite "
+    "/tmp/.live_ctx/LIVE_CTX_MAIN.txt to keep only your key findings and current plan (about 4000 tokens)."
+)
+INSTRUCTED = BCP / "tasks-instructed"
+
+
 def questions() -> dict[str, str]:
     return {str(x["query_id"]): x["query"] for x in map(json.loads, (l for l in QUERIES.read_text().split("\n") if l))}
 
 
-def build(ids: list[str], dest: Path = TASKS) -> list[Path]:
+def build(ids: list[str], dest: Path = TASKS, instruction: str | None = None) -> list[Path]:
     import sys
     sys.path.insert(0, str(HERE))
     from prompts import TASK_BRIEF
@@ -71,7 +83,8 @@ def build(ids: list[str], dest: Path = TASKS) -> list[Path]:
         (d / "environment").mkdir(parents=True, exist_ok=True)
         (d / "tests").mkdir(parents=True, exist_ok=True)
         (d / "task.toml").write_text(TASK_TOML.format(qid=qid))
-        (d / "instruction.md").write_text(TASK_BRIEF.format(Question=text[qid]) + "\n")
+        brief = TASK_BRIEF.format(Question=text[qid])
+        (d / "instruction.md").write_text(brief + ("\n\n" + instruction if instruction else "") + "\n")
         (d / "environment" / "Dockerfile").write_text(DOCKERFILE)
         (d / "environment" / "docker-compose.yaml").write_text(COMPOSE)
         (d / "tests" / "test.sh").write_text(TEST_SH)
@@ -83,9 +96,12 @@ def build(ids: list[str], dest: Path = TASKS) -> list[Path]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", choices=("pilot", "dev", "test"), default="pilot")
+    ap.add_argument("--instruction", action="store_true",
+                    help=f"write the clm_instructed task set ({INSTRUCTED}): the task message plus INSTRUCTION")
     a = ap.parse_args()
     ids = json.loads(SPLIT.read_text())[a.split]
-    print(f"{len(build(ids))} tasks written to {TASKS} ({a.split})")
+    dest = INSTRUCTED if a.instruction else TASKS
+    print(f"{len(build(ids, dest, INSTRUCTION if a.instruction else None))} tasks written to {dest} ({a.split})")
 
 
 if __name__ == "__main__":

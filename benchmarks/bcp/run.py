@@ -33,6 +33,7 @@ tblite = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tblite)
 
 BUDGET, TURNS, MAX_TOKENS, OUTPUT_CHARS = 23_560, 100, 4096, 60_000
+CLM_ARMS = ("clm", "clm_instructed")
 
 
 def run_trial(a, arm: str, qid: str, repeat: int) -> dict:
@@ -46,10 +47,12 @@ def run_trial(a, arm: str, qid: str, repeat: int) -> dict:
         raise SystemExit("the gateway must pin 4,096 output tokens for bcp runs (--max-tokens-for bcp=4096)")
     if h["max_requests_per_day"] - h["requests_today"] < h["max_calls_per_run"]:
         return {"run_id": run_id, "skipped": "the daily request budget cannot hold a full run"}
-    task = BCP / "tasks" / qid
+    # clm_instructed (Study 2, docs/bcp-research-ledger.md L7): CLM as released, on tasks whose instruction ends with
+    # the CLM paper's Appendix E threshold instruction (tasks.py --instruction).
+    task = BCP / ("tasks-instructed" if arm == "clm_instructed" else "tasks") / qid
     name = f"{arm}-{qid}-r{repeat}"
     env = {**os.environ, "PYTHONPATH": f"{ROOT}:{os.environ.get('PYTHONPATH', '')}"}
-    if arm == "clm":
+    if arm in CLM_ARMS:
         const = json.loads((ROOT / "measure" / "model_constants.json").read_text())
         hf_id = const["measured_model"]
         command = [str(ROOT / ".venv-clm" / "bin" / "clm-harbor"), "trial", "start", "-p", str(task), "-e", "docker",
@@ -83,7 +86,7 @@ def finish(a, arm: str, qid: str, repeat: int, code: int, seconds: float, h: dic
     out = BCP / "runs" / a.label / arm / f"{qid}-r{repeat}"
     h = h or tblite.health(a.gateway, wait_s=60) or {}
     log_dir = Path(h["log_dir_for"]["bcp"]) if (h.get("log_dir_for") or {}).get("bcp") else BCP / "gateway"
-    summary = tblite.summarize(run_id, arm, arm == "clm", qid, repeat, out, out / "harbor" / name,
+    summary = tblite.summarize(run_id, arm, arm in CLM_ARMS, qid, repeat, out, out / "harbor" / name,
                                log_dir / run_id / "calls.jsonl", code, seconds)
     m = tblite.measure(summary) if (log_dir / run_id / "calls.jsonl").exists() else {}
     summary.update(valid=m.get("valid"), invalid=m.get("invalid"), PF=(m.get("F") or 0) / 1e15)
@@ -99,6 +102,7 @@ def main() -> None:
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--start", type=int, default=0, help="the first question's position in the split")
     ap.add_argument("--limit", type=int, help="run at most this many questions (a first check)")
+    ap.add_argument("--qids", help="comma-separated question ids to run, in this order (overrides --split positions)")
     ap.add_argument("--gateway", default="http://127.0.0.1:8787")
     ap.add_argument("--model", default="qwen3.8:27b")
     ap.add_argument("--progress", default=str(ROOT / "runs" / "tier-a" / "step13a-progress.md"))
@@ -117,7 +121,7 @@ def main() -> None:
         return
     if not a.label.startswith("bcp"):
         raise SystemExit("labels start with 'bcp' (the gateway keeps their logs and output cap apart)")
-    ids = json.loads((HERE / "split.json").read_text())[a.split]
+    ids = a.qids.split(",") if a.qids else json.loads((HERE / "split.json").read_text())[a.split]
     positions = list(range(a.start, len(ids) if a.limit is None else min(len(ids), a.start + a.limit)))
     arms = a.arms.split(",")
     tblite.keep_awake()

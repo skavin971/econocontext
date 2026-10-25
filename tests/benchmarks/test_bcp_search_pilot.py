@@ -13,7 +13,7 @@ from benchmarks.bcp.doc_labeling.retrieval import Corpus
 from benchmarks.bcp.doc_labeling.prepare import chunk_document
 from benchmarks.bcp.doc_labeling.search_pilot import (RANKED_ARMS, canonical_citations, context_measures, judge,
                                                     ranked_doc_pages, ranked_pages, report, page_importance,
-                                                    requested_topics, system_prompt, tools_for, trial)
+                                                    requested_topics, search_chunks, system_prompt, tools_for, trial)
 from tests.benchmarks.test_bcp_doc_labeling import CharTokens, FakeJev, tool_reply
 
 # sha256 of {"system", "tools"} for each baseline arm at the committed pilot (92b02ff): they must never change.
@@ -308,6 +308,206 @@ def test_flop_input_drops_only_the_schema_keyword_purdue_drops():
     assert json.dumps(stripped).replace(" ", "") in json.dumps(tools).replace(', "additionalProperties": false', "").replace(" ", "")
     assert [t["function"]["name"] for t in stripped] == [t["function"]["name"] for t in tools]
     assert tools_for("ranked") == tools                     # the agent's own tools are untouched
+
+
+class TenHits(Search):
+    """Ten hits with ~300-character snippets; hit 3's snippet holds the evidence."""
+
+    def search(self, query):
+        return [{"docid": str(40 + i), "score": 1.0 - i / 10,
+                 "snippet": ("Background sentence here. " * 12) + ("Important evidence happened in 1900. " if i == 3 else "")}
+                for i in range(10)]
+
+    def document(self, docid):
+        return "Background. " * 30 + "Important evidence happened in 1900."
+
+
+class FakeRankJev(FakeJev):
+    """A choice over chunk ids weighted by whether the chunk mentions evidence, plus the exists noul."""
+
+    def ask(self, state, questions):
+        self.seen.append((copy.deepcopy(state), copy.deepcopy(questions)))
+        if "rank" not in questions:
+            text = {c["chunk_id"]: c["text"] for c in state["document"]}
+            return {k: {"noul": 0.9 if "evidence" in text[k.rsplit("_", 1)[0]] else 0.1} for k in questions}, {}
+        weights = {c["chunk_id"]: (5.0 if "evidence" in c["text"] else 1.0) for c in state["document"]}
+        total = sum(weights.values())
+        probabilities = {k: w / total for k, w in weights.items()}
+        return {"rank": {"type": "choice", "choice": max(probabilities, key=probabilities.get),
+                         "probabilities": probabilities, "confidence": 0.5},
+                "exists": {"type": "noul", "noul": 0.8}}, {"input_tokens": 10}
+
+
+def search_trial_actions(arm):
+    answer = {"explanation": "Evidence", "exact_answer": "1900", "confidence": 90,
+              "insufficient_evidence": False, "citations": ["43"]}
+    return [("search", {"query": "evidence", "topics": ["when the event happened"]}),
+            ("next_results", {}),
+            ("get_document", {"docid": "43", "topics": ["when the event happened"]}),
+            ("answer", answer)]
+
+
+@pytest.mark.parametrize("arm", ["ranked_doc_search", "ranked_doc_search_labels",
+                                 "strict_rank_search_labels", "strict_rank_search_reasoning"])
+def test_search_arms_page_snippets_and_documents(tmp_path, arm):
+    cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000})
+    actions, sent = search_trial_actions(arm), []
+    class Gateway:
+        def call(self, messages, sampling, tools):
+            sent.append(copy.deepcopy(messages))
+            name, args = actions.pop(0)
+            reply = tool_reply(name, args)
+            reply["choices"][0]["message"]["reasoning_content"] = f"reasoning before {name}"
+            return reply
+    jev = FakeRankJev()
+    result = trial(tmp_path, "When?", arm, TenHits(), CharTokens(), cfg, Gateway(), jev)
+    assert result["status"] == "answered"
+    assert result["tool_calls"] == {"search": 1, "next_results": 1, "get_document": 1, "answer": 1}
+    trace = rows(tmp_path / "tools.jsonl")
+    first, second = trace[0]["result"], trace[1]["result"]
+    assert first["hits"] == [str(40 + i) for i in range(10)] and first["page"] == 1 and second["page"] == 2
+    assert first["pages"] == second["pages"] > 2
+    assert "chunk s0" in first["text"]
+    # ~0.2 x a 512-token snippet: every snippet chunk is at most round(0.2 * 512) characters here.
+    unit = json.loads(next((tmp_path / "search").rglob("pages.json")).read_text())
+    assert all(p["tokens"] <= cfg["page_tokens"] for p in unit)
+    assert ("importance_percent" in first) == (arm in ("ranked_doc_search", "ranked_doc_search_labels"))
+    assert "evidence" in first["text"].split("]\n", 1)[1][:200]          # the evidence chunk ranks first
+    states = [s if isinstance(s, dict) else s[0] for s in jev.seen]
+    assert len(states) == 2                                               # one request per unit
+    assert all(("question" in s) == (arm == "ranked_doc_search") for s in states)
+    if arm == "strict_rank_search_reasoning":
+        assert [s["agent_reasoning"] for s in states] == ["reasoning before search", "reasoning before get_document"]
+    else:
+        assert all("agent_reasoning" not in s for s in states)
+    assert sent[0][0]["content"] == system_prompt(arm, cfg["page_tokens"])
+    assert "Search returns ten snippets" not in sent[0][0]["content"]
+
+
+def test_strict_rank_is_strict_with_position_ties_and_pages_everything(tmp_path):
+    cfg, tokens = settings({"chunk_tokens": 40, "page_tokens": 180}), CharTokens()
+    chunks = search_chunks(TenHits().search("x"), tokens, 102)
+    class FlatJev(FakeJev):
+        def ask(self, state, questions):
+            self.seen.append(copy.deepcopy(state))
+            return {"rank": {"choice": "s000", "probabilities": {c["chunk_id"]: 1 / len(state["document"])
+                                                                 for c in state["document"]}},
+                    "exists": {"noul": 0.2}}, {}
+    jev = FlatJev()
+    pages = search_pilot.strict_rank_pages(tmp_path, requested_topics(["date"]), chunks, tokens, cfg, jev)
+    order = [cid for p in pages for cid in p["chunk_ids"]]
+    assert order == [c["chunk_id"] for c in chunks]                       # equal probabilities: original order
+    assert len(set(order)) == len(order) == len(chunks)
+    logged = rows(tmp_path / "jev.jsonl")[0]
+    assert logged["exists"] == 0.2 and logged["reasoning_chars"] is None
+    assert "question" not in jev.seen[0]
+    long = "x" * 5000 + "the need"
+    search_pilot.strict_rank_pages(tmp_path / "r", requested_topics(["date"]), chunks, tokens, cfg, jev, long)
+    assert jev.seen[-1]["agent_reasoning"] == long[-4000:]
+    assert rows(tmp_path / "r" / "jev.jsonl")[0]["reasoning_chars"] == {"total": 5008, "sent": 4000}
+
+
+@pytest.mark.parametrize("bad", ["missing", 1.5, "0.3"])
+def test_strict_rank_rejects_invalid_choices(tmp_path, bad):
+    cfg, tokens = settings({"chunk_tokens": 40, "page_tokens": 180}), CharTokens()
+    chunks = search_chunks(TenHits().search("x"), tokens, 102)
+    class BadJev(FakeRankJev):
+        def ask(self, state, questions):
+            answers, usage = super().ask(state, questions)
+            first = next(iter(answers["rank"]["probabilities"]))
+            if bad == "missing":
+                del answers["rank"]["probabilities"][first]
+            else:
+                answers["rank"]["probabilities"][first] = bad
+            return answers, usage
+    with pytest.raises((ValueError, KeyError)):
+        search_pilot.strict_rank_pages(tmp_path, requested_topics(["date"]), chunks, tokens, cfg, BadJev())
+    assert rows(tmp_path / "jev.jsonl")[-1]["status"] == "failed" and not (tmp_path / "pages.json").exists()
+
+
+@pytest.mark.parametrize("arm", ["full", "ranked_doc", "ranked_doc_search", "ranked_doc_search_labels",
+                                 "strict_rank_search_labels", "strict_rank_search_reasoning"])
+def test_no_gold_reaches_the_agent_or_jev(tmp_path, arm):
+    """The trial is never given gold data: run it with a corpus that lacks the gold answer and gold docid, and
+    check that neither appears in anything sent to the model or to Jev."""
+    gold_answer, gold_docid = "Zanzibar-7731", "777"
+    cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000})
+    topics = {"topics": ["when the event happened"]} if arm != "full" else {}
+    actions = [("search", {"query": "evidence", **(topics if arm in search_pilot.SEARCH_ARMS else {})}),
+               ("get_document", {"docid": "43", **topics}),
+               ("answer", {"explanation": "Evidence", "exact_answer": "1900", "confidence": 90,
+                           "insufficient_evidence": False, "citations": ["43"]})]
+    sent = []
+    class Gateway:
+        def call(self, messages, sampling, tools):
+            sent.append(json.dumps(messages) + json.dumps(tools))
+            name, args = actions.pop(0)
+            return tool_reply(name, args)
+    jev = FakeRankJev()
+    result = trial(tmp_path, "When?", arm, TenHits(), CharTokens(), cfg, Gateway(), jev)
+    assert result["status"] == "answered"
+    blob = "".join(sent) + json.dumps(jev.seen)
+    assert gold_answer not in blob and f'"{gold_docid}"' not in blob
+
+
+def test_clm_budget_gate_gives_one_final_turn_then_stops(tmp_path):
+    from harness.budget import BudgetGate
+    cfg = settings({"chunk_tokens": 40, "page_tokens": 180, "context_tokens": 100000, "max_calls": 10})
+    sizes, sent = [], []
+    class Gateway:
+        def call(self, messages, sampling, tools):
+            sizes.append(len(json.dumps(messages)) + len(json.dumps(tools)))
+            sent.append(copy.deepcopy(messages))
+            return tool_reply("search", {"query": "evidence"})
+    gate = BudgetGate(2048 + 3000, margin=False)
+    result = trial(tmp_path, "When?", "full", TenHits(), CharTokens(), cfg, Gateway(), None, gate)
+    assert result["status"] == "context_limit"
+    assert len(result["budget"]["final_turns"]) == 1 and result["budget"]["limit"] == 3000
+    notice = [m for m in sent[-1] if m["role"] == "user" and m["content"].startswith("[SYSTEM NOTICE]")]
+    assert len(notice) == 1 and not any("[SYSTEM NOTICE]" in str(m) for call in sent[:-1] for m in call)
+    assert result["budget"]["end_P"] > 3000                    # still over after the final turn: the run ends
+
+
+def test_lucene_adapter_matches_the_search_service_contract():
+    import threading as _threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, status, body):
+            raw = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        def do_GET(self):
+            self.reply(200, {"ok": True, "k": 10, "snippet_tokens": 512, "document_tokens": 8192, "tokenizer": "t"})
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if self.path == "/search":
+                return self.reply(200, [{"docid": "42", "score": 3.1, "snippet": "Evidence"}])
+            self.reply(200, {"docid": body["docid"], "text": "doc text"} if body["docid"] == "42" else {"error": "none"})
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    _threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        corpus = search_pilot.LuceneCorpus(f"http://127.0.0.1:{server.server_port}")
+        assert corpus.metadata["k"] == 10 and corpus.search("evidence")[0]["docid"] == "42"
+        assert corpus.search("   ") == [] and corpus.document("42") == "doc text"
+        with pytest.raises(ValueError):
+            corpus.document("43")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_context_measures_read_paged_search_hits(tmp_path):
+    (tmp_path / "calls.jsonl").write_text("")
+    (tmp_path / "tools.jsonl").write_text(json.dumps({"step": 1, "tool": "search",
+        "result": {"query": "q", "hits": ["5", "9"], "page": 1, "pages": 3, "text": "..."}}) + "\n")
+    measures = context_measures(tmp_path, {"tool_calls": {"search": 1, "next_results": 2},
+                                           "search_tool_output_tokens": 900}, {"9"}, {"9"})
+    assert measures["gold_doc_in_search"] is True and measures["next_results_calls"] == 2
+    assert measures["search_tokens_per_search"] == 900
 
 
 def test_retrieval_ignores_query_sql_and_searches_whole_collection(tmp_path):
