@@ -211,3 +211,32 @@ Next**.
 - **Disclosure:** one C1 call was sent at 31,038 prompt tokens (above the limit) during a rollback-retry in CLM's own
   budget code, as released; recorded, not corrected. It did not change the outcome (wrong answer).
 - **Next:** Q600.
+
+## L12 · Study 2 results: Q600 · 2026-10-25
+
+- **What ran:** 8 methods × 3 repeats = 24 trials, same protocol; none excluded; every FLOP validation passed.
+- **Grading rule made explicit:** an abstention (`insufficient_evidence`) is incorrect even when its best guess
+  matches; the analysis now applies this to exact match and contains-gold too (it already did for the judge).
+  L10 and L11 are unchanged by it. One trial is affected: M0 r2 on Q600 (abstained, guess matched).
+
+| Q | ID | Method | n | Answered | Exact ✓ | Contains gold ✓ | Peak context | Input tokens | PFLOPs | Calls | Searches | Search tok/search | Doc tok/doc | Next-page calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 600 | M0 | full | 3 | 0/3 | 0/3 | 0/3 | 23,872 (23,784–23,963) | 73,639 (61,082–73,875) | 1.4 (1.4–1.6) | 6 (5–6) | 4 (4–4) | 5,700 (5,694–5,713) | – | 0 (0–0) |
+| 600 | M1 | ranked_doc | 3 | 0/3 | 0/3 | 0/3 | 24,470 (24,228–24,489) | 63,868 (63,472–64,009) | 1.4 (1.4–1.4) | 5 (5–5) | 4 (4–4) | 5,758 (5,692–5,760) | – | 0 (0–0) |
+| 600 | M2 | ranked_doc_search | 3 | 1/3 | 0/3 | 0/3 | 22,487 (22,316–22,619) | 119,071 (118,095–137,264) | 1.4 (1.4–1.4) | 10 (10–11) | 9 (7–9) | 2,240 (2,236–2,548) | 2,207 (2,207–2,207) | 0 (0–1) |
+| 600 | M3 | ranked_doc_search_labels | 3 | 0/3 | 0/3 | 0/3 | 22,215 (22,193–22,360) | 117,943 (117,785–118,725) | 1.4 (1.4–1.4) | 10 (10–10) | 9 (9–9) | 2,214 (2,207–2,225) | – | 0 (0–0) |
+| 600 | M4 | strict_rank_search_labels | 3 | 0/3 | 0/3 | 0/3 | 22,510 (21,499–23,348) | 128,394 (113,135–147,452) | 1.5 (1.4–1.6) | 11 (10–12) | 7 (7–8) | 2,781 (2,170–2,922) | 3,679 (3,679–3,679) | 2 (1–3) |
+| 600 | M5 | strict_rank_search_reasoning | 3 | 0/3 | 0/3 | 0/3 | 21,832 (21,622–22,369) | 119,438 (114,693–128,005) | 1.4 (1.3–1.4) | 11 (10–11) | 9 (7–9) | 2,170 (2,163–2,901) | – | 0 (0–3) |
+| 600 | C1 | clm | 3 | 3/3 | 0/3 | 0/3 | 22,505 (21,160–26,247) | 696,849 (466,066–1,129,249) | 12.5 (8.0–14.1) | 51 (30–99) | – | – | – | – |
+| 600 | C2 | clm_instructed | 3 | 3/3 | 2/3 | 2/3 | 19,502 (19,080–20,885) | 513,358 (64,831–1,070,060) | 6.9 (1.7–14.7) | 44 (8–99) | – | – | – | – |
+
+- **Result:** our arms 0/18 correct; C1 0/3; **C2 2/3**. Every M-arm trial hit the budget. Search returned an
+  evidence document in 1 of 18 M-arm trials (M0 r2, not opened). In CLM, the two correct C2 trials are exactly the
+  two CLM trials whose searches returned an evidence document (first seen at call 38 and call 3); the four wrong
+  CLM trials never saw one, despite 17–33 searches in C1.
+- **Interpretation:** Q600, like Q333, is retrieval-bound: success tracks whether some query surfaces the evidence,
+  and that looks like query-choice variance (n = 3), not a context-management effect. CLM's extra calls buy more
+  queries; that helped C2 here and did not help C1. Our paging buys ~2.2× more searches per budget (≈9 vs 4) but
+  the queries did not hit.
+- **Disclosure:** one C1 call at 26,247 prompt tokens (above the limit) during CLM's rollback-retry, as in L11.
+- **Next:** Q1226 (long gold documents).
