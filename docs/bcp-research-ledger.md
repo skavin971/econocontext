@@ -260,8 +260,8 @@ Next**.
 - **Result:** the first question where document ranking pays off. M1 and M3 kept the baseline's accuracy (3/3) while
   cutting median peak context 12.6k → 8.8k (M1, −30%) and → 5.7k (M3, −55%), and PFLOPs 0.7 → 0.5 / 0.4.
   Opened documents arrived as ~1.8k-token pages instead of the ~6.1k-token whole (−71%).
-- **Strict Rank (M4, M5): 1/3 each.** In 4 of their 6 trials the first search missed the evidence, and they used the
-  budget on 8–9 searches; M1–M3's first search hit in 8 of 9. Hits depend only on the query, and SR's first
+- **Strict Rank (M4, M5): 1/3 each.** In 5 of their 6 trials the first search missed the evidence (one M5 trial hit it
+  on its second search); the rest used the budget on 8–9 searches. M1–M3's first search hit in 8 of 9. Hits depend only on the query, and SR's first
   queries look like the others' (length, overlap with the question); on Q741 + Q1226 SR's first search hit as often
   (6/12 vs 6/18). Read as query variance at n = 3, to recheck, not as an effect of the ranking.
 - **CLM:** C1 2/3 (contains; 0/3 exact: longer answers), C2 0/3; C2's searches never returned an evidence document.
