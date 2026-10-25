@@ -183,3 +183,31 @@ Next**.
   alone (M1) did not lower peak context. CLM spends far more compute (many calls and context rewrites) for the
   same answers. n = 3 per cell: direction, not proof.
 - **Next:** Q333.
+
+## L11 · Study 2 results: Q333 · 2026-10-25
+
+- **What ran:** 8 methods × 3 repeats = 24 trials, same protocol as L10; none excluded; every FLOP validation passed.
+
+| Q | ID | Method | n | Answered | Exact ✓ | Contains gold ✓ | Peak context | Input tokens | PFLOPs | Calls | Searches | Search tok/search | Doc tok/doc | Next-page calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 333 | M0 | full | 3 | 0/3 | 0/3 | 0/3 | 24,141 (23,998–24,220) | 74,658 (61,829–74,669) | 1.4 (1.4–1.4) | 6 (5–6) | 4 (4–4) | 5,717 (5,713–5,743) | – | 0 (0–0) |
+| 333 | M1 | ranked_doc | 3 | 1/3 | 1/3 | 1/3 | 24,488 (22,595–24,619) | 83,124 (64,251–91,472) | 1.4 (1.3–1.4) | 6 (5–7) | 4 (3–5) | 5,731 (5,722–5,800) | 3,395 (3,395–3,395) | 0 (0–1) |
+| 333 | M2 | ranked_doc_search | 3 | 0/3 | 0/3 | 0/3 | 22,995 (22,635–23,389) | 123,471 (122,268–138,581) | 1.5 (1.4–1.7) | 10 (10–11) | 9 (9–9) | 2,260 (2,217–2,285) | – | 0 (0–0) |
+| 333 | M3 | ranked_doc_search_labels | 3 | 0/3 | 0/3 | 0/3 | 23,322 (21,614–23,907) | 123,453 (104,016–126,472) | 1.5 (1.4–1.7) | 10 (9–10) | 9 (8–9) | 2,319 (2,278–2,348) | – | 0 (0–0) |
+| 333 | M4 | strict_rank_search_labels | 3 | 0/3 | 0/3 | 0/3 | 22,549 (22,106–22,933) | 119,037 (117,228–120,784) | 1.6 (1.5–1.6) | 10 (10–10) | 9 (9–9) | 2,208 (2,170–2,239) | – | 0 (0–0) |
+| 333 | M5 | strict_rank_search_reasoning | 3 | 0/3 | 0/3 | 0/3 | 22,104 (22,068–22,112) | 116,690 (116,623–116,797) | 1.5 (1.4–1.5) | 10 (10–10) | 8 (7–9) | 2,200 (2,178–2,821) | 1,801 (1,801–1,801) | 0 (0–2) |
+| 333 | C1 | clm | 3 | 3/3 | 0/3 | 0/3 | 22,479 (21,111–31,038) | 751,069 (267,358–1,122,462) | 15.3 (9.1–19.7) | 59 (17–100) | – | – | – | – |
+| 333 | C2 | clm_instructed | 3 | 3/3 | 0/3 | 0/3 | 20,204 (19,059–20,384) | 1,029,626 (488,016–1,190,497) | 11.6 (10.4–19.3) | 100 (45–102) | – | – | – | – |
+
+- **Result:** 1 correct trial out of 24. Every M-arm trial hit the 21,512 budget (one final turn) and all but one
+  abstained. Our search never returned an evidence document in any M0 or M2–M5 trial; the one success (M1 r3)
+  found an evidence document at step 4, opened it and answered. CLM wrote an answer in 6/6 trials, all wrong,
+  using 9–20 PFLOPs (≈10× our arms) and up to 100 calls.
+- **Paged search:** each search cost ~2,200 tokens vs ~5,700, so M2–M5 ran ~9 searches before the budget vs ~4 for
+  M0/M1. More queries, but none of them surfaced the evidence.
+- **Interpretation:** on Q333 the bottleneck is retrieval (finding the right query), not reading. When every arm
+  stops at the budget, peak context equals the budget and is not a useful comparison; the useful number here is
+  how many searches the budget buys (≈2.2× more with paging).
+- **Disclosure:** one C1 call was sent at 31,038 prompt tokens (above the limit) during a rollback-retry in CLM's own
+  budget code, as released; recorded, not corrected. It did not change the outcome (wrong answer).
+- **Next:** Q600.
