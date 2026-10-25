@@ -18,6 +18,7 @@ Next**.
 | L7 | 2026-10-25 | Study 2 design and decisions | in progress |
 | L8 | 2026-10-25 | Brainstorming prompt for new ideas | done |
 | L9 | 2026-10-25 | Study 2 setup, long-document demo, smoke test | done |
+| L10 | 2026-10-25 | Study 2 results: Q741 (8 methods × 3 repeats) | done |
 
 ---
 
@@ -157,3 +158,28 @@ Next**.
 
 - **Interpretation:** a pipeline check, not evidence (one trial each).
 - **Next:** main runs, Q741 first, 3 repeats per method.
+
+## L10 · Study 2 results: Q741 · 2026-10-25
+
+- **What ran:** 8 methods × 3 repeats = 24 trials, CLM-paper protocol, Lucene BM25; none excluded; every FLOP
+  validation passed. Median (min–max); "Contains gold" = the normalized gold answer appears in the answer (the LLM
+  judge is unavailable on Purdue).
+
+| Q | ID | Method | n | Answered | Exact ✓ | Contains gold ✓ | Peak context | Input tokens | PFLOPs | Calls | Searches | Search tok/search | Doc tok/doc | Next-page calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 741 | M0 | full | 3 | 2/3 | 2/3 | 2/3 | 15,524 (15,337–24,700) | 35,884 (32,389–76,627) | 0.9 (0.9–1.4) | 4 (4–6) | 2 (2–4) | 5,830 (5,763–5,836) | 2,779 (2,779–2,779) | 0 (0–0) |
+| 741 | M1 | ranked_doc | 3 | 3/3 | 3/3 | 3/3 | 15,133 (9,184–20,851) | 36,666 (17,535–60,975) | 0.9 (0.5–1.2) | 4 (3–5) | 2 (1–3) | 5,723 (5,635–5,738) | 2,061 (2,058–2,061) | 0 (0–0) |
+| 741 | M2 | ranked_doc_search | 3 | 3/3 | 3/3 | 3/3 | 6,462 (6,213–8,544) | 18,238 (11,871–20,539) | 0.4 (0.4–0.5) | 4 (3–4) | 1 (1–2) | 2,296 (2,271–2,301) | 2,057 (2,056–2,057) | 0 (0–0) |
+| 741 | M3 | ranked_doc_search_labels | 3 | 3/3 | 3/3 | 3/3 | 8,430 (8,411–8,465) | 20,260 (20,166–20,293) | 0.5 (0.5–0.5) | 4 (4–4) | 2 (2–2) | 2,229 (2,227–2,236) | 2,061 (2,058–2,070) | 0 (0–0) |
+| 741 | M4 | strict_rank_search_labels | 3 | 3/3 | 3/3 | 3/3 | 5,864 (5,748–19,362) | 11,051 (10,812–93,775) | 0.4 (0.3–1.2) | 3 (3–9) | 1 (1–5) | 2,222 (2,129–3,069) | 1,985 (1,974–1,986) | 0 (0–2) |
+| 741 | M5 | strict_rank_search_reasoning | 3 | 3/3 | 3/3 | 3/3 | 8,114 (5,771–10,412) | 19,359 (10,862–29,799) | 0.5 (0.3–0.7) | 4 (3–5) | 2 (1–3) | 2,200 (2,176–2,200) | 1,984 (1,977–1,985) | 0 (0–0) |
+| 741 | C1 | clm | 3 | 3/3 | 3/3 | 3/3 | 20,319 (17,167–21,048) | 290,203 (73,691–308,891) | 4.8 (1.8–6.6) | 18 (6–23) | – | – | – | – |
+| 741 | C2 | clm_instructed | 3 | 3/3 | 3/3 | 3/3 | 19,902 (17,810–20,773) | 195,528 (96,298–205,178) | 6.2 (2.8–6.8) | 14 (9–16) | – | – | – | – |
+
+- **Result:** every search-paging arm (M2–M5) answered 3/3, with median peak context 5.9k–8.4k vs 15.5k for the
+  baseline (M0) and ~20k for CLM; PFLOPs 0.4–0.5 vs 0.9 (M0) and 4.8–6.2 (CLM). Paged search output was ~2,200
+  tokens per search vs ~5,800 unpaged (−62%). Documents: ~2,060 tokens per opened document vs 2,779 (−26%).
+- **Interpretation:** on this easy question, classifying search results is what cuts context; document ranking
+  alone (M1) did not lower peak context. CLM spends far more compute (many calls and context rewrites) for the
+  same answers. n = 3 per cell: direction, not proof.
+- **Next:** Q333.
