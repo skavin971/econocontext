@@ -49,19 +49,38 @@ class Uniform:
         from transformers import AutoTokenizer
         self.corpus, self.tok = corpus, AutoTokenizer.from_pretrained(tokenizer_id)
         self.snippets, self.documents = {}, {}
+        self.cache_dir = T.BCP / "cache" / "service"
 
     def count(self, text):
         return len(self.tok.encode(text, add_special_tokens=False))
 
+    def _cached(self, kind, key, fetch):
+        """Service replies cached under ~/econo/bcp/cache/service (private: they hold corpus text)."""
+        if getattr(self, "cache_dir", None) is None:
+            return fetch()
+        path = self.cache_dir / kind / (hashlib.sha256(key.encode()).hexdigest() + ".json")
+        if path.exists():
+            return json.loads(path.read_text())
+        value = fetch()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value))
+        return value
+
     def search(self, query):
-        hits = self.corpus.search(query)
+        hits = self._cached("search", query, lambda: self.corpus.search(query))
         for h in hits:
             self.snippets.setdefault(str(h["docid"]), h.get("snippet") or "")
         return hits
 
     def document(self, docid):
+        """The document's view; "" for a docid the corpus does not have (an agent can name one that does not exist)."""
         if docid not in self.documents:
-            self.documents[docid] = self.corpus.document(docid) or ""
+            def fetch():
+                try:
+                    return self.corpus.document(docid) or ""
+                except (ValueError, RuntimeError):
+                    return ""
+            self.documents[docid] = self._cached("document", docid, fetch)
         return self.documents[docid]
 
     @lru_cache(maxsize=None)

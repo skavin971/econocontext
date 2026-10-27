@@ -4,6 +4,23 @@
 > arms M1–M5, and CLM zero-shot / instructed C1–C2), all under the CLM paper's protocol with the official
 > Lucene BM25: **does classifying what the agent reads cut its context without hurting accuracy?**
 
+> **Corrections (Phase 0, 2026-10-27; [`docs/results/2026-10-27-phase0/README.md`](../2026-10-27-phase0/README.md)).**
+> 1. **Grading.** Every answered trial was regraded with the official BrowseComp-Plus judge *prompt and sampling*
+>    (upstream `evaluate_run.py`). The official judge model (vLLM Qwen3-32B) is not reachable from the cloud session,
+>    so the regrade ran on Purdue's `qwen3:32b`, an Ollama build of unknown (likely 4-bit) quantization, labeled
+>    provisional. It agrees with contains-gold on all 120 Study 2 trials, so every accuracy count below stands. The
+>    official run is ready to go (`study2/regrade.py --route vllm`).
+> 2. **Jev's cost in dollars:** **$0.264** for all of Study 2 (6,285,989 billed input tokens × $0.042 per million;
+>    output is free), not the "≈ $0.30" of §8, which wrongly priced output tokens too.
+> 3. **M0 → M1 changes two things at once** (§7): pages of ~2,000 tokens *and* Jev's order. No arm separates them:
+>    `original` (pages in document order, Study 1) was dropped from Study 2 without a recorded reason, and nothing
+>    paged search results without Jev. The context savings may come from page size, not from Jev's order.
+> 4. **Offline, a free lead-first order matched or beat Jev on search pages:** every gold/evidence document returned
+>    had a chunk on page 1 under lead-first (53/53) vs Jev (53/53) and hit order (34/53); the answer-string chunk was
+>    on page 1 in 32/32 vs 24/32 vs 16/32. Jev's order has not been tested online against it.
+> 5. **"~5× CLM compute" compares two different agents** (§0): ours stops at the budget; CLM's compacts and continues
+>    past it. It is not an admission or classification effect.
+
 ## 0. Bottom line
 
 | | |
@@ -12,7 +29,7 @@
 | ✅ **Labels only** (M3) | Jev never sees the BCP question, only the agent's topic labels, and does as well as with it (M2): 6/6 vs 5/6 within budget, 6/15 vs 5/15 overall. |
 | ➖ **Strict Rank** (M4, M5) | No context gain over Score + Interleave, and lower accuracy on Q1215 (traced to first-query misses, likely sampling noise). Adding the agent's reasoning (M5) changed nothing measurable. |
 | ⚠️ **Budget-bound questions** (333, 600, 1226) | Almost every trial of every method hit the 21,512-token limit. Failures were **retrieval** (333, 600: search never returned the evidence) or **recognition** (1226: the gold document was returned and shown on page 1 in 16/18 trials but opened in 1). Classification cannot fix either. |
-| ⚖️ **CLM** (C1, C2) | Same accuracy band as ours (6/15 each vs 4–7/15), at **~5× the compute** (median 6.9–8.0 vs 1.3–1.5 PFLOPs per trial) and 3–8× the total input tokens. |
+| ⚖️ **CLM** (C1, C2) | Same accuracy band as ours (6/15 each vs 4–7/15), at **~5× the compute** (median 6.9–8.0 vs 1.3–1.5 PFLOPs per trial) and 3–8× the total input tokens. *Corrected: two different agents (ours stops at the budget, CLM compacts and continues), not an admission effect.* |
 | 🔬 **Caveat** | n = 3 per cell. Accuracy differences between methods are within noise; the context and compute differences on within-budget questions are consistent across repeats. |
 
 ## 1. What ran
@@ -42,7 +59,7 @@ context with its own gateway run ID and its own Jev cache. Arm order rotates bet
 | Chunking | chunk = 0.2 × the unit: 400 tokens for documents (unit = 2,000-token page), 102 for snippets (unit = 512-token snippet); pages ≤ 2,000 tokens |
 | Jev | TypeSafe `jev-latest` (System One): `noul` (yes probability) for SI; `choice` (probabilities over chunk IDs) for SR |
 | Compute | Prefix-reuse FLOPs (CLM Eq. 9, 16-token blocks), validated on every trial |
-| Grading | **Correct** = the normalized gold answer is contained in the answer, and the agent did not abstain. Exact match shown alongside. The LLM judge (`qwen3:32b`) was unreachable all day (§9) |
+| Grading | **Correct** = the normalized gold answer is contained in the answer, and the agent did not abstain. Exact match shown alongside. The LLM judge (`qwen3:32b`) was unreachable all day (§9). *Corrected: regraded with the official judge prompt (provisional judge); identical counts.* |
 | When | 2026-10-25, 19:47–23:39 UTC |
 
 **Terms.** *Peak context*: the largest single prompt the agent was sent. *Input tokens*: the sum of all prompts in a
@@ -177,7 +194,7 @@ Trials in which search **returned** / the agent **opened** an evidence document 
    budget buys ~2.2× more searches. That roughly **doubles total input tokens** (≈118k vs ≈62k median) without
    adding correct answers, while PFLOPs stay level (1.4–1.5), because the repeated prefix is cached.
 
-## 7. Paired comparisons (each changes one thing)
+## 7. Paired comparisons (each changes one thing, except M0 → M1: paging *and* order)
 
 | Change | From → to | Peak context (741+1215) | PFLOPs (741+1215) | Correct (741+1215) | Correct (all) |
 |---|---|---|---|---|---|
@@ -207,7 +224,7 @@ and PFLOPs columns together with the correct counts:
 | Tokens per request (input + output, mean) | ≈26k (M2, M3); ≈10k (M1, documents only) | ≈9k |
 | Median latency | 281–350 ms | 245–257 ms |
 
-**Total:** 409 Jev requests, 7.0M tokens, **≈ $0.30** at $0.042 per million input tokens. No Jev request failed.
+**Total:** 409 Jev requests, 7.0M tokens (input + output). *Corrected: billed input only, 6,285,989 tokens = **$0.264** at $0.042 per million; output is free.* No Jev request failed.
 SR asks one question per unit instead of one per (chunk, topic), so its requests are about a third the size.
 
 ## 9. Safeguards and disclosures

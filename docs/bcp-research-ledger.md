@@ -312,5 +312,11 @@ Next**.
   paging buys ~2.2× more searches and ~2× total input tokens, with no accuracy gain.
 - **CLM:** 6/15 each (ours 4–7/15) at ~5× the compute per trial.
 - **Grading:** contains-gold (the LLM judge was unreachable all day); abstentions are incorrect.
+- **Corrections (Phase 0, L16):** (1) grading: regraded with the official judge prompt and sampling on a
+  provisional judge (Purdue qwen3:32b, Ollama, likely 4-bit); it agrees with contains-gold on all 120 trials; the
+  official vLLM Qwen3-32B run is pending. (2) Jev costs **$0.264** for Study 2 (billed input tokens only). (3) "~5× CLM
+  compute" compares two agents (ours stops at the budget, CLM compacts and continues), not an admission effect.
+  (4) M0 → M1 changes paging and order at once; `original` was dropped from Study 2 without a recorded reason; offline,
+  lead-first matched or beat Jev on search pages.
 - **Next (recorded, not run):** an unopened-relevant-document cue (recognition); query help or a dense retriever
   (retrieval); SR relevance floor and predicates; chunk-ratio sweep; DeepSWE feasibility (Study 3).
