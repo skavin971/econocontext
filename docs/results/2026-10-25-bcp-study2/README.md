@@ -15,9 +15,10 @@
 > 3. **M0 → M1 changes two things at once** (§7): pages of ~2,000 tokens *and* Jev's order. No arm separates them:
 >    `original` (pages in document order, Study 1) was dropped from Study 2 without a recorded reason, and nothing
 >    paged search results without Jev. The context savings may come from page size, not from Jev's order.
-> 4. **Offline, a free lead-first order matched or beat Jev on search pages:** every gold/evidence document returned
->    had a chunk on page 1 under lead-first (53/53) vs Jev (53/53) and hit order (34/53); the answer-string chunk was
->    on page 1 in 32/32 vs 24/32 vs 16/32. Jev's order has not been tested online against it.
+> 4. **Offline, a free lead-first order matched or beat Jev on search pages** (all 370 paged searches of M2–M5): every
+>    gold/evidence document returned had a chunk on page 1 under lead-first (53/53) and Jev (53/53) vs hit order
+>    (34/53); the answer-string chunk was on page 1 in 32/36 (lead-first) vs 28/36 (Jev) vs 17/36 (hit order). Jev's
+>    order has not been tested online against it.
 > 5. **"~5× CLM compute" compares two different agents** (§0): ours stops at the budget; CLM's compacts and continues
 >    past it. It is not an admission or classification effect.
 

@@ -168,8 +168,8 @@ def _decoded(text):
     extra = []
     start = min([i for i in (text.find("["), text.find("{")) if i >= 0] or [-1])
     if start >= 0:
-        try:
-            extra = list(_strings(json.loads(text[start:])))
+        try:  # raw_decode: CLM appends "(exit_code=0)" and a context line after the JSON
+            extra = list(_strings(json.JSONDecoder().raw_decode(text[start:])[0]))
         except json.JSONDecodeError:
             # truncated JSON: undo escapes in the raw text so a prefix still matches
             extra = [text.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")]

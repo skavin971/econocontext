@@ -320,3 +320,40 @@ Next**.
   lead-first matched or beat Jev on search pages.
 - **Next (recorded, not run):** an unopened-relevant-document cue (recognition); query help or a dense retriever
   (retrieval); SR relevance floor and predicates; chunk-ratio sweep; DeepSWE feasibility (Study 3).
+
+## L16 · Phase 0: measurements fixed, ceiling measured, handoff · 2026-10-27
+
+- **Why:** an audit concluded Studies 1–2 support a falsification study, not a method claim yet, for four reasons:
+  - page size explains the savings so far;
+  - Jev's order was never tested online against a free lead-first order;
+  - grading was contains-gold;
+  - Jev's cost wasn't counted.
+
+  The CLM comparison also swaps the whole agent. Phase 0 fixes the measurements; no new agent trials, no new arms.
+- **Results page:** [`docs/results/2026-10-27-phase0/README.md`](results/2026-10-27-phase0/README.md).
+- **Regrade:** all 109 answered Study 1–2 trials, with the upstream judge prompt and sampling, thinking off.
+  - **Judge used:** a *provisional* one, Purdue `qwen3:32b`. It's an Ollama build: it obeys `think: false` and ignores vLLM's `enable_thinking`. Its quantization is unknown, likely 4-bit.
+  - **Agreement:** it agrees with contains-gold on all 120 Study 2 trials, and on all but one Study 1 trial (a `ranked` trial that it marks correct).
+  - **Official run:** vLLM Qwen3-32B is ready (`study2/regrade.py --route vllm`) but not reachable from here.
+- **Jev cost:** Study 2 cost **$0.264** (6,285,989 billed input tokens, 409 requests), with no failures, retries or harness cache hits.
+  - **Per trial (median):** $0.008 for SI search arms and $0.003 for SR.
+  - **Where SI's money goes:** the per-question instruction text, repeated once per (chunk, topic), is 69% of an SI search request's characters, against 6% for SR.
+  - **Break-even**, the median $/PFLOP at which Jev pays for itself against the paired M0 trial:
+    - M1 $0.0009, M3 $0.006;
+    - 6 of 15 M3 pairs and 10 of 15 M4 pairs saved no main FLOPs at all.
+- **Trace audit** (uniform Qwen3-0.6B chunks across all arms):
+  - **Cut replies** (output cap hit, no valid action) take 3–8% of main FLOPs in our arms, against 19% (C1) and 24% (C2) for CLM. CLM continues after a cut reply; ours count an invalid action.
+  - **Incorrect trials** never opened a gold document in any arm, though search returned one in 1–4 per arm.
+  - **CLM pipes most of its tool calls** (76% of searches), so much of what its tools return never enters its prompt.
+- **Offline order audit:** over all 370 paged searches, lead-first order puts relevant documents and answer-string chunks on page 1 as often as Jev or more often:
+  - relevant documents: 53/53 for both;
+  - answer-string chunks: 32/36 for lead-first, 28/36 for Jev, 17/36 for hit order.
+- **Headroom** (a proxy, 50 dev questions): the answer string first appears within the first 512 tokens of some gold document in 41 questions. It appears only at 513–2,000 tokens in 1, only beyond 2,000 in 2, and nowhere in the 8,192-token view in 6.
+- **Corrections to L15 and the Study 2 page:**
+  - the judge regrade;
+  - Jev's cost in dollars;
+  - M0 → M1 changes paging and order at once (`original` was dropped without a recorded reason);
+  - lead-first matched or beat Jev offline;
+  - "~5× CLM compute" compares two agents, so it isn't an admission effect.
+- **Handoff:** [`docs/handoff-local.md`](handoff-local.md) and the parity fixtures (`scripts/check_parity.py`, "parity OK" here).
+- **Next:** the local agent runs the first-session checklist and stops. Phase 1 is designed separately.
