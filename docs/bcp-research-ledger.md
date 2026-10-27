@@ -342,7 +342,7 @@ Next**.
     - M1 $0.0009, M3 $0.006;
     - 6 of 15 M3 pairs and 10 of 15 M4 pairs saved no main FLOPs at all.
 - **Trace audit** (uniform Qwen3-0.6B chunks across all arms):
-  - **Cut replies** (output cap hit, no valid action) take 3–8% of main FLOPs in our arms, against 19% (C1) and 24% (C2) for CLM. CLM continues after a cut reply; ours count an invalid action.
+  - **Cut replies** (output cap hit, no valid action) take 0–8% of main FLOPs in our arms (M1 had none), against 19% (C1) and 24% (C2) for CLM. CLM continues after a cut reply; ours count an invalid action.
   - **Incorrect trials** never opened a gold document in any arm, though search returned one in 1–4 per arm.
   - **CLM pipes most of its tool calls** (76% of searches), so much of what its tools return never enters its prompt.
 - **Offline order audit:** over all 370 paged searches, lead-first order puts relevant documents and answer-string chunks on page 1 as often as Jev or more often:
