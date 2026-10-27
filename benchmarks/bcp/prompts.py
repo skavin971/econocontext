@@ -16,6 +16,7 @@ Exact Answer: {{your succinct, final answer}}
 Confidence: {{your confidence score between 0% and 100% for your answer}}
 """.strip()
 
+# Legacy judge prompt: kept only to reproduce numbers graded before Phase 0 (sha256 2f79b052d41f...).
 GRADER_TEMPLATE = r"""
 Judge whether the following [response] to [question] is correct or not based on the precise and unambiguous [correct_answer] below.
 
@@ -36,3 +37,32 @@ correct: Answer 'yes' if extracted_final_answer matches the [correct_answer] giv
 
 confidence: The extracted confidence score between 0|\%| and 100|\%| from [response]. Put 100 if there is no confidence score available.
 """
+
+# The official BrowseComp-Plus judge prompt: scripts_evaluation/evaluate_run.py at texttron/BrowseComp-Plus
+# 046949032b0328319cc9a02663a759ec601d9402, verbatim and .strip()ped as upstream sends it. Phase 0 onward grades with
+# this one; see GRADER_HASHES.
+GRADER_TEMPLATE_UPSTREAM = r"""Judge whether the following [response] to [question] is correct or not based on the precise and unambiguous [correct_answer] below.
+
+[question]: {question}
+
+[response]: {response}
+
+[correct_answer]: {correct_answer}
+
+Your judgement must be in the format and criteria specified below:
+
+extracted_final_answer: The final exact answer extracted from the [response]. 
+
+[correct_answer]: Repeat the [correct_answer] given above.
+
+reasoning: Explain why the extracted_final_answer is correct or incorrect based on [correct_answer], in the context of this [question]. You should judge whether the extracted_final_answer is semantically equivalent to [correct_answer], allowing the extracted_final_answer to be string variations of [correct_answer]. You should also allow the extracted_final_answer to be more precise or verbose than [correct_answer], as long as its additional details are correct. Do not comment on any background to the problem, do not attempt to solve the problem, do not argue for any answer different than [correct_answer], focus only on whether the answers are semantically equivalent.
+
+correct: Answer 'yes' if extracted_final_answer matches the [correct_answer] given above, or is within a small margin of error for numerical problems. Answer 'no' otherwise, i.e. if there if there is any inconsistency, ambiguity, non-equivalency, or if the extracted answer is incorrect.
+
+
+confidence: The extracted confidence score between 0|\%| and 100|\%| from [response]. Put 100 if there is no confidence score available."""
+
+GRADER_HASHES = {
+    "upstream": "71fb29f51a56cea9fe647331d525648474195fa4816f7d05632459d572419d90",
+    "legacy": "2f79b052d41f969d98ab620072e7279afb6f613eb912ab92b4751091c87d0ef8",
+}
