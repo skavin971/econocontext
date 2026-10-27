@@ -26,7 +26,7 @@ SEARCH_ARMS = ("ranked_doc_search", "ranked_doc_search_labels", "strict_rank_sea
 DOC_ARMS = ("ranked_doc",) + SEARCH_ARMS
 
 
-def parse_pages(pages):
+def parse_pages(pages, check=True):
     """chunk_id -> {docid, chunk_id, start, end, text, ordinal} from rendered pages (pages.render's format)."""
     out = {}
     for page in pages:
@@ -37,7 +37,7 @@ def parse_pages(pages):
             cid = m.group(2)
             out[cid] = {"docid": m.group(1), "chunk_id": cid, "start": int(m.group(3)), "end": int(m.group(4)),
                         "text": text[m.end():end], "ordinal": int(re.sub(r"\D", "", cid))}
-    if sum(len(p["chunk_ids"]) for p in pages) != len(out):
+    if check and sum(len(p["chunk_ids"]) for p in pages) != len(out):
         raise ValueError("pages.json chunk count does not match its text")
     return out
 
